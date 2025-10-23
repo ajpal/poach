@@ -137,6 +137,17 @@ fn poach_one(path: &PathBuf, out_dir: &PathBuf, args: &Args) -> Result<usize> {
         serde_json::from_str(&fs::read_to_string(&s3).context("couldn't open serialize3.json")?)
             .context("couldn't parse serialize3 as json")?;
 
+    match egraph.num_tuples() == e3.num_tuples() {
+        true => {}
+        false => {
+            anyhow::bail!(
+                "Started with {} tuples, ended with {}",
+                egraph.num_tuples(),
+                e3.num_tuples()
+            )
+        }
+    }
+
     match serde_json_diff::values(e2_json, e3_json) {
         Some(diff) => {
             let file = fs::File::create(out_dir.join("diff.json"))
