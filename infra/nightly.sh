@@ -45,7 +45,7 @@ python3 timeline/plot_run_vs_extract.py "$NIGHTLY_DIR/output/data" "Herbie: Hamm
 popd
 
 pushd $TOP_DIR
-cargo run --release --bin egglog -- tests/
+cargo run --release --bin serialize -- tests/
 cp "$TOP_DIR/summary.json" "$NIGHTLY_DIR/output/data/summary.json"
 popd
 

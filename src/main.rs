@@ -3,6 +3,5 @@
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 fn main() {
-    // egglog::cli(egglog::EGraph::default())
-    egglog::poach_all();
+    egglog::cli(egglog::EGraph::default())
 }

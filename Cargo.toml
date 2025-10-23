@@ -118,6 +118,10 @@ required-features = ["bin"]
 name = "timeline"
 path = "src/timeline.rs"
 
+[[bin]]
+name = "serialize"
+path = "src/serialize.rs"
+
 [features]
 default = ["bin"]
 
