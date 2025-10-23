@@ -35,8 +35,7 @@ fn deserialize_egraph(path: &Path) -> Result<EGraph> {
     let file =
         fs::File::open(path).with_context(|| format!("failed to open file {}", path.display()))?;
     let reader = BufReader::new(file);
-    let egraph = serde_json::from_reader(reader)
-        .with_context(|| format!("failed to deserialize egraph from {}", path.display()))?;
+    let egraph = serde_json::from_reader(reader)?;
     Ok(egraph)
 }
 
@@ -121,10 +120,10 @@ fn poach_one(path: &PathBuf, out_dir: &PathBuf, args: &Args) -> Result<usize> {
     let s3 = out_dir.join("serialize3.json");
     serialize_egraph(&egraph, &s1).context("failed to write s1.json")?;
 
-    let e2 = deserialize_egraph(&s1).context("failed to read s1.json")?;
+    let e2 = deserialize_egraph(&s1)?;
     serialize_egraph(&e2, &s2).context("failed to write s2.json")?;
 
-    let e3 = deserialize_egraph(&s2).context("failed to read s3.json")?;
+    let e3 = deserialize_egraph(&s2)?;
     serialize_egraph(&e3, &s3).context("failed to write s3.json")?;
 
     let e2_json: serde_json::Value =
