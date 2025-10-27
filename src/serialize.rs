@@ -1,15 +1,13 @@
 // entry point for POACH v0
 use anyhow::{Context, Result};
 use clap::Parser;
-use egglog::{run_commands, EGraph, RunMode};
+use egglog::ast::{Command, GenericCommand};
+use egglog::EGraph;
 use env_logger::Env;
+use hashbrown::HashMap;
 use serde_json::json;
 use std::path::PathBuf;
-use std::{
-    fs,
-    io::{self, BufReader},
-    path::Path,
-};
+use std::{fs, io::BufReader, path::Path};
 use walkdir::WalkDir;
 
 #[derive(Debug, Parser)]
@@ -55,6 +53,7 @@ pub fn poach_all() {
 
     let mut successes = Vec::new();
     let mut failures = Vec::new();
+    let mut extracts = HashMap::new();
 
     let entries: Vec<PathBuf> = if input_path.is_file() {
         if input_path.extension().and_then(|s| s.to_str()) == Some("egg") {
@@ -86,34 +85,35 @@ pub fn poach_all() {
         println!("[{}/{}] Processing {}", i, entries.len(), path.display());
         let name = format!("{}", path.display());
         match poach_one(&path, &file_out_dir, &args) {
-            Ok(n) => successes.push(format!("{} ({})", name, n)),
+            Ok((n, extract_cmds)) => {
+                successes.push(format!("{} ({})", name, n));
+                extracts.insert(name, extract_cmds);
+            }
             Err(e) => {
                 println!("{:?}", e);
                 failures.push(format!("{} [{}]", name, e))
             }
         }
     }
-    let v = json!({"success": successes, "fail": failures});
+    let v = json!({"success": successes, "fail": failures, "extracts": extracts});
     serde_json::to_writer_pretty(fs::File::create("summary.json").expect("fail"), &v)
         .expect("fail");
 }
 
-fn poach_one(path: &PathBuf, out_dir: &PathBuf, args: &Args) -> Result<usize> {
+fn poach_one(path: &PathBuf, out_dir: &PathBuf, args: &Args) -> Result<(usize, Vec<String>)> {
     let mut egraph = EGraph::default();
 
     egraph.seminaive = !args.naive;
 
     let program = std::fs::read_to_string(path).expect("failed to open");
-    match run_commands(
-        &mut egraph,
-        Some(path.to_str().unwrap().into()),
-        &program,
-        io::stdout(),
-        RunMode::NoMessages, // silence output to keep logs small
-    ) {
-        Ok(None) => {}
-        _ => anyhow::bail!("[{}]run_commands failed", path.display()),
-    }
+    let filename = path.to_str().unwrap().into();
+    let parsed_program = egraph
+        .parser
+        .get_program_from_string(Some(filename), &program)?;
+
+    let extract_cmds = find_extracts(parsed_program.clone());
+
+    egraph.run_program(parsed_program)?;
 
     let s1 = out_dir.join("serialize1.json");
     let s2 = out_dir.join("serialize2.json");
@@ -155,8 +155,19 @@ fn poach_one(path: &PathBuf, out_dir: &PathBuf, args: &Args) -> Result<usize> {
                 .with_context(|| format!("failed to serialize diff to {}", path.display()))?;
             anyhow::bail!("diff for {}", path.display())
         }
-        None => Ok(e3_len),
+        None => Ok((e3_len, extract_cmds)),
     }
+}
+
+fn find_extracts(commands: Vec<Command>) -> Vec<String> {
+    commands
+        .into_iter()
+        .filter(|c| match c {
+            GenericCommand::Extract(..) => true,
+            _ => false,
+        })
+        .map(|c| format!("{}", c))
+        .collect()
 }
 
 fn main() {
