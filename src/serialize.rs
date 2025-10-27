@@ -111,9 +111,7 @@ fn poach_one(path: &PathBuf, out_dir: &PathBuf, args: &Args) -> Result<(usize, V
         .parser
         .get_program_from_string(Some(filename), &program)?;
 
-    let extract_cmds = find_extracts(parsed_program.clone());
-
-    egraph.run_program(parsed_program)?;
+    egraph.run_program(parsed_program.clone())?;
 
     let s1 = out_dir.join("serialize1.json");
     let s2 = out_dir.join("serialize2.json");
@@ -123,7 +121,7 @@ fn poach_one(path: &PathBuf, out_dir: &PathBuf, args: &Args) -> Result<(usize, V
     let e2 = deserialize_egraph(&s1)?;
     serialize_egraph(&e2, &s2).context("failed to write s2.json")?;
 
-    let e3 = deserialize_egraph(&s2)?;
+    let mut e3 = deserialize_egraph(&s2)?;
     serialize_egraph(&e3, &s3).context("failed to write s3.json")?;
 
     let e2_json: serde_json::Value =
@@ -147,6 +145,8 @@ fn poach_one(path: &PathBuf, out_dir: &PathBuf, args: &Args) -> Result<(usize, V
         }
     }
 
+    compare_extracts(&mut egraph, &mut e3, parsed_program);
+
     match serde_json_diff::values(e2_json, e3_json) {
         Some(diff) => {
             let file = fs::File::create(out_dir.join("diff.json"))
@@ -155,19 +155,26 @@ fn poach_one(path: &PathBuf, out_dir: &PathBuf, args: &Args) -> Result<(usize, V
                 .with_context(|| format!("failed to serialize diff to {}", path.display()))?;
             anyhow::bail!("diff for {}", path.display())
         }
-        None => Ok((e3_len, extract_cmds)),
+        None => Ok((e3_len, vec![])),
     }
 }
 
-fn find_extracts(commands: Vec<Command>) -> Vec<String> {
-    commands
+fn compare_extracts(
+    initial_egraph: &mut EGraph,
+    end_egraph: &mut EGraph,
+    parsed_program: Vec<Command>,
+) {
+    let extracts: Vec<Command> = parsed_program
         .into_iter()
         .filter(|c| match c {
             GenericCommand::Extract(..) => true,
             _ => false,
         })
-        .map(|c| format!("{}", c))
-        .collect()
+        .collect();
+    let r1 = initial_egraph.run_program(extracts.clone()).expect("fail");
+    println!("{:?}", r1);
+    let r2 = end_egraph.run_program(extracts.clone()).expect("fail");
+    println!("{:?}", r2);
 }
 
 fn main() {

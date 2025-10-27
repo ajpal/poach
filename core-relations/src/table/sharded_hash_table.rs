@@ -2,7 +2,7 @@
 
 use crate::numeric_id::NumericId;
 use hashbrown::HashTable;
-use serde::{Deserialize, Serialize, ser::SerializeStruct};
+use serde::{ser::SerializeStruct, Deserialize, Serialize};
 
 use crate::common::{ShardData, ShardId};
 
@@ -37,12 +37,17 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for ShardedHashTable<T> {
         D: serde::Deserializer<'de>,
     {
         #[derive(Deserialize)]
-        struct Partial {
+        struct Partial<T> {
             shard_data: ShardData,
+            shards: Vec<Vec<T>>,
         }
 
-        let helper: Partial = Partial::deserialize(deserializer)?;
-        let shards = vec![]; // todo: this is a bogus default value. Need to reconstruct HashTable from Vec<T>
+        let helper: Partial<T> = Partial::deserialize(deserializer)?;
+        let shards = helper
+            .shards
+            .into_iter()
+            .map(|_entries| HashTable::new())
+            .collect();
         Ok(ShardedHashTable {
             shard_data: helper.shard_data,
             shards,
