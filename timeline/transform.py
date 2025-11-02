@@ -14,7 +14,7 @@ def save_json(path, data):
 
 def merge_start_end_events(timeline):
     """
-    Merges pairs of start and end events into a single event with start_time, end_time, and total_time fields.
+    Merges pairs of start and end events into a single event with start_time_ms, end_time_ms, and total_time_ms fields.
 
     Args:
         timeline (list): The JSON data to process.
@@ -38,17 +38,10 @@ def merge_start_end_events(timeline):
 
             merged_event = {
                 'sexp_idx': start_event['sexp_idx'],
-                'start_time': start_event['time'],
-                'end_time': end_event['time'],
-                'total_time': {
-                    'secs': end_event['time']['secs'] - start_event['time']['secs'],
-                    'nanos': end_event['time']['nanos'] - start_event['time']['nanos']
-                }
+                'start_time_ms': start_event['time_ms'],
+                'end_time_ms': end_event['time_ms'],
+                'total_time_ms': end_event['time_ms'] - start_event['time_ms']
             }
-
-            if merged_event['total_time']['nanos'] < 0:
-                merged_event['total_time']['secs'] -= 1
-                merged_event['total_time']['nanos'] += 1_000_000_000
 
             merged_events.append(merged_event)
 

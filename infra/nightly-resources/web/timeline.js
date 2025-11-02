@@ -1,60 +1,92 @@
-var AGGREGATED_DATA = {};
-// Top-level load function for the timeline page.
-function load_timeline() {
-  // list.json contains a list of all the json files (one for each egg benchmark)
-  fetch("data/list.json")
-    .then((response) => response.json())
-    .then(buildGlobalData);
-}
+/**
+ * The benchmark suites to include in the visualization.
+ */
+const BENCH_SUITES = [
+  {
+    name: "Herbie",
+    dir: "herbie-hamming",
+    color: "blue",
+  },
+  {
+    name: "Easteregg",
+    dir: "easteregg",
+    color: "red",
+  }
+];
 
-function buildGlobalData(names) {
-  // map from filename to timeline data
-  const allData = {};
+let chart = null;
+let loadedData = [];
 
-  const promises = names.map((name) =>
-    fetch(`data/${name}`)
-      .then((r) => r.json())
-      // @Noah -- why does each data file contain a singleton list?
-      // Would there ever be multiple elements? If not, should we make it just the object, not a list?
-      .then((d) => (allData[name] = d[0]))
-  );
-
-  Promise.all(promises).then(() => {
-    const RUN_CMDS = ["run", "run-schedule"];
-    const EXT_CMDS = ["extract"];
-    Object.keys(allData).forEach((filename) => {
-      times = {
-        runs: [],
-        exts: [],
-        others: [],
-      };
-      const entries = allData[filename].evts;
-      entries.forEach((entry) => {
-        // compute event duration in ms from recorded seconds and nanoseconds
-        // @Noah- should we just record ms directly?
-        const ms = toMs(entry.total_time);
-        const cmd = entry.cmd;
-
-        // group commands by type (run, extract, other)
-        if (RUN_CMDS.includes(cmd)) {
-          times.runs.push(ms);
-        } else if (EXT_CMDS.includes(cmd)) {
-          times.exts.push(ms);
-        } else {
-          times.others.push(ms);
-        }
-      });
-      AGGREGATED_DATA[filename] = times;
-    });
-
+/**
+ * Loads the timeline page.
+ */
+function loadTimeline() {
+  Promise.all(BENCH_SUITES.map(
+    (suite) => fetch(`data/${suite.dir}/list.json`)
+      .then((response) => response.json())
+      .then((names) => getDatapoints(suite.dir, names)
+        .then((data) => ({ ...suite, data }))
+      )
+  )).then((results) => {
+    loadedData = results;
     plot();
   });
 }
 
-function toMs(duration) {
-  return duration.secs * 1e3 + duration.nanos / 1e6;
+/**
+ * Fetches and processes datapoints for a given benchmark suite.
+ *
+ * @param {string} suite - The directory name of the benchmark suite.
+ * @param {Array<string>} names - The list of JSON filenames to fetch data from.
+ * @returns {Promise<Array<Object>>} - A promise that resolves to an array of processed datapoints,
+ *                                    grouped by command type (run, extract, other).
+ */
+function getDatapoints(suite, names) {
+  const RUN_CMDS = ["run", "run-schedule"];
+  const EXT_CMDS = ["extract"];
+
+  const datapoints = names.map((name) =>
+    fetch(`data/${suite}/${name}`)
+      .then((response) => response.json())
+      // Currently, all of our tests run a new egraph for each .egg file.
+      // However, it is possible to run a single egraph on multiple .egg files,
+      // in which case each file will correspond to an entry in the JSON array.
+      .then((data) => data[0].evts)
+      .then((events) => {
+        const times = {
+          runs: [],
+          exts: [],
+          others: [],
+        };
+
+        events.forEach((entry) => {
+          const ms = entry.total_time_ms;
+          const cmd = entry.cmd;
+
+          // group commands by type (run, extract, other)
+          if (RUN_CMDS.includes(cmd)) {
+            times.runs.push(ms);
+          } else if (EXT_CMDS.includes(cmd)) {
+            times.exts.push(ms);
+          } else {
+            times.others.push(ms);
+          }
+        });
+
+        return times;
+      })
+  );
+
+  return Promise.all(datapoints);
 }
 
+/**
+ * Applies a specified function to an array of times.
+ *
+ * @param {Array<number>} times - An array of time values.
+ * @param {string} mode - The aggregation function: "average", "total", or "max".
+ * @returns {number} - The aggregated value based on the selected mode.
+ */
 function aggregate(times, mode) {
   switch (mode) {
     case "average":
@@ -72,51 +104,56 @@ function aggregate(times, mode) {
   }
 }
 
+/**
+ * Plots the loaded benchmark data on a scatter chart.
+ */
 function plot() {
-  const ctx = document.getElementById("chart").getContext("2d");
+  if (chart === null) {
+    const ctx = document.getElementById("chart").getContext("2d");
+
+    chart = new Chart(ctx, {
+      type: "scatter",
+      data: { datasets: [] },
+      options: {
+        title: {
+          display: false,
+        },
+        scales: {
+          xAxes: [
+            {
+              type: "linear",
+              position: "bottom",
+              scaleLabel: {
+                display: true,
+                labelString: "Run Time (ms)",
+              },
+            },
+          ],
+          yAxes: [
+            {
+              scaleLabel: {
+                display: true,
+                labelString: "Extract Time (ms)",
+              },
+            },
+          ],
+        },
+      },
+    });
+  }
 
   const mode = document.querySelector('input[name="mode"]:checked').value;
 
-  const points = Object.values(AGGREGATED_DATA).map((entry) => {
-    return { x: aggregate(entry.runs, mode), y: aggregate(entry.exts, mode) };
-  });
+  const datasets = loadedData.map((suite) => ({
+    label: suite.name,
+    data: Object.values(suite.data).map((entry) => {
+      return { x: aggregate(entry.runs, mode), y: aggregate(entry.exts, mode) };
+    }),
+    backgroundColor: suite.color,
+    pointRadius: 4,
+  }));
 
-  new Chart(ctx, {
-    type: "scatter",
-    data: {
-      datasets: [
-        {
-          label: "Herbie",
-          data: points,
-          backgroundColor: "blue",
-          pointRadius: 4,
-        },
-      ],
-    },
-    options: {
-      title: {
-        display: false,
-      },
-      scales: {
-        xAxes: [
-          {
-            type: "linear",
-            position: "bottom",
-            scaleLabel: {
-              display: true,
-              labelString: "Run Time (ms)",
-            },
-          },
-        ],
-        yAxes: [
-          {
-            scaleLabel: {
-              display: true,
-              labelString: "Extract Time (ms)",
-            },
-          },
-        ],
-      },
-    },
-  });
+  chart.data.datasets = datasets;
+
+  chart.update();
 }
