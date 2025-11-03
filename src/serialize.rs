@@ -2,10 +2,11 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use egglog::ast::{Command, GenericCommand};
-use egglog::EGraph;
+use egglog::{CommandOutput, EGraph};
 use env_logger::Env;
 use hashbrown::HashMap;
 use serde_json::json;
+use std::fmt::Debug;
 use std::path::PathBuf;
 use std::{fs, io::BufReader, path::Path};
 use walkdir::WalkDir;
@@ -85,9 +86,12 @@ pub fn poach_all() {
         println!("[{}/{}] Processing {}", i, entries.len(), path.display());
         let name = format!("{}", path.display());
         match poach_one(&path, &file_out_dir, &args) {
-            Ok((n, extract_cmds)) => {
+            Ok((n, extracts1, extracts2)) => {
                 successes.push(format!("{} ({})", name, n));
-                extracts.insert(name, extract_cmds);
+                extracts.insert(
+                    name,
+                    (format!("{:?}", extracts1), format!("{:?}", extracts2)),
+                );
             }
             Err(e) => {
                 println!("{:?}", e);
@@ -100,7 +104,11 @@ pub fn poach_all() {
         .expect("fail");
 }
 
-fn poach_one(path: &PathBuf, out_dir: &PathBuf, args: &Args) -> Result<(usize, Vec<String>)> {
+fn poach_one(
+    path: &PathBuf,
+    out_dir: &PathBuf,
+    args: &Args,
+) -> Result<(usize, Vec<CommandOutput>, Vec<CommandOutput>)> {
     let mut egraph = EGraph::default();
 
     egraph.seminaive = !args.naive;
@@ -145,7 +153,7 @@ fn poach_one(path: &PathBuf, out_dir: &PathBuf, args: &Args) -> Result<(usize, V
         }
     }
 
-    compare_extracts(&mut egraph, &mut e3, parsed_program);
+    let (extracts1, extracts2) = compare_extracts(&mut egraph, &mut e3, parsed_program)?;
 
     match serde_json_diff::values(e2_json, e3_json) {
         Some(diff) => {
@@ -155,7 +163,7 @@ fn poach_one(path: &PathBuf, out_dir: &PathBuf, args: &Args) -> Result<(usize, V
                 .with_context(|| format!("failed to serialize diff to {}", path.display()))?;
             anyhow::bail!("diff for {}", path.display())
         }
-        None => Ok((e3_len, vec![])),
+        None => Ok((e3_len, extracts1, extracts2)),
     }
 }
 
@@ -163,7 +171,7 @@ fn compare_extracts(
     initial_egraph: &mut EGraph,
     end_egraph: &mut EGraph,
     parsed_program: Vec<Command>,
-) {
+) -> Result<(Vec<CommandOutput>, Vec<CommandOutput>)> {
     let extracts: Vec<Command> = parsed_program
         .into_iter()
         .filter(|c| match c {
@@ -171,10 +179,9 @@ fn compare_extracts(
             _ => false,
         })
         .collect();
-    let r1 = initial_egraph.run_program(extracts.clone()).expect("fail");
-    println!("{:?}", r1);
-    let r2 = end_egraph.run_program(extracts.clone()).expect("fail");
-    println!("{:?}", r2);
+    let r1 = initial_egraph.run_program(extracts.clone())?;
+    let r2 = end_egraph.run_program(extracts.clone())?;
+    Ok((r1, r2))
 }
 
 fn main() {
