@@ -58,12 +58,19 @@ pub fn poach_all() {
             let name = format!("{}", input_path.display());
             println!("Processing single file {}", name);
             match poach_one(&input_path) {
-                Ok((egraph, extracts1, extracts2)) => {
+                Ok((mut egraph, extracts1, extracts2)) => {
                     successes.push(format!("{} ({})", name, egraph.num_tuples()));
                     extracts.insert(
                         name,
                         (format!("{:?}", extracts1), format!("{:?}", extracts2)),
                     );
+                    match egraph.repl(egglog::RunMode::Interactive) {
+                        Ok(()) => std::process::exit(0),
+                        Err(err) => {
+                            log::error!("{err}");
+                            std::process::exit(1)
+                        }
+                    }
                 }
                 Err(e) => {
                     println!("{:?}", e);
@@ -88,10 +95,12 @@ pub fn poach_all() {
             match poach_one(&path) {
                 Ok((egraph, extracts1, extracts2)) => {
                     successes.push(format!("{} ({})", name, egraph.num_tuples()));
-                    extracts.insert(
-                        name,
-                        (format!("{:?}", extracts1), format!("{:?}", extracts2)),
-                    );
+                    if !extracts1.is_empty() || !extracts2.is_empty() {
+                        extracts.insert(
+                            name,
+                            (format!("{:?}", extracts1), format!("{:?}", extracts2)),
+                        );
+                    }
                 }
                 Err(e) => {
                     println!("{:?}", e);
