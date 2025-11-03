@@ -49,66 +49,78 @@ pub fn poach_all() {
     assert!(args.inputs.len() == 1);
     let input_path = &args.inputs[0];
 
-    let out_dir = PathBuf::from("out");
-    fs::create_dir_all(&out_dir).expect("failed to create out dir");
-
     let mut successes = Vec::new();
     let mut failures = Vec::new();
     let mut extracts = HashMap::new();
 
-    let entries: Vec<PathBuf> = if input_path.is_file() {
+    if input_path.is_file() {
         if input_path.extension().and_then(|s| s.to_str()) == Some("egg") {
-            vec![input_path.clone()]
+            let name = format!("{}", input_path.display());
+            println!("Processing single file {}", name);
+            match poach_one(&input_path) {
+                Ok((egraph, extracts1, extracts2)) => {
+                    successes.push(format!("{} ({})", name, egraph.num_tuples()));
+                    extracts.insert(
+                        name,
+                        (format!("{:?}", extracts1), format!("{:?}", extracts2)),
+                    );
+                }
+                Err(e) => {
+                    println!("{:?}", e);
+                    failures.push(format!("{} [{}]", name, e))
+                }
+            }
         } else {
             panic!("Input file is not an .egg file");
         }
     } else if input_path.is_dir() {
-        WalkDir::new(input_path)
+        let entries: Vec<PathBuf> = WalkDir::new(input_path)
             .into_iter()
             .filter_map(|entry| entry.ok())
             .filter(|entry| !entry.path().to_string_lossy().contains("fail"))
             .filter(|entry| entry.file_type().is_file())
             .filter(|entry| entry.path().extension().and_then(|s| s.to_str()) == Some("egg"))
             .map(|entry| entry.path().to_path_buf())
-            .collect()
+            .collect();
+        for (i, path) in entries.iter().enumerate() {
+            let name = format!("{}", path.display());
+            println!("[{}/{}] Processing {}", i, entries.len(), name);
+            match poach_one(&path) {
+                Ok((egraph, extracts1, extracts2)) => {
+                    successes.push(format!("{} ({})", name, egraph.num_tuples()));
+                    extracts.insert(
+                        name,
+                        (format!("{:?}", extracts1), format!("{:?}", extracts2)),
+                    );
+                }
+                Err(e) => {
+                    println!("{:?}", e);
+                    failures.push(format!("{} [{}]", name, e))
+                }
+            }
+        }
     } else {
         panic!("Input path is neither file nor directory: {:?}", input_path);
-    };
-
-    for (i, path) in entries.iter().enumerate() {
-        if path.extension().and_then(|s| s.to_str()) != Some("egg") {
-            continue;
-        }
-
-        let file_out_dir = out_dir.join(path.file_stem().unwrap().to_str().unwrap());
-        fs::create_dir_all(&file_out_dir).expect("fail");
-
-        println!("[{}/{}] Processing {}", i, entries.len(), path.display());
-        let name = format!("{}", path.display());
-        match poach_one(&path, &file_out_dir, &args) {
-            Ok((n, extracts1, extracts2)) => {
-                successes.push(format!("{} ({})", name, n));
-                extracts.insert(
-                    name,
-                    (format!("{:?}", extracts1), format!("{:?}", extracts2)),
-                );
-            }
-            Err(e) => {
-                println!("{:?}", e);
-                failures.push(format!("{} [{}]", name, e))
-            }
-        }
     }
+
     let v = json!({"success": successes, "fail": failures, "extracts": extracts});
     serde_json::to_writer_pretty(fs::File::create("summary.json").expect("fail"), &v)
         .expect("fail");
 }
 
-fn poach_one(
-    path: &PathBuf,
-    out_dir: &PathBuf,
-    args: &Args,
-) -> Result<(usize, Vec<CommandOutput>, Vec<CommandOutput>)> {
+fn poach_one(path: &PathBuf) -> Result<(EGraph, Vec<CommandOutput>, Vec<CommandOutput>)> {
+    let args = Args::parse();
+
+    let out_dir = PathBuf::from("out");
+    fs::create_dir_all(&out_dir).expect("failed to create out dir");
+
+    if path.extension().and_then(|s| s.to_str()) != Some("egg") {
+        panic!("Not an egg file");
+    }
+
+    let file_out_dir = out_dir.join(path.file_stem().unwrap().to_str().unwrap());
+    fs::create_dir_all(&file_out_dir).expect("fail");
+
     let mut egraph = EGraph::default();
 
     egraph.seminaive = !args.naive;
@@ -136,8 +148,6 @@ fn poach_one(
         serde_json::from_str(&fs::read_to_string(&s2).context("couldn't open serialize2.json")?)
             .context("couldn't parse serialize2 as json")?;
 
-    let e3_contents = fs::read_to_string(&s3).context("couldn't open serialize3.json")?;
-    let e3_len = e3_contents.len();
     let e3_json: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&s3).context("couldn't open serialize3.json")?)
             .context("couldn't parse serialize3 as json")?;
@@ -163,7 +173,7 @@ fn poach_one(
                 .with_context(|| format!("failed to serialize diff to {}", path.display()))?;
             anyhow::bail!("diff for {}", path.display())
         }
-        None => Ok((e3_len, extracts1, extracts2)),
+        None => Ok((e3, extracts1, extracts2)),
     }
 }
 
