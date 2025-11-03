@@ -9,12 +9,12 @@
 //! functions than base values.
 
 use std::{
-    any::{Any, type_name},
+    any::{type_name, Any},
     hash::{Hash, Hasher},
     ops::Deref,
 };
 
-use crate::numeric_id::{DenseIdMap, IdVec, NumericId, define_id};
+use crate::numeric_id::{define_id, DenseIdMap, IdVec, NumericId};
 use crossbeam_queue::SegQueue;
 use dashmap::SharedValue;
 use rayon::{
@@ -25,11 +25,11 @@ use rustc_hash::FxHasher;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    ColumnId, CounterId, ExecutionState, Offset, SubsetRef, TableId, TaggedRowBuffer, Value,
-    WrappedTable,
     common::{DashMap, IndexSet, InternTable, SubsetTracker},
     parallel_heuristics::{parallelize_inter_container_op, parallelize_intra_container_op},
     table_spec::Rebuilder,
+    ColumnId, CounterId, ExecutionState, Offset, SubsetRef, TableId, TaggedRowBuffer, Value,
+    WrappedTable,
 };
 
 #[cfg(test)]
