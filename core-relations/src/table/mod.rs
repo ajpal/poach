@@ -10,8 +10,8 @@ use std::{
     hash::Hasher,
     mem,
     sync::{
-        Arc, Weak,
         atomic::{AtomicUsize, Ordering},
+        Arc, Weak,
     },
 };
 
@@ -20,11 +20,10 @@ use crossbeam_queue::SegQueue;
 use hashbrown::HashTable;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 use rustc_hash::FxHasher;
-use serde::{Deserialize, Deserializer, Serialize, Serializer, ser::SerializeStruct};
+use serde::{ser::SerializeStruct, Deserialize, Deserializer, Serialize, Serializer};
 use sharded_hash_table::ShardedHashTable;
 
 use crate::{
-    Pooled, TableChange, TableId,
     action::ExecutionState,
     common::{HashMap, ShardData, ShardId, SubsetTracker, Value},
     hash_index::{ColumnIndex, Index},
@@ -36,6 +35,7 @@ use crate::{
         ColumnId, Constraint, Generation, MutationBuffer, Offset, Row, Table, TableSpec,
         TableVersion,
     },
+    Pooled, TableChange, TableId,
 };
 
 mod rebuild;
@@ -102,13 +102,21 @@ impl Rows {
 
     fn get_row(&self, row: RowId) -> Option<&[Value]> {
         let row = self.data.get_row(row);
-        if row[0].is_stale() { None } else { Some(row) }
+        if row[0].is_stale() {
+            None
+        } else {
+            Some(row)
+        }
     }
 
     /// A variant of `get_row` without bounds-checking on `row`.
     unsafe fn get_row_unchecked(&self, row: RowId) -> Option<&[Value]> {
         let row = unsafe { self.data.get_row_unchecked(row) };
-        if row[0].is_stale() { None } else { Some(row) }
+        if row[0].is_stale() {
+            None
+        } else {
+            Some(row)
+        }
     }
 
     fn add_row(&mut self, row: &[Value]) -> RowId {
@@ -134,11 +142,6 @@ impl Rows {
 pub type MergeFn =
     dyn Fn(&mut ExecutionState, &[Value], &[Value], &mut Vec<Value>) -> bool + Send + Sync;
 
-fn default_merge_fn() -> Arc<MergeFn> {
-    Arc::new(|_, _, _, _| true) // todo this is a bogus default value
-}
-
-#[derive(Serialize, Deserialize)]
 pub struct SortedWritesTable {
     generation: Generation,
     data: Rows,
@@ -150,8 +153,6 @@ pub struct SortedWritesTable {
     offsets: Vec<(Value, RowId)>,
 
     pending_state: Arc<PendingState>,
-    #[serde(skip)]
-    #[serde(default = "default_merge_fn")]
     merge: Arc<MergeFn>,
     to_rebuild: Vec<ColumnId>,
     rebuild_index: Index<ColumnIndex>,
@@ -159,22 +160,93 @@ pub struct SortedWritesTable {
     subset_tracker: SubsetTracker,
 }
 
-impl Default for SortedWritesTable {
-    fn default() -> Self {
-        Self {
-            generation: Default::default(),
-            data: Default::default(),
-            hash: Default::default(),
-            n_keys: Default::default(),
-            n_columns: Default::default(),
-            sort_by: Default::default(),
-            offsets: Default::default(),
-            pending_state: Default::default(),
-            merge: default_merge_fn(),
-            to_rebuild: Default::default(),
-            rebuild_index: Default::default(),
-            subset_tracker: Default::default(),
+// Manual impls for (de)serialization here instead of on ShardedHashTable so that we
+// can use the fact that we know TableEntry stores its hashcode for rebuilding the HashTable after.
+
+impl Serialize for SortedWritesTable {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let serialized_shards: Vec<Vec<TableEntry>> = self
+            .hash
+            .shards
+            .iter()
+            .map(|shard| shard.iter().cloned().collect())
+            .collect();
+
+        let mut state = serializer.serialize_struct("SortedWritesTable", 11)?;
+        state.serialize_field("generation", &self.generation)?;
+        state.serialize_field("shard_data", &self.hash.shard_data())?;
+        state.serialize_field("shards", &serialized_shards)?;
+        state.serialize_field("data", &self.data)?;
+        state.serialize_field("n_keys", &self.n_keys)?;
+        state.serialize_field("n_columns", &self.n_columns)?;
+        state.serialize_field("sort_by", &self.sort_by)?;
+        state.serialize_field("offsets", &self.offsets)?;
+        state.serialize_field("pending_state", &self.pending_state)?;
+        state.serialize_field("to_rebuild", &self.to_rebuild)?;
+        state.serialize_field("rebuild_index", &self.rebuild_index)?;
+        state.serialize_field("subset_tracker", &self.subset_tracker)?;
+
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for SortedWritesTable {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Partial {
+            generation: Generation,
+            shard_data: ShardData,
+            shards: Vec<Vec<TableEntry>>,
+            data: Rows,
+            n_keys: usize,
+            n_columns: usize,
+            sort_by: Option<ColumnId>,
+            offsets: Vec<(Value, RowId)>,
+            pending_state: Arc<PendingState>,
+            to_rebuild: Vec<ColumnId>,
+            rebuild_index: Index<ColumnIndex>,
+            subset_tracker: SubsetTracker,
         }
+
+        let partial = Partial::deserialize(deserializer)?;
+
+        let shards: Vec<HashTable<TableEntry>> = partial
+            .shards
+            .iter()
+            .map(|entries| {
+                let mut table: HashTable<TableEntry> = HashTable::new();
+                entries.iter().for_each(|t| {
+                    table.insert_unique(t.hashcode as _, t.clone(), TableEntry::hashcode);
+                });
+                table
+            })
+            .collect();
+
+        let hash: ShardedHashTable<TableEntry> = ShardedHashTable {
+            shard_data: partial.shard_data,
+            shards,
+        };
+
+        Ok(SortedWritesTable {
+            generation: partial.generation,
+            data: partial.data,
+            hash,
+            n_keys: partial.n_keys,
+            n_columns: partial.n_columns,
+            sort_by: partial.sort_by,
+            offsets: partial.offsets,
+            pending_state: partial.pending_state,
+            merge: Arc::new(|_, _, _, _| true), // todo this is a bogus default value
+            to_rebuild: partial.to_rebuild,
+            rebuild_index: partial.rebuild_index,
+            subset_tracker: partial.subset_tracker,
+        })
     }
 }
 
@@ -1001,7 +1073,11 @@ impl SortedWritesTable {
                 Constraint::GeConst { col, val } => res &= row[col.index()] >= *val,
             }
         }
-        if res { Some(row) } else { None }
+        if res {
+            Some(row)
+        } else {
+            None
+        }
     }
 
     fn maybe_rehash(&mut self) {

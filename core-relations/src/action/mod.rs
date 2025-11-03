@@ -10,11 +10,11 @@ use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
 use crate::{
-    BaseValues, ContainerValues, ExternalFunctionId, WrappedTable,
     common::{DashMap, Value},
     free_join::{CounterId, Counters, ExternalFunctions, TableId, TableInfo, Variable},
-    pool::{Clear, Pooled, with_pool_set},
+    pool::{with_pool_set, Clear, Pooled},
     table_spec::{ColumnId, MutationBuffer},
+    BaseValues, ContainerValues, ExternalFunctionId, WrappedTable,
 };
 
 use self::mask::{Mask, MaskIter, ValueSource};
@@ -28,7 +28,7 @@ mod tests;
 /// A representation of a value within a query or rule.
 ///
 /// A QueryEntry is either a variable bound in a join, or an untyped constant.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub enum QueryEntry {
     Var(Variable),
     Const(Value),
@@ -47,7 +47,7 @@ impl From<Value> for QueryEntry {
 }
 
 /// A value that can be written to a table in an action.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum WriteVal {
     /// A variable or a constant.
     QueryEntry(QueryEntry),
@@ -794,7 +794,7 @@ impl ExecutionState<'_> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) enum Instr {
     /// Look up the value of the given table, inserting a new entry with a
     /// default value if it is not there.

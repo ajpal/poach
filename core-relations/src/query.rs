@@ -2,22 +2,22 @@
 
 use std::{iter::once, sync::Arc};
 
-use crate::numeric_id::{DenseIdMap, IdVec, NumericId, define_id};
+use crate::numeric_id::{define_id, DenseIdMap, IdVec, NumericId};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use thiserror::Error;
 
 use crate::{
-    BaseValueId, CounterId, ExternalFunctionId, PoolSet,
     action::{Instr, QueryEntry, WriteVal},
     common::HashMap,
     free_join::{
+        plan::{JoinHeader, JoinStages, Plan, PlanStrategy},
         ActionId, AtomId, Database, ProcessedConstraints, SubAtom, TableId, TableInfo, VarInfo,
         Variable,
-        plan::{JoinHeader, JoinStages, Plan, PlanStrategy},
     },
-    pool::{Pooled, with_pool_set},
+    pool::{with_pool_set, Pooled},
     table_spec::{ColumnId, Constraint},
+    BaseValueId, CounterId, ExternalFunctionId, PoolSet,
 };
 
 define_id!(pub RuleId, u32, "An identifier for a rule in a rule set");
@@ -30,12 +30,39 @@ pub struct CachedPlan {
     actions: ActionInfo,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub(crate) struct ActionInfo {
-    #[serde(skip)]
     pub(crate) used_vars: SmallVec<[Variable; 4]>,
-    #[serde(skip)]
     pub(crate) instrs: Arc<Pooled<Vec<Instr>>>,
+}
+
+impl<'de> Deserialize<'de> for ActionInfo {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let (used_vars_vec, instrs_vec): (Vec<Variable>, Vec<Instr>) =
+            Deserialize::deserialize(deserializer)?;
+
+        let used_vars: SmallVec<[Variable; 4]> = SmallVec::from_vec(used_vars_vec);
+        let pooled = Pooled::new(instrs_vec);
+
+        Ok(ActionInfo {
+            used_vars,
+            instrs: Arc::new(pooled),
+        })
+    }
+}
+
+impl Serialize for ActionInfo {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let instrs: &Vec<Instr> = &self.instrs;
+        let used_vars: &Vec<Variable> = &self.used_vars.as_ref().to_vec();
+        (used_vars, instrs).serialize(serializer)
+    }
 }
 
 /// A set of rules to run against a [`Database`].

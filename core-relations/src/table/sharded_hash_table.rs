@@ -2,57 +2,13 @@
 
 use crate::numeric_id::NumericId;
 use hashbrown::HashTable;
-use serde::{ser::SerializeStruct, Deserialize, Serialize};
 
 use crate::common::{ShardData, ShardId};
 
 #[derive(Clone)]
-pub(crate) struct ShardedHashTable<T> {
-    shard_data: ShardData,
-    shards: Vec<HashTable<T>>,
-}
-
-impl<T: Serialize + Clone> Serialize for ShardedHashTable<T> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        // Turn shards into Vec<Vec<T>> for serialization
-        let serialized_shards: Vec<Vec<T>> = self
-            .shards
-            .iter()
-            .map(|shard| shard.iter().cloned().collect())
-            .collect();
-
-        let mut state = serializer.serialize_struct("ShardedHashTable", 2)?;
-        state.serialize_field("shard_data", &self.shard_data)?;
-        state.serialize_field("shards", &serialized_shards)?;
-        state.end()
-    }
-}
-
-impl<'de, T: Deserialize<'de>> Deserialize<'de> for ShardedHashTable<T> {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        struct Partial<T> {
-            shard_data: ShardData,
-            shards: Vec<Vec<T>>,
-        }
-
-        let helper: Partial<T> = Partial::deserialize(deserializer)?;
-        let shards = helper
-            .shards
-            .into_iter()
-            .map(|_entries| HashTable::new())
-            .collect();
-        Ok(ShardedHashTable {
-            shard_data: helper.shard_data,
-            shards,
-        })
-    }
+pub struct ShardedHashTable<T> {
+    pub shard_data: ShardData,
+    pub shards: Vec<HashTable<T>>,
 }
 
 impl<T> Default for ShardedHashTable<T> {
