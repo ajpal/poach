@@ -133,7 +133,10 @@ def main(input_dir, output_dir):
     os.makedirs(output_dir, exist_ok=True)
 
     files = [f for f in os.listdir(input_dir) if f.endswith(".json")]
-    save_json(os.path.join(output_dir, "list.json"), files)
+    # save_json(os.path.join(output_dir, "list.json"), files)
+
+    combined_data = []
+    combined_file_path = os.path.join(output_dir, "combined.json")
 
     for filename in files:
         input_file_path = os.path.join(input_dir, filename)
@@ -144,8 +147,11 @@ def main(input_dir, output_dir):
         data = merge_start_end_events(data)
         data = add_sexp_strs(data)
         data = add_egglog_cmds(data)
+        combined_data.append(data)
 
         save_json(output_file_path, data)
+
+    save_json(combined_file_path, combined_data)
 
 if __name__ == "__main__":
     import argparse

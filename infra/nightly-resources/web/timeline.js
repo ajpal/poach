@@ -22,9 +22,9 @@ let loadedData = [];
  */
 function loadTimeline() {
   Promise.all(BENCH_SUITES.map(
-    (suite) => fetch(`data/${suite.dir}/list.json`)
+    (suite) => fetch(`data/${suite.dir}/combined.json`)
       .then((response) => response.json())
-      .then((names) => getDatapoints(suite.dir, names)
+      .then((items) => getDatapoints(items)
         .then((data) => ({ ...suite, data }))
       )
   )).then((results) => {
@@ -41,40 +41,38 @@ function loadTimeline() {
  * @returns {Promise<Array<Object>>} - A promise that resolves to an array of processed datapoints,
  *                                    grouped by command type (run, extract, other).
  */
-function getDatapoints(suite, names) {
+function getDatapoints(items) {
   const RUN_CMDS = ["run", "run-schedule"];
   const EXT_CMDS = ["extract"];
 
-  const datapoints = names.map((name) =>
-    fetch(`data/${suite}/${name}`)
-      .then((response) => response.json())
-      // Currently, all of our tests run a new egraph for each .egg file.
-      // However, it is possible to run a single egraph on multiple .egg files,
-      // in which case each file will correspond to an entry in the JSON array.
-      .then((data) => data[0].evts)
-      .then((events) => {
-        const times = {
-          runs: [],
-          exts: [],
-          others: [],
-        };
+  const datapoints = items.map((item) => {
+    // Currently, all of our tests run a new egraph for each .egg file.
+    // However, it is possible to run a single egraph on multiple .egg files,
+    // in which case each file will correspond to an entry in the JSON array.
+      events = item[0].evts;
 
-        events.forEach((entry) => {
-          const ms = entry.total_time_ms;
-          const cmd = entry.cmd;
+      const times = {
+        runs: [],
+        exts: [],
+        others: [],
+      };
 
-          // group commands by type (run, extract, other)
-          if (RUN_CMDS.includes(cmd)) {
-            times.runs.push(ms);
-          } else if (EXT_CMDS.includes(cmd)) {
-            times.exts.push(ms);
-          } else {
-            times.others.push(ms);
-          }
-        });
+      events.forEach((entry) => {
+        const ms = entry.total_time_ms;
+        const cmd = entry.cmd;
 
-        return times;
-      })
+        // group commands by type (run, extract, other)
+        if (RUN_CMDS.includes(cmd)) {
+          times.runs.push(ms);
+        } else if (EXT_CMDS.includes(cmd)) {
+          times.exts.push(ms);
+        } else {
+          times.others.push(ms);
+        }
+      });
+
+      return times;
+    }
   );
 
   return Promise.all(datapoints);
