@@ -1449,6 +1449,9 @@ impl EGraph {
                     Ok(Some(CommandOutput::ExtractVariants(termdag, terms)))
                 };
             }
+            ResolvedNCommand::MultiExtract(_span, _variants, _exprs) => {
+                panic!("TODO: implement")
+            }
             ResolvedNCommand::Push(n) => {
                 (0..n).for_each(|_| self.push());
                 log::info!("Pushed {n} levels.")
