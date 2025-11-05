@@ -477,6 +477,8 @@ pub enum CommandOutput {
     ExtractBest(TermDag, DefaultCost, Term),
     /// The variants of a function found after extracting
     ExtractVariants(TermDag, Vec<Term>),
+    /// The variants of multiple functions found after extracting
+    MultiExtractVariants(TermDag, Vec<Vec<Term>>),
     /// The report from all runs
     OverallStatistics(RunReport),
     /// A printed function and all its values
@@ -505,6 +507,17 @@ impl std::fmt::Display for CommandOutput {
                 writeln!(f, "(")?;
                 for expr in terms {
                     writeln!(f, "   {}", termdag.to_string(expr))?;
+                }
+                writeln!(f, ")")
+            }
+            CommandOutput::MultiExtractVariants(termdag, terms) => {
+                writeln!(f, "(")?;
+                for variants in terms {
+                    writeln!(f, "   (")?;
+                    for expr in variants {
+                        writeln!(f, "      {}", termdag.to_string(expr))?;
+                    }
+                    writeln!(f, "   )")?;
                 }
                 writeln!(f, ")")
             }
