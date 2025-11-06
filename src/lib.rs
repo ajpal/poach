@@ -1462,8 +1462,45 @@ impl EGraph {
                     Ok(Some(CommandOutput::ExtractVariants(termdag, terms)))
                 };
             }
-            ResolvedNCommand::MultiExtract(_span, _variants, _exprs) => {
-                panic!("TODO: implement")
+            ResolvedNCommand::MultiExtract(span, variants, exprs) => {
+                let sorts = exprs.iter().map(|expr| expr.output_type()).collect();
+
+                let xs: Vec<_> = exprs
+                    .iter()
+                    .map(|expr| self.eval_resolved_expr(span.clone(), expr))
+                    .collect::<Result<_, _>>()?;
+                let n = self.eval_resolved_expr(span, &variants)?;
+                let n: i64 = self.backend.base_values().unwrap(n);
+                if n < 0 {
+                    panic!("Cannot extract negative number of variants");
+                }
+
+                let mut termdag = TermDag::default();
+
+                let extractor = Extractor::compute_costs_from_rootsorts(
+                    Some(sorts),
+                    self,
+                    TreeAdditiveCostModel::default(),
+                );
+
+                let terms: Vec<_> = xs
+                    .iter()
+                    .zip(exprs.iter())
+                    .map(|(x, expr)| {
+                        let variants: Vec<_> = extractor
+                            .extract_variants(self, &mut termdag, *x, n as usize)
+                            .iter()
+                            .map(|e| e.1.clone())
+                            .collect();
+                        if log_enabled!(Level::Info) {
+                            let expr_str = expr.to_string();
+                            log::info!("extracted {} variants for {expr_str}", variants.len());
+                        }
+                        variants
+                    })
+                    .collect();
+
+                return Ok(Some(CommandOutput::MultiExtractVariants(termdag, terms)));
             }
             ResolvedNCommand::Push(n) => {
                 (0..n).for_each(|_| self.push());
