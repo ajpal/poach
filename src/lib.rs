@@ -1488,7 +1488,13 @@ impl EGraph {
                     .zip(exprs.iter())
                     .map(|(x, expr)| {
                         let variants: Vec<_> = extractor
-                            .extract_variants(self, &mut termdag, *x, n as usize)
+                            .extract_variants_with_sort(
+                                self,
+                                &mut termdag,
+                                *x,
+                                n as usize,
+                                expr.output_type(),
+                            )
                             .iter()
                             .map(|e| e.1.clone())
                             .collect();
