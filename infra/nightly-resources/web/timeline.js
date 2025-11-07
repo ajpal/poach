@@ -53,7 +53,7 @@ function loadTimeline() {
  */
 function getDatapoints(suite, names) {
   const RUN_CMDS = ["run", "run-schedule"];
-  const EXT_CMDS = ["extract"];
+  const EXT_CMDS = ["extract", "multi-extract"];
 
   const datapoints = names.map((name) =>
     fetch(`data/${suite}/${name}`)

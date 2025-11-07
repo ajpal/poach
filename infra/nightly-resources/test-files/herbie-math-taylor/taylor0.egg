@@ -1587,4 +1587,6 @@
  run-extract-commands)
 (run-schedule (repeat 1 run-extract-commands))
 (run-schedule (saturate lowering))
-(extract (const4) 1000000)
+(multi-extract 1000000 (
+  (const4)
+))

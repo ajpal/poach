@@ -113,4 +113,6 @@
  ;; (repeat 1 (run simp))
  (saturate (run opt)))
 
-(extract test)
+(multi-extract 0 (
+  test
+))
