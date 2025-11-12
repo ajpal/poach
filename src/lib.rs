@@ -477,6 +477,8 @@ pub enum CommandOutput {
     ExtractBest(TermDag, DefaultCost, Term),
     /// The variants of a function found after extracting
     ExtractVariants(TermDag, Vec<Term>),
+    /// The variants of multiple functions found after extracting
+    MultiExtractVariants(TermDag, Vec<Vec<Term>>),
     /// The report from all runs
     OverallStatistics(RunReport),
     /// A printed function and all its values
@@ -505,6 +507,17 @@ impl std::fmt::Display for CommandOutput {
                 writeln!(f, "(")?;
                 for expr in terms {
                     writeln!(f, "   {}", termdag.to_string(expr))?;
+                }
+                writeln!(f, ")")
+            }
+            CommandOutput::MultiExtractVariants(termdag, terms) => {
+                writeln!(f, "(")?;
+                for variants in terms {
+                    writeln!(f, "   (")?;
+                    for expr in variants {
+                        writeln!(f, "      {}", termdag.to_string(expr))?;
+                    }
+                    writeln!(f, "   )")?;
                 }
                 writeln!(f, ")")
             }
@@ -1448,6 +1461,52 @@ impl EGraph {
                     }
                     Ok(Some(CommandOutput::ExtractVariants(termdag, terms)))
                 };
+            }
+            ResolvedNCommand::MultiExtract(span, variants, exprs) => {
+                let sorts = exprs.iter().map(|expr| expr.output_type()).collect();
+
+                let xs: Vec<_> = exprs
+                    .iter()
+                    .map(|expr| self.eval_resolved_expr(span.clone(), expr))
+                    .collect::<Result<_, _>>()?;
+                let n = self.eval_resolved_expr(span, &variants)?;
+                let n: i64 = self.backend.base_values().unwrap(n);
+                if n < 0 {
+                    panic!("Cannot extract negative number of variants");
+                }
+
+                let mut termdag = TermDag::default();
+
+                let extractor = Extractor::compute_costs_from_rootsorts(
+                    Some(sorts),
+                    self,
+                    TreeAdditiveCostModel::default(),
+                );
+
+                let terms: Vec<_> = xs
+                    .iter()
+                    .zip(exprs.iter())
+                    .map(|(x, expr)| {
+                        let variants: Vec<_> = extractor
+                            .extract_variants_with_sort(
+                                self,
+                                &mut termdag,
+                                *x,
+                                n as usize,
+                                expr.output_type(),
+                            )
+                            .iter()
+                            .map(|e| e.1.clone())
+                            .collect();
+                        if log_enabled!(Level::Info) {
+                            let expr_str = expr.to_string();
+                            log::info!("extracted {} variants for {expr_str}", variants.len());
+                        }
+                        variants
+                    })
+                    .collect();
+
+                return Ok(Some(CommandOutput::MultiExtractVariants(termdag, terms)));
             }
             ResolvedNCommand::Push(n) => {
                 (0..n).for_each(|_| self.push());

@@ -3,7 +3,7 @@
  */
 const BENCH_SUITES = [
   {
-    name: "Herbie",
+    name: "Herbie (Hamming)",
     dir: "herbie-hamming",
     color: "blue",
   },
@@ -11,6 +11,16 @@ const BENCH_SUITES = [
     name: "Easteregg",
     dir: "easteregg",
     color: "red",
+  },
+  {
+    name: "Herbie (Math rewrite)",
+    dir: "herbie-math-rewrite",
+    color: "green",
+  },
+  {
+    name: "Herbie (Math taylor)",
+    dir: "herbie-math-taylor",
+    color: "purple",
   }
 ];
 
@@ -43,7 +53,7 @@ function loadTimeline() {
  */
 function getDatapoints(suite, names) {
   const RUN_CMDS = ["run", "run-schedule"];
-  const EXT_CMDS = ["extract"];
+  const EXT_CMDS = ["extract", "multi-extract"];
 
   const datapoints = names.map((name) =>
     fetch(`data/${suite}/${name}`)

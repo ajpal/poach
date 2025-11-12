@@ -280,6 +280,28 @@ impl EGraph {
 
                 ResolvedNCommand::Extract(span.clone(), res_expr, res_variants)
             }
+            NCommand::MultiExtract(span, variants, exprs) => {
+                let res_exprs = exprs
+                    .into_iter()
+                    .map(|expr| {
+                        self.type_info
+                            .typecheck_expr(symbol_gen, expr, &Default::default())
+                    })
+                    .collect::<Result<_, _>>()?;
+
+                let res_variants =
+                    self.type_info
+                        .typecheck_expr(symbol_gen, variants, &Default::default())?;
+                if res_variants.output_type().name() != I64Sort.name() {
+                    return Err(TypeError::Mismatch {
+                        expr: variants.clone(),
+                        expected: I64Sort.to_arcsort(),
+                        actual: res_variants.output_type(),
+                    });
+                }
+
+                ResolvedNCommand::MultiExtract(span.clone(), res_variants, res_exprs)
+            }
             NCommand::Check(span, facts) => ResolvedNCommand::Check(
                 span.clone(),
                 self.type_info.typecheck_facts(symbol_gen, facts)?,
@@ -786,7 +808,7 @@ pub enum TypeError {
 
 #[cfg(test)]
 mod test {
-    use crate::{EGraph, Error, typechecking::TypeError};
+    use crate::{typechecking::TypeError, EGraph, Error};
 
     #[test]
     fn test_arity_mismatch() {
