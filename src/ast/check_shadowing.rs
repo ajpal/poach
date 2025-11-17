@@ -44,6 +44,7 @@ impl Names {
                 inner.check_shadowing(command)
             }
             ResolvedNCommand::Extract(..) => Ok(()),
+            ResolvedNCommand::MultiExtract(..) => Ok(()),
             ResolvedNCommand::RunSchedule(..) => Ok(()),
             ResolvedNCommand::PrintOverallStatistics => Ok(()),
             ResolvedNCommand::PrintFunction(..) => Ok(()),
