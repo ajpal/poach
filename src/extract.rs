@@ -337,6 +337,30 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
             })
     }
 
+    fn _knuth_dijkstra(&mut self, egraph: &EGraph) {
+        type EnodeId = u32;
+        let mut next_id = 0;
+        let mut id2enode: HashMap<EnodeId, (Vec<Value>, bool)> = Default::default();
+        let mut eclass2parents: HashMap<Value, Vec<EnodeId>> = Default::default();
+        let mut remaining_children = Vec::new();
+        for func in self.funcs.iter() {
+            egraph.backend.for_each(
+                egraph.functions.get(func).unwrap().backend_id,
+                |row: egglog_bridge::FunctionRow| {
+                    id2enode.insert(next_id, (row.vals.to_vec(), row.subsumed));
+                    for eclass in row.vals.iter().take(row.vals.len() - 1) {
+                        eclass2parents
+                            .entry(*eclass)
+                            .or_insert(Vec::new())
+                            .push(next_id);
+                    }
+                    remaining_children.push(row.vals.len() - 1);
+                    next_id += 1;
+                },
+            );
+        }
+    }
+
     /// We use Bellman-Ford to compute the costs of the relevant eq sorts' terms
     /// [Bellman-Ford](https://en.wikipedia.org/wiki/Bellman%E2%80%93Ford_algorithm) is a shortest path algorithm.
     /// The version implemented here computes the shortest path from any node in a set of sources to all the reachable nodes.
