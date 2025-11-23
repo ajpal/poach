@@ -337,17 +337,53 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
             })
     }
 
+    fn _compute_cost_hyperedge_kd(
+        &self,
+        egraph: &EGraph,
+        row: &Vec<Value>,
+        func: &Function,
+    ) -> Option<C> {
+        let mut ch_costs: Vec<C> = Vec::new();
+        let sorts = &func.schema.input;
+        //log::debug!("compute_cost_hyperedge head {} sorts {:?}", head, sorts);
+        // Relying on .zip to truncate the values
+        for (value, sort) in row.iter().zip(sorts.iter()) {
+            if let Some(c) = self.compute_cost_node(egraph, *value, sort) {
+                ch_costs.push(c);
+            } else {
+                return None;
+            }
+        }
+        Some(self.cost_model.fold(
+            &func.decl.name,
+            &ch_costs,
+            self.cost_model.enode_cost(
+                egraph,
+                func,
+                &egglog_bridge::FunctionRow {
+                    subsumed: false,
+                    vals: row,
+                },
+            ),
+        ))
+    }
+
     fn _knuth_dijkstra(&mut self, egraph: &EGraph) {
-        type EnodeId = u32;
-        let mut next_id = 0;
-        let mut id2enode: HashMap<EnodeId, (Vec<Value>, bool)> = Default::default();
+        type EnodeId = usize;
+        let mut id2enode: HashMap<EnodeId, (egglog_bridge::FunctionId, Vec<Value>)> =
+            Default::default();
         let mut eclass2parents: HashMap<Value, Vec<EnodeId>> = Default::default();
         let mut remaining_children = Vec::new();
+        let mut next_id = 0;
         for func in self.funcs.iter() {
-            egraph.backend.for_each(
-                egraph.functions.get(func).unwrap().backend_id,
-                |row: egglog_bridge::FunctionRow| {
-                    id2enode.insert(next_id, (row.vals.to_vec(), row.subsumed));
+            let func_id = egraph.functions.get(func).unwrap().backend_id;
+            egraph
+                .backend
+                .for_each(func_id, |row: egglog_bridge::FunctionRow| {
+                    if row.subsumed {
+                        return;
+                    }
+                    id2enode.insert(next_id, (func_id, row.vals.to_vec()));
                     for eclass in row.vals.iter().take(row.vals.len() - 1) {
                         eclass2parents
                             .entry(*eclass)
@@ -356,8 +392,7 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
                     }
                     remaining_children.push(row.vals.len() - 1);
                     next_id += 1;
-                },
-            );
+                });
         }
     }
 
