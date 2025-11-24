@@ -407,6 +407,35 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
                 }
             }
         }
+
+        while let Some(Reverse((cost, enode_id))) = pq.pop() {
+            let (func, vals) = &id2enode[&enode_id];
+            let eclass = vals.last().unwrap();
+
+            if let HEntry::Vacant(e) = self
+                .costs
+                .get_mut(egraph.functions.get(func).unwrap().schema.output.name())
+                .unwrap()
+                .entry(*eclass)
+            {
+                e.insert(cost);
+            } else {
+                continue;
+            }
+
+            for &parent_id in eclass2parents[eclass].iter() {
+                remaining_children[parent_id] -= 1;
+                if remaining_children[parent_id] == 0 {
+                    if let Some(new_cost) = self._compute_cost_hyperedge_kd(
+                        egraph,
+                        vals,
+                        egraph.functions.get(func).unwrap(),
+                    ) {
+                        pq.push(Reverse((new_cost, parent_id)));
+                    }
+                }
+            }
+        }
     }
 
     /// We use Bellman-Ford to compute the costs of the relevant eq sorts' terms
