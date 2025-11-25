@@ -28,6 +28,7 @@ pub mod util;
 // This is used to allow the `add_primitive` macro to work in
 // both this crate and other crates by referring to `::egglog`.
 extern crate self as egglog;
+use anyhow::{Context, Result};
 use ast::*;
 #[cfg(feature = "bin")]
 pub use cli::*;
@@ -57,12 +58,12 @@ pub use serialize_vis::{SerializeConfig, SerializeOutput, SerializedNode};
 use sort::*;
 use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
-use std::fs::File;
+use std::fs::{self, File};
 use std::hash::Hash;
-use std::io::{Read, Write as _};
+use std::io::{BufReader, Read, Write as _};
 use std::iter::once;
 use std::ops::Deref;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 pub use termdag::{Term, TermDag, TermId};
@@ -2369,21 +2370,31 @@ mod tests {
 static START: &'static str = "start";
 static END: &'static str = "end";
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct EgraphEvent {
     sexp_idx: i32,
     evt: &'static str,
     time_ms: u128,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct ProgramTimeline {
     program_text: String,
     evts: Vec<EgraphEvent>,
 }
 
+impl ProgramTimeline {
+    pub fn new(program: &str) -> Self {
+        Self {
+            program_text: program.to_string(),
+            evts: Default::default(),
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct TimedEgraph {
-    egraph: EGraph,
+    egraphs: Vec<EGraph>,
     timeline: Vec<ProgramTimeline>,
     timer: std::time::Instant,
 }
@@ -2392,32 +2403,38 @@ impl TimedEgraph {
     /// Create a new TimedEgraph with a default EGraph
     pub fn new() -> Self {
         Self {
-            egraph: EGraph::default(),
+            egraphs: vec![EGraph::default()],
             timeline: Vec::new(),
             timer: std::time::Instant::now(),
         }
     }
 
+    pub fn egraphs(&self) -> Vec<&EGraph> {
+        self.egraphs.iter().map(|x| x).collect()
+    }
+
     pub fn parse_and_run_program(
         &mut self,
-        filename: Option<String>,
+        filename: &str,
         input: &str,
     ) -> Result<Vec<CommandOutput>, Error> {
-        let mut program_timeline = ProgramTimeline {
-            program_text: input.to_string(),
-            evts: vec![],
-        };
+        let mut program_timeline = ProgramTimeline::new(input);
+
         let parsed = self
-            .egraph
+            .egraphs
+            .last_mut()
+            .expect("there are no egraphs")
             .parser
-            .get_program_from_string(filename, input)?;
+            .get_program_from_string(Some(filename.to_string()), input)?;
         let output = self.run_program(parsed, &mut program_timeline);
+
         self.timeline.push(program_timeline);
+
         output
     }
 
     pub fn serialized_timeline(&self) -> Result<String, serde_json::Error> {
-        serde_json::to_string(&self.timeline)
+        serde_json::to_string_pretty(&self.timeline)
     }
 
     fn run_program(
@@ -2425,6 +2442,7 @@ impl TimedEgraph {
         program: Vec<Command>,
         program_timeline: &mut ProgramTimeline,
     ) -> Result<Vec<CommandOutput>, Error> {
+        let egraph: &mut EGraph = self.egraphs.last_mut().expect("there are no egraphs");
         let mut outputs = Vec::new();
         let mut i: i32 = 0;
         for command in program {
@@ -2434,8 +2452,8 @@ impl TimedEgraph {
                 time_ms: self.timer.elapsed().as_millis(),
             });
 
-            for processed in self.egraph.process_command(command)? {
-                let result = self.egraph.run_command(processed)?;
+            for processed in egraph.process_command(command)? {
+                let result = egraph.run_command(processed)?;
                 if let Some(output) = result {
                     outputs.push(output);
                 }
@@ -2451,6 +2469,58 @@ impl TimedEgraph {
         }
 
         Ok(outputs)
+    }
+
+    pub fn serialize_egraph(&mut self, path: &Path) -> Result<()> {
+        let mut timeline = ProgramTimeline::new("serialize");
+        let egraph = self.egraphs.last().unwrap();
+        timeline.evts.push(EgraphEvent {
+            sexp_idx: 0,
+            evt: START,
+            time_ms: self.timer.elapsed().as_millis(),
+        });
+        let file = fs::File::create(path)
+            .with_context(|| format!("failed to create file {}", path.display()))?;
+        serde_json::to_writer_pretty(file, egraph)
+            .with_context(|| format!("failed to serialize egraph to {}", path.display()))?;
+        timeline.evts.push(EgraphEvent {
+            sexp_idx: 0,
+            evt: END,
+            time_ms: self.timer.elapsed().as_millis(),
+        });
+        self.timeline.push(timeline);
+        Ok(())
+    }
+
+    pub fn deserialize_egraph(&mut self, path: &Path) -> Result<()> {
+        let mut timeline = ProgramTimeline::new("deserialize");
+        timeline.evts.push(EgraphEvent {
+            sexp_idx: 0,
+            evt: START,
+            time_ms: self.timer.elapsed().as_millis(),
+        });
+        let file = fs::File::open(path)
+            .with_context(|| format!("failed to open file {}", path.display()))?;
+        let reader = BufReader::new(file);
+        let egraph = serde_json::from_reader(reader)?;
+
+        timeline.evts.push(EgraphEvent {
+            sexp_idx: 0,
+            evt: END,
+            time_ms: self.timer.elapsed().as_millis(),
+        });
+        self.timeline.push(timeline);
+
+        self.egraphs.push(egraph);
+
+        Ok(())
+    }
+
+    pub fn num_tuples(&self) -> usize {
+        self.egraphs
+            .last()
+            .expect("there are no egraphs")
+            .num_tuples()
     }
 }
 

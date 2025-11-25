@@ -39,8 +39,8 @@ pub fn run_egglog_file_with_timeline_output<P: AsRef<Path>>(
     let filename = egg_file_path
         .as_ref()
         .file_name()
-        .and_then(|name| name.to_str())
-        .map(|s| s.to_string());
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown");
 
     // Run the program
     let outputs = timed_egraph.parse_and_run_program(filename, &egg_content)?;

@@ -119,6 +119,10 @@ name = "timeline"
 path = "src/timeline.rs"
 
 [[bin]]
+name = "poach"
+path = "src/poach.rs"
+
+[[bin]]
 name = "serialize"
 path = "src/serialize.rs"
 
