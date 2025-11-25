@@ -2472,7 +2472,7 @@ impl TimedEgraph {
     }
 
     pub fn serialize_egraph(&mut self, path: &Path) -> Result<()> {
-        let mut timeline = ProgramTimeline::new("serialize");
+        let mut timeline = ProgramTimeline::new("(serialize)");
         let egraph = self.egraphs.last().unwrap();
         timeline.evts.push(EgraphEvent {
             sexp_idx: 0,
@@ -2493,7 +2493,7 @@ impl TimedEgraph {
     }
 
     pub fn deserialize_egraph(&mut self, path: &Path) -> Result<()> {
-        let mut timeline = ProgramTimeline::new("deserialize");
+        let mut timeline = ProgramTimeline::new("(deserialize)");
         timeline.evts.push(EgraphEvent {
             sexp_idx: 0,
             evt: START,

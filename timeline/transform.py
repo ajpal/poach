@@ -1,6 +1,7 @@
 import json
 import re
 import os
+import glob
 
 def load_json(path):
   with open(path, 'r') as file:
@@ -59,15 +60,31 @@ def add_sexp_strs(timeline):
     Returns:
         list: The updated JSON data.
     """
+    def strip_comments(line):
+        in_quote = False
+        result = []
+        for ch in line:
+            if ch == '"':
+                in_quote = not in_quote
+                result.append(ch)
+            elif ch == ';' and not in_quote:
+                break
+            else:
+                result.append(ch)
+        return ''.join(result).rstrip()
+
+
     def parse_top_level_s_expressions(program_text):
-        # Remove comments
-        program_text = '\n'.join(line.split(';', 1)[0].strip() for line in program_text.splitlines())
+        # Remove comments and blanks
+        lines = [strip_comments(line) for line in program_text.splitlines()]
+        lines = [line.strip() for line in lines if line.strip() != ""]
+        stripped_text = ''.join(lines)
 
         stack = []
         current = ''
         expressions = []
 
-        for char in program_text:
+        for char in stripped_text:
             if char == '(':
                 if not stack:
                     current = ''
@@ -132,12 +149,13 @@ def main(input_dir, output_dir):
     """
     os.makedirs(output_dir, exist_ok=True)
 
-    files = [f for f in os.listdir(input_dir) if f.endswith(".json")]
-    save_json(os.path.join(output_dir, "list.json"), files)
+    pattern = os.path.join(input_dir, "*/timeline.json")
+    benchmark_names = [os.path.basename(os.path.dirname(f)) for f in glob.glob(pattern) if os.path.isfile(f)]
+    save_json(os.path.join(output_dir, "list.json"), benchmark_names)
 
-    for filename in files:
-        input_file_path = os.path.join(input_dir, filename)
-        output_file_path = os.path.join(output_dir, filename)
+    for benchmark in benchmark_names:
+        input_file_path = os.path.join(input_dir, benchmark, "timeline.json")
+        output_file_path = os.path.join(output_dir, f"{benchmark}.json")
 
         data = load_json(input_file_path)
 
