@@ -3,20 +3,33 @@
 <html>
 
 <head>
-  <script src="index.js"></script>
+  <script src="timeline.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.8.0/Chart.bundle.min.js"></script>
 </head>
 
 <title>Poach</title>
 
-<body onload="load()">
-  <h1>Poach Nightly</h1>
-  <h2>
-    <a href="timeline.html">Timeline</a>
-  </h2>
-  
-  <h2>
-    <a href="serialize.html">Serialize</a>
-  </h2>
+<body onload="loadTimeline()">
+  <h2>Plots</h2>
+  <form onchange="plot()">
+    <label>
+      <input type="radio" name="mode" value="total" checked>
+      Total
+    </label>
+    <label>
+      <input type="radio" name="mode" value="average">
+      Average
+    </label>
+    <label>
+      <input type="radio" name="mode" value="max">
+      Max
+    </label>
+  </form>
+  <canvas class="content" id="chart"></canvas>
+  <h2>Raw</h2>
+  <p>
+    <a href="data/">Data</a>
+  </p>
 </body>
 
 </html>
