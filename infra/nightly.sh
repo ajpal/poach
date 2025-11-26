@@ -42,13 +42,9 @@ for DIRPATH in infra/nightly-resources/test-files/*; do
     mkdir "$NIGHTLY_DIR/raw/$DIRNAME"
 
     # Run egglog files
-    cargo run --release --bin timeline -- "$RESOURCE_DIR/test-files/$DIRNAME" "$NIGHTLY_DIR/raw/$DIRNAME"
+    cargo run --release --bin poach -- "$RESOURCE_DIR/test-files/$DIRNAME" "$NIGHTLY_DIR/raw/$DIRNAME" --no-serialize
   fi
 done
-
-popd
-
-pushd $TOP_DIR
 
 cargo run --release --bin poach -- tests/ "$NIGHTLY_DIR/raw/tests"
 

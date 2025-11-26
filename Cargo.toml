@@ -115,16 +115,8 @@ path = "src/main.rs"
 required-features = ["bin"]
 
 [[bin]]
-name = "timeline"
-path = "src/timeline.rs"
-
-[[bin]]
 name = "poach"
 path = "src/poach.rs"
-
-[[bin]]
-name = "serialize"
-path = "src/serialize.rs"
 
 [features]
 default = ["bin"]

@@ -12,6 +12,8 @@ use walkdir::WalkDir;
 struct Args {
     input_path: PathBuf,
     output_path: PathBuf,
+    #[arg(long)]
+    no_serialize: bool, // temporary flag to turn off serialization round trip because it can be too slow.
 }
 
 fn check_egraph_size(egraph: &TimedEgraph) -> Result<()> {
@@ -51,7 +53,7 @@ fn check_idempotent(p1: &PathBuf, p2: &PathBuf, name: &str, out_dir: &PathBuf) -
     }
 }
 
-fn run_one(path: &PathBuf, out_dir: &PathBuf) -> Result<TimedEgraph> {
+fn run_one(path: &PathBuf, out_dir: &PathBuf, serialize: bool) -> Result<TimedEgraph> {
     if path.extension().and_then(|s| s.to_str()) != Some("egg") {
         panic!("Not an egg file");
     }
@@ -76,49 +78,52 @@ fn run_one(path: &PathBuf, out_dir: &PathBuf) -> Result<TimedEgraph> {
     // Run
     egraph.parse_and_run_program(filename, &program)?;
 
-    // Round trip serialize egraph
-    let s1 = out_dir.join("serialize1.json");
-    let s2 = out_dir.join("serialize2.json");
-    let s3 = out_dir.join("serialize3.json");
+    if serialize {
+        // Round trip serialize egraph
+        let s1 = out_dir.join("serialize1.json");
+        let s2 = out_dir.join("serialize2.json");
+        let s3 = out_dir.join("serialize3.json");
 
-    egraph
-        .serialize_egraph(&s1)
-        .context("failed to serialize s1.json")?;
-    egraph
-        .deserialize_egraph(&s1)
-        .context("failed to read s1.json")?;
+        egraph
+            .serialize_egraph(&s1)
+            .context("failed to serialize s1.json")?;
+        egraph
+            .deserialize_egraph(&s1)
+            .context("failed to read s1.json")?;
 
-    egraph
-        .serialize_egraph(&s2)
-        .context("failed to serialize s2.json")?;
-    egraph
-        .deserialize_egraph(&s2)
-        .context("failed to read s2.json")?;
+        egraph
+            .serialize_egraph(&s2)
+            .context("failed to serialize s2.json")?;
+        egraph
+            .deserialize_egraph(&s2)
+            .context("failed to read s2.json")?;
 
-    egraph
-        .serialize_egraph(&s3)
-        .context("failed to serialize s3.json")?;
-    egraph
-        .deserialize_egraph(&s3)
-        .context("failed to read s3.json")?;
+        egraph
+            .serialize_egraph(&s3)
+            .context("failed to serialize s3.json")?;
+        egraph
+            .deserialize_egraph(&s3)
+            .context("failed to read s3.json")?;
 
-    // // Serialize Timeline
+        // Check properties of serialization
+        check_egraph_size(&egraph)?;
+        check_idempotent(&s2, &s3, filename, &out_dir)?;
+        // todo: compare extracts between e1 and e3?
+    }
+
+    // Serialize Timeline
     let timeline = egraph.serialized_timeline()?;
     fs::write(out_dir.join("timeline.json"), timeline).context("failed to write timeline.json")?;
-
-    // Check properties of serialization
-    check_egraph_size(&egraph)?;
-    check_idempotent(&s2, &s3, filename, &out_dir)?;
-    // todo: compare extracts between e1 and e3?
 
     Ok(egraph)
 }
 
-fn run_all(files: Vec<PathBuf>, out_dir: PathBuf) {
+fn run_all(files: Vec<PathBuf>, args: Args) {
+    let out_dir = args.output_path;
     fs::create_dir_all(&out_dir).expect("failed to create out dir");
     for (i, path) in files.iter().enumerate() {
         let name = format!("{}", path.display());
-        match run_one(&path, &out_dir) {
+        match run_one(&path, &out_dir, !args.no_serialize) {
             Ok(_) => println!("[{}/{}] {} - SUCCESS", i, files.len(), name),
             Err(e) => println!("[{}/{}] {} - FAIL: {}", i, files.len(), name, e),
         }
@@ -132,7 +137,7 @@ fn main() {
         .format_target(false)
         .parse_default_env()
         .init();
-    let input_path = args.input_path;
+    let input_path = args.input_path.clone();
 
     let entries = if input_path.is_file() {
         if input_path.extension().and_then(|s| s.to_str()) == Some("egg") {
@@ -152,5 +157,5 @@ fn main() {
     } else {
         panic!("Input path is neither file nor directory: {:?}", input_path);
     };
-    run_all(entries, args.output_path);
+    run_all(entries, args);
 }
