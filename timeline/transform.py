@@ -150,8 +150,7 @@ def main(input_dir, output_dir):
     os.makedirs(output_dir, exist_ok=True)
 
     pattern = os.path.join(input_dir, "*/*/timeline.json")
-    benchmark_names = [f.removeprefix(f"{input_dir}/") for f in glob.glob(pattern) if os.path.isfile(f)]
-    print(benchmark_names)
+    benchmark_names = [f.removeprefix(f"{input_dir}") for f in glob.glob(pattern) if os.path.isfile(f)]
     save_json(os.path.join(output_dir, "list.json"), benchmark_names)
 
     for benchmark in benchmark_names:
