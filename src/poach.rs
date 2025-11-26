@@ -11,6 +11,7 @@ use walkdir::WalkDir;
 #[command(version = env!("FULL_VERSION"), about= env!("CARGO_PKG_DESCRIPTION"))]
 struct Args {
     input_path: PathBuf,
+    output_path: PathBuf,
 }
 
 fn check_egraph_size(egraph: &TimedEgraph) -> Result<()> {
@@ -113,8 +114,7 @@ fn run_one(path: &PathBuf, out_dir: &PathBuf) -> Result<TimedEgraph> {
     Ok(egraph)
 }
 
-fn run_all(files: Vec<PathBuf>) {
-    let out_dir = PathBuf::from("out");
+fn run_all(files: Vec<PathBuf>, out_dir: PathBuf) {
     fs::create_dir_all(&out_dir).expect("failed to create out dir");
     for (i, path) in files.iter().enumerate() {
         let name = format!("{}", path.display());
@@ -134,24 +134,23 @@ fn main() {
         .init();
     let input_path = args.input_path;
 
-    if input_path.is_file() {
+    let entries = if input_path.is_file() {
         if input_path.extension().and_then(|s| s.to_str()) == Some("egg") {
-            let name = format!("{}", input_path.display());
-            println!("Single file: {}", name);
-            run_all(vec![input_path]);
+            vec![input_path]
+        } else {
+            panic!("input file is not an egg file")
         }
     } else if input_path.is_dir() {
-        let entries: Vec<PathBuf> = WalkDir::new(input_path)
+        WalkDir::new(input_path)
             .into_iter()
             .filter_map(|entry| entry.ok())
             .filter(|entry| !entry.path().to_string_lossy().contains("fail"))
             .filter(|entry| entry.file_type().is_file())
             .filter(|entry| entry.path().extension().and_then(|s| s.to_str()) == Some("egg"))
             .map(|entry| entry.path().to_path_buf())
-            .collect();
-        println!("Files: {}", entries.len());
-        run_all(entries);
+            .collect()
     } else {
         panic!("Input path is neither file nor directory: {:?}", input_path);
-    }
+    };
+    run_all(entries, args.output_path);
 }

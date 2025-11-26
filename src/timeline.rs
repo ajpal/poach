@@ -2,7 +2,7 @@ use egglog::*;
 use std::env;
 use std::ffi::OsStr; // Add this import for file extension checking
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// Run an egglog (.egg) file in a TimedEgraph and output the produced timeline to a JSON file
 ///
@@ -24,20 +24,19 @@ use std::path::{Path, PathBuf};
 /// let outputs = run_egglog_file_with_timeline_output("my_program.egg", "timeline.json").unwrap();
 /// println!("Executed {} commands", outputs.len());
 /// ```
-pub fn run_egglog_file_with_timeline_output<P: AsRef<Path>>(
-    egg_file_path: P,
-    json_output_path: P,
+pub fn run_egglog_file_with_timeline_output(
+    egg_file_path: &PathBuf,
+    json_output_path: &PathBuf,
 ) -> Result<Vec<CommandOutput>, Error> {
     // Create a new TimedEgraph with default configuration
     let mut timed_egraph = TimedEgraph::new();
 
     // Read the .egg file
     let egg_content = fs::read_to_string(&egg_file_path)
-        .map_err(|e| Error::IoError(egg_file_path.as_ref().to_path_buf(), e, span!()))?;
+        .map_err(|e| Error::IoError(egg_file_path.to_path_buf(), e, span!()))?;
 
     // Get the filename for error reporting
     let filename = egg_file_path
-        .as_ref()
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("unknown");
@@ -51,8 +50,11 @@ pub fn run_egglog_file_with_timeline_output<P: AsRef<Path>>(
         .map_err(|e| Error::BackendError(format!("Failed to serialize timeline: {}", e)))?;
 
     // Write the JSON to the output file
+    if let Some(parent) = &json_output_path.parent() {
+        fs::create_dir_all(parent).map_err(|e| Error::IoError(parent.to_path_buf(), e, span!()))?;
+    }
     fs::write(&json_output_path, timeline_json)
-        .map_err(|e| Error::IoError(json_output_path.as_ref().to_path_buf(), e, span!()))?;
+        .map_err(|e| Error::IoError(json_output_path.to_path_buf(), e, span!()))?;
 
     Ok(outputs)
 }
@@ -88,7 +90,7 @@ fn main() {
         }
 
         let output_path = output_dir.join(format!(
-            "{}.json",
+            "{}/timeline.json",
             input_path.file_stem().unwrap().to_string_lossy()
         ));
 
@@ -114,7 +116,7 @@ fn main() {
                         let path = entry.path();
                         if path.extension() == Some(OsStr::new("egg")) {
                             let output_path = output_dir.join(format!(
-                                "{}.json",
+                                "{}/timeline.json",
                                 path.file_stem().unwrap().to_string_lossy()
                             ));
 
