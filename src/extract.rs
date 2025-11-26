@@ -234,7 +234,7 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
             parent_edge,
         };
 
-        extractor.bellman_ford(egraph);
+        extractor._knuth_dijkstra(egraph);
 
         extractor
     }
@@ -371,7 +371,7 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
 
     fn _knuth_dijkstra(&mut self, egraph: &EGraph) {
         type EnodeId = usize;
-        let mut id2enode: HashMap<EnodeId, (String, Vec<Value>)> = Default::default();
+        let mut id2enode: Vec<(String, Vec<Value>)> = Vec::new();
         let mut eclass2parents: HashMap<Value, Vec<EnodeId>> = Default::default();
         let mut remaining_children = Vec::new();
         let mut next_id = 0;
@@ -400,8 +400,8 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
             if *num_children == 0 {
                 if let Some(cost) = self._compute_cost_hyperedge_kd(
                     egraph,
-                    &id2enode[&id].1,
-                    &egraph.functions.get(&id2enode[&id].0).unwrap(),
+                    &id2enode[id].1,
+                    &egraph.functions.get(&id2enode[id].0).unwrap(),
                 ) {
                     pq.push(Reverse((cost, id)));
                 }
@@ -409,26 +409,27 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
         }
 
         while let Some(Reverse((cost, enode_id))) = pq.pop() {
-            let (func, vals) = &id2enode[&enode_id];
+            let (func, vals) = &id2enode[enode_id];
             let eclass = vals.last().unwrap();
+            let func_tbl = egraph.functions.get(func).unwrap();
+            let func_name = func_tbl.schema.output.name();
 
-            if let HEntry::Vacant(e) = self
-                .costs
-                .get_mut(egraph.functions.get(func).unwrap().schema.output.name())
-                .unwrap()
-                .entry(*eclass)
-            {
-                e.insert(cost);
+            if let (HEntry::Vacant(e_c), HEntry::Vacant(e_p)) = (
+                self.costs.get_mut(func_name).unwrap().entry(*eclass),
+                self.parent_edge.get_mut(func_name).unwrap().entry(*eclass),
+            ) {
+                e_c.insert(cost);
+                e_p.insert((func_tbl.decl.name.clone(), vals.clone()));
             } else {
                 continue;
             }
 
-            for &parent_id in eclass2parents[eclass].iter() {
+            for &parent_id in eclass2parents.entry(*eclass).or_default().iter() {
                 remaining_children[parent_id] -= 1;
                 if remaining_children[parent_id] == 0 {
                     if let Some(new_cost) = self._compute_cost_hyperedge_kd(
                         egraph,
-                        vals,
+                        &id2enode[parent_id].1,
                         egraph.functions.get(func).unwrap(),
                     ) {
                         pq.push(Reverse((new_cost, parent_id)));
