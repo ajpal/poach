@@ -61,6 +61,7 @@ where
     },
     CoreAction(GenericAction<Head, Leaf>),
     Extract(Span, GenericExpr<Head, Leaf>, GenericExpr<Head, Leaf>),
+    MultiExtract(Span, GenericExpr<Head, Leaf>, Vec<GenericExpr<Head, Leaf>>),
     RunSchedule(GenericSchedule<Head, Leaf>),
     PrintOverallStatistics,
     Check(Span, Vec<GenericFact<Head, Leaf>>),
@@ -131,6 +132,9 @@ where
             GenericNCommand::Extract(span, expr, variants) => {
                 GenericCommand::Extract(span.clone(), expr.clone(), variants.clone())
             }
+            GenericNCommand::MultiExtract(span, variants, exprs) => {
+                GenericCommand::MultiExtract(span.clone(), variants.clone(), exprs.clone())
+            }
             GenericNCommand::Check(span, facts) => {
                 GenericCommand::Check(span.clone(), facts.clone())
             }
@@ -185,6 +189,11 @@ where
             GenericNCommand::Extract(span, expr, variants) => {
                 GenericNCommand::Extract(span, expr.visit_exprs(f), variants.visit_exprs(f))
             }
+            GenericNCommand::MultiExtract(span, variants, exprs) => GenericNCommand::MultiExtract(
+                span,
+                variants.visit_exprs(f),
+                exprs.into_iter().map(|expr| expr.visit_exprs(f)).collect(),
+            ),
             GenericNCommand::Check(span, facts) => GenericNCommand::Check(
                 span,
                 facts.into_iter().map(|fact| fact.visit_exprs(f)).collect(),
@@ -563,6 +572,9 @@ where
     /// (common subexpressions are not shared in the cost
     /// model).
     Extract(Span, GenericExpr<Head, Leaf>, GenericExpr<Head, Leaf>),
+    /// Extract multiple terms from the egraph,
+    /// as if `extract` were called multiple times in a row.
+    MultiExtract(Span, GenericExpr<Head, Leaf>, Vec<GenericExpr<Head, Leaf>>),
     /// Runs a [`Schedule`], which specifies
     /// rulesets and the number of times to run them.
     ///
@@ -675,6 +687,9 @@ where
             GenericCommand::Action(a) => write!(f, "{a}"),
             GenericCommand::Extract(_span, expr, variants) => {
                 write!(f, "(extract {expr} {variants})")
+            }
+            GenericCommand::MultiExtract(_span, variants, exprs) => {
+                write!(f, "(multi-extract {variants} {}", ListDisplay(exprs, " "))
             }
             GenericCommand::Sort(_span, name, None) => write!(f, "(sort {name})"),
             GenericCommand::Sort(_span, name, Some((name2, args))) => {
