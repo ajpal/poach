@@ -1,4 +1,10 @@
 /**
+ * Expected data layout:
+ * data/list.json : List of all files (all benchmark suites)
+ * data/<suite name>/<bench name>/timeline.json
+ */
+
+/**
  * The benchmark suites to include in the visualization.
  */
 const BENCH_SUITES = [
@@ -21,26 +27,72 @@ const BENCH_SUITES = [
     name: "Herbie (Math taylor)",
     dir: "herbie-math-taylor",
     color: "purple",
-  }
+  },
+  {
+    name: "Egglog Tests",
+    dir: "tests",
+    color: "orange",
+  },
 ];
 
 let chart = null;
-let loadedData = [];
+let loadedData = Object.fromEntries(
+  BENCH_SUITES.map((suite) => [suite.dir, { ...suite, data: [] }])
+);
 
 /**
  * Loads the timeline page.
  */
 function loadTimeline() {
-  Promise.all(BENCH_SUITES.map(
-    (suite) => fetch(`data/${suite.dir}/list.json`)
-      .then((response) => response.json())
-      .then((names) => getDatapoints(suite.dir, names)
-        .then((data) => ({ ...suite, data }))
-      )
-  )).then((results) => {
-    loadedData = results;
-    plot();
-  });
+  fetch("data/list.json")
+    .then((response) => response.json())
+    .then((names) => Promise.all(names.map((name) => getDatapoint(name))))
+    .then(plot);
+}
+
+function getDatapoint(name) {
+  const RUN_CMDS = ["run", "run-schedule"];
+  const EXT_CMDS = ["extract", "multi-extract"];
+  const SERIALIZE_CMDS = ["serialize"];
+  const DESERIALIZE_CMDS = ["deserialize"];
+
+  return fetch(`data/${name}`)
+    .then((response) => response.json())
+    .then((data) => {
+      [suite, benchmark, _] = name.split("/");
+
+      // Aggregate commands across all timelines
+      const times = {
+        benchmark,
+        run: [],
+        extract: [],
+        serialize: [],
+        deserialize: [],
+        other: [],
+      };
+
+      data.forEach((timeline) => {
+        timeline.evts.forEach((event) => {
+          const ms = event.total_time_ms;
+          const cmd = event.cmd;
+
+          // group commands by type (run, extract, (de)serialize, other)
+          if (RUN_CMDS.includes(cmd)) {
+            times.run.push(ms);
+          } else if (EXT_CMDS.includes(cmd)) {
+            times.extract.push(ms);
+          } else if (SERIALIZE_CMDS.includes(cmd)) {
+            times.serialize.push(ms);
+          } else if (DESERIALIZE_CMDS.includes(cmd)) {
+            times.deserialize.push(ms);
+          } else {
+            times.other.push(ms);
+          }
+        });
+      });
+
+      loadedData[suite].data.push(times);
+    });
 }
 
 /**
@@ -98,6 +150,9 @@ function getDatapoints(suite, names) {
  * @returns {number} - The aggregated value based on the selected mode.
  */
 function aggregate(times, mode) {
+  if (times.length == 0) {
+    return 0;
+  }
   switch (mode) {
     case "average":
       return times.reduce((a, b) => a + b) / times.length;
@@ -154,10 +209,13 @@ function plot() {
 
   const mode = document.querySelector('input[name="mode"]:checked').value;
 
-  const datasets = loadedData.map((suite) => ({
+  const datasets = Object.values(loadedData).map((suite) => ({
     label: suite.name,
     data: Object.values(suite.data).map((entry) => {
-      return { x: aggregate(entry.runs, mode), y: aggregate(entry.exts, mode) };
+      return {
+        x: aggregate(entry.run, mode),
+        y: aggregate(entry.extract, mode),
+      };
     }),
     backgroundColor: suite.color,
     pointRadius: 4,

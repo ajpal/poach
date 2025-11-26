@@ -134,7 +134,7 @@ def add_egglog_cmds(timeline):
     for event in events:
       if 'sexp' not in event:
         raise KeyError("Event is missing the concrete s-expression.")
-      event['cmd'] = re.search(r"[^\(\s]+", event['sexp']).group()
+      event['cmd'] = re.search(r"[^()\s]+", event['sexp']).group()
 
   return timeline
 
