@@ -53,7 +53,7 @@ pushd $TOP_DIR
 cargo run --release --bin poach -- tests/ "$NIGHTLY_DIR/raw/tests"
 
 # Annotate with time and command info
-python3 timeline/transform.py "$NIGHTLY_DIR/raw/$DIRNAME" "$NIGHTLY_DIR/web/data/$DIRNAME"
+python3 timeline/transform.py "$NIGHTLY_DIR/raw/" "$NIGHTLY_DIR/web/data/"
 
 popd
 

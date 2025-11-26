@@ -149,13 +149,14 @@ def main(input_dir, output_dir):
     """
     os.makedirs(output_dir, exist_ok=True)
 
-    pattern = os.path.join(input_dir, "*/timeline.json")
-    benchmark_names = [os.path.basename(os.path.dirname(f)) for f in glob.glob(pattern) if os.path.isfile(f)]
+    pattern = os.path.join(input_dir, "*/*/timeline.json")
+    benchmark_names = [f.removeprefix(f"{input_dir}/") for f in glob.glob(pattern) if os.path.isfile(f)]
+    print(benchmark_names)
     save_json(os.path.join(output_dir, "list.json"), benchmark_names)
 
     for benchmark in benchmark_names:
-        input_file_path = os.path.join(input_dir, benchmark, "timeline.json")
-        output_file_path = os.path.join(output_dir, f"{benchmark}.json")
+        input_file_path = os.path.join(input_dir, benchmark)
+        output_file_path = os.path.join(output_dir, benchmark)
 
         data = load_json(input_file_path)
 
