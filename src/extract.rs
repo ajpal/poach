@@ -383,13 +383,19 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
                         return;
                     }
                     id2enode.insert(next_id, (func.clone(), row.vals.to_vec()));
-                    for eclass in row.vals.iter().take(row.vals.len() - 1) {
-                        eclass2parents
-                            .entry(*eclass)
-                            .or_insert(Vec::new())
-                            .push(next_id);
+                    let func_schema = &egraph.functions.get(func).unwrap().schema;
+                    let mut num_children = 0;
+                    for (i, eclass) in row.vals.iter().take(row.vals.len() - 1).enumerate() {
+                        let sort = &func_schema.input[i];
+                        if sort.is_eq_sort() || sort.is_container_sort() {
+                            eclass2parents
+                                .entry(*eclass)
+                                .or_insert(Vec::new())
+                                .push(next_id);
+                            num_children += 1;
+                        }
                     }
-                    remaining_children.push(row.vals.len() - 1);
+                    remaining_children.push(num_children);
                     next_id += 1;
                 },
             );
@@ -397,10 +403,14 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
 
         let mut pq = BinaryHeap::new();
         for (id, (func, vals)) in id2enode.iter().enumerate() {
-            if let Some(cost) =
-                self.compute_cost_hyperedge_kd(egraph, vals, &egraph.functions.get(func).unwrap())
-            {
-                pq.push(Reverse((cost, id)));
+            if remaining_children[id] == 0 {
+                if let Some(cost) = self.compute_cost_hyperedge_kd(
+                    egraph,
+                    vals,
+                    &egraph.functions.get(func).unwrap(),
+                ) {
+                    pq.push(Reverse((cost, id)));
+                }
             }
         }
 
