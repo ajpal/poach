@@ -396,15 +396,11 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
         }
 
         let mut pq = BinaryHeap::new();
-        for (id, num_children) in remaining_children.iter().enumerate() {
-            if *num_children == 0 {
-                if let Some(cost) = self._compute_cost_hyperedge_kd(
-                    egraph,
-                    &id2enode[id].1,
-                    &egraph.functions.get(&id2enode[id].0).unwrap(),
-                ) {
-                    pq.push(Reverse((cost, id)));
-                }
+        for (id, (func, vals)) in id2enode.iter().enumerate() {
+            if let Some(cost) =
+                self._compute_cost_hyperedge_kd(egraph, vals, &egraph.functions.get(func).unwrap())
+            {
+                pq.push(Reverse((cost, id)));
             }
         }
 
@@ -430,7 +426,7 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
                     if let Some(new_cost) = self._compute_cost_hyperedge_kd(
                         egraph,
                         &id2enode[parent_id].1,
-                        egraph.functions.get(func).unwrap(),
+                        egraph.functions.get(&id2enode[parent_id].0).unwrap(),
                     ) {
                         pq.push(Reverse((new_cost, parent_id)));
                     }
