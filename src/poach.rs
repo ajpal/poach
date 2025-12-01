@@ -2,7 +2,6 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use egglog::{EGraph, SerializeConfig, TimedEgraph};
 use env_logger::Env;
-use pprof::ProfilerGuard;
 
 use std::fmt::Debug;
 use std::fs;
