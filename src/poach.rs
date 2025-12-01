@@ -1,7 +1,9 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use egglog::TimedEgraph;
+use egglog::{EGraph, SerializeConfig, TimedEgraph};
 use env_logger::Env;
+use pprof::ProfilerGuard;
+
 use std::fmt::Debug;
 use std::fs;
 use std::path::PathBuf;
@@ -53,6 +55,24 @@ fn check_idempotent(p1: &PathBuf, p2: &PathBuf, name: &str, out_dir: &PathBuf) -
     }
 }
 
+fn old_serialize(egraph: &EGraph, path: PathBuf) -> std::io::Result<()> {
+    let serialized_output = egraph.serialize(SerializeConfig::default());
+
+    if serialized_output.is_complete() {
+        serialized_output.egraph.to_json_file(path)
+    } else {
+        let parent = path.parent().unwrap();
+        let stem = path.file_stem().unwrap().to_string_lossy();
+        let ext = path.extension().unwrap_or_default().to_string_lossy();
+
+        println!("{stem} incomplete");
+
+        serialized_output
+            .egraph
+            .to_json_file(parent.join(format!("{stem}-incomplete.{ext}")))
+    }
+}
+
 fn run_one(path: &PathBuf, out_dir: &PathBuf, serialize: bool) -> Result<TimedEgraph> {
     if path.extension().and_then(|s| s.to_str()) != Some("egg") {
         panic!("Not an egg file");
@@ -83,6 +103,9 @@ fn run_one(path: &PathBuf, out_dir: &PathBuf, serialize: bool) -> Result<TimedEg
         let s1 = out_dir.join("serialize1.json");
         let s2 = out_dir.join("serialize2.json");
         let s3 = out_dir.join("serialize3.json");
+
+        old_serialize(egraph.egraphs().last().unwrap(), out_dir.join("old.json"))
+            .context("failed to serialize using old")?;
 
         egraph
             .serialize_egraph(&s1)
@@ -123,9 +146,15 @@ fn run_all(files: Vec<PathBuf>, args: Args) {
     fs::create_dir_all(&out_dir).expect("failed to create out dir");
     for (i, path) in files.iter().enumerate() {
         let name = format!("{}", path.display());
-        match run_one(&path, &out_dir, !args.no_serialize) {
-            Ok(_) => println!("[{}/{}] {} - SUCCESS", i, files.len(), name),
-            Err(e) => println!("[{}/{}] {} - FAIL: {}", i, files.len(), name, e),
+        let out_path = out_dir.join(path.file_stem().unwrap().to_str().unwrap());
+
+        // Run the timed egraph + serialization
+        let res = run_one(&path, &out_dir, !args.no_serialize);
+
+        if let Ok(_) = res {
+            println!("[{}/{}] {} - SUCCESS", i, files.len(), name)
+        } else {
+            println!("[{}/{}] {} - FAIL", i, files.len(), name);
         }
     }
 }
