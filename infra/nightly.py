@@ -68,4 +68,4 @@ if __name__ == "__main__":
   transform.transform((nightly_dir / "raw"), (nightly_dir / "output" / "data"))
 
   # Update HTML index page
-  shutil.copytree(resource_dir / "web", nightly_dir / "output" / "data", dirs_exist_ok = True)
+  shutil.copytree(resource_dir / "web", nightly_dir / "output", dirs_exist_ok = True)
