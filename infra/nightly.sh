@@ -42,11 +42,11 @@ for DIRPATH in infra/nightly-resources/test-files/*; do
     mkdir "$NIGHTLY_DIR/raw/$DIRNAME"
 
     # Run egglog files
-    cargo run --release --bin poach -- "$RESOURCE_DIR/test-files/$DIRNAME" "$NIGHTLY_DIR/raw/$DIRNAME" --no-serialize
+    python3 timeline/poach.py "$RESOURCE_DIR/test-files/$DIRNAME" "$NIGHTLY_DIR/raw/$DIRNAME" --no-serialize
   fi
 done
 
-cargo run --release --bin poach -- tests/ "$NIGHTLY_DIR/raw/tests"
+python3 timeline/poach.py tests/ "$NIGHTLY_DIR/raw/tests"
 
 # Annotate with time and command info
 python3 timeline/transform.py "$NIGHTLY_DIR/raw/" "$NIGHTLY_DIR/output/data/"
