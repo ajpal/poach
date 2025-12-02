@@ -171,6 +171,7 @@ libtest-mimic = { workspace = true }
 
 [profile.release]
 incremental = true
+debug = true
 
 # https://github.com/mstange/samply/?tab=readme-ov-file#turn-on-debug-info-for-full-stacks
 [profile.profiling]

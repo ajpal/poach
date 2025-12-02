@@ -4,15 +4,14 @@ use egglog::{EGraph, SerializeConfig, TimedEgraph};
 use env_logger::Env;
 
 use std::fmt::Debug;
-use std::fs;
+use std::fs::{self, create_dir_all};
 use std::path::PathBuf;
-use walkdir::WalkDir;
 
 #[derive(Debug, Parser)]
 #[command(version = env!("FULL_VERSION"), about= env!("CARGO_PKG_DESCRIPTION"))]
 struct Args {
-    input_path: PathBuf,
-    output_path: PathBuf,
+    input_file: PathBuf,
+    output_dir: PathBuf,
     #[arg(long)]
     no_serialize: bool, // temporary flag to turn off serialization round trip because it can be too slow.
 }
@@ -72,15 +71,7 @@ fn old_serialize(egraph: &EGraph, path: PathBuf) -> std::io::Result<()> {
     }
 }
 
-fn run_one(path: &PathBuf, out_dir: &PathBuf, serialize: bool) -> Result<TimedEgraph> {
-    if path.extension().and_then(|s| s.to_str()) != Some("egg") {
-        panic!("Not an egg file");
-    }
-
-    // Create subdirectory for this file
-    let out_dir = out_dir.join(path.file_stem().unwrap().to_str().unwrap());
-    fs::create_dir_all(&out_dir).expect("fail");
-
+fn poach(path: &PathBuf, out_dir: &PathBuf, serialize: bool) -> Result<TimedEgraph> {
     // filename for display
     let filename = path
         .file_name()
@@ -140,24 +131,6 @@ fn run_one(path: &PathBuf, out_dir: &PathBuf, serialize: bool) -> Result<TimedEg
     Ok(egraph)
 }
 
-fn run_all(files: Vec<PathBuf>, args: Args) {
-    let out_dir = args.output_path;
-    fs::create_dir_all(&out_dir).expect("failed to create out dir");
-    for (i, path) in files.iter().enumerate() {
-        let name = format!("{}", path.display());
-        let out_path = out_dir.join(path.file_stem().unwrap().to_str().unwrap());
-
-        // Run the timed egraph + serialization
-        let res = run_one(&path, &out_dir, !args.no_serialize);
-
-        if let Ok(_) = res {
-            println!("[{}/{}] {} - SUCCESS", i, files.len(), name)
-        } else {
-            println!("[{}/{}] {} - FAIL", i, files.len(), name);
-        }
-    }
-}
-
 fn main() {
     let args = Args::parse();
     env_logger::Builder::from_env(Env::default().default_filter_or("warn"))
@@ -165,25 +138,17 @@ fn main() {
         .format_target(false)
         .parse_default_env()
         .init();
-    let input_path = args.input_path.clone();
 
-    let entries = if input_path.is_file() {
-        if input_path.extension().and_then(|s| s.to_str()) == Some("egg") {
-            vec![input_path]
-        } else {
-            panic!("input file is not an egg file")
+    let input_path = args.input_file;
+    if input_path.is_file() && input_path.extension().and_then(|s| s.to_str()) == Some("egg") {
+        let output_dir = args.output_dir.join(input_path.file_stem().unwrap());
+        create_dir_all(output_dir.clone()).expect("failed to create output directory");
+
+        match poach(&input_path, &output_dir, !args.no_serialize) {
+            Ok(_) => println!("{} - SUCCESS", input_path.display()),
+            Err(e) => println!("{} - FAIL: {}", input_path.display(), e),
         }
-    } else if input_path.is_dir() {
-        WalkDir::new(input_path)
-            .into_iter()
-            .filter_map(|entry| entry.ok())
-            .filter(|entry| !entry.path().to_string_lossy().contains("fail"))
-            .filter(|entry| entry.file_type().is_file())
-            .filter(|entry| entry.path().extension().and_then(|s| s.to_str()) == Some("egg"))
-            .map(|entry| entry.path().to_path_buf())
-            .collect()
     } else {
-        panic!("Input path is neither file nor directory: {:?}", input_path);
-    };
-    run_all(entries, args);
+        panic!("input file is not an egg file");
+    }
 }
