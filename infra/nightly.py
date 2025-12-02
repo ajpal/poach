@@ -55,7 +55,7 @@ if __name__ == "__main__":
 
     files = [f for f in dir_path.iterdir() if f.is_file() and f.suffix == ".egg"]
     for (idx, file) in enumerate(files, start = 1):
-      run_cmd([str(poach_exe), str(file), str(target_dir)], msg=f"[{idx} / {len(files)}]", dry_run = True)
+      run_cmd([str(poach_exe), str(file), str(target_dir)], msg=f"[{idx} / {len(files)}]", dry_run = False)
   
   # Also run the egglog tests
   files = [f for f in (top_dir / "tests").rglob('*.egg')]
