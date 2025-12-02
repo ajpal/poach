@@ -1,14 +1,14 @@
 import subprocess
 from pathlib import Path
 
-def flamegraph_all(input_dir, output_dir, no_serialize):
+def flamegraph_all(input_dir, base_dir, no_serialize):
   # List only files
   files = [f for f in input_dir.rglob('*.egg')]
   total = len(files)
 
   for idx, input_file in enumerate(files, start=1):
     # Create output directory for this file
-    output_dir = output_dir / input_file.stem
+    output_dir = base_dir / input_file.stem
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Output flamegraph path
