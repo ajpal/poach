@@ -138,7 +138,7 @@ def add_egglog_cmds(timeline):
 
   return timeline
 
-def main(input_dir, output_dir):
+def transform(input_dir, output_dir):
     """
     Processes all JSON files in the input directory, applying each transformation in order,
     and writes the results to the output directory.
@@ -150,11 +150,11 @@ def main(input_dir, output_dir):
     os.makedirs(output_dir, exist_ok=True)
 
     pattern = os.path.join(input_dir, "*/*/timeline.json")
-    benchmark_names = [f.removeprefix(f"{input_dir}") for f in glob.glob(pattern) if os.path.isfile(f)]
+    benchmark_names = [f.removeprefix(f"{input_dir}/") for f in glob.glob(pattern) if os.path.isfile(f)]
     save_json(os.path.join(output_dir, "list.json"), benchmark_names)
 
     for benchmark in benchmark_names:
-        input_file_path = os.path.join(input_dir, benchmark)
+        input_file_path = input_dir / benchmark
         output_file_path = os.path.join(output_dir, benchmark)
 
         data = load_json(input_file_path)
@@ -164,14 +164,3 @@ def main(input_dir, output_dir):
         data = add_egglog_cmds(data)
 
         save_json(output_file_path, data)
-
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Process JSON egraph timeline files.")
-    parser.add_argument("input_dir", type=str, help="Path to the input directory containing JSON files.")
-    parser.add_argument("output_dir", type=str, help="Path to the output directory to save processed JSON files.")
-
-    args = parser.parse_args()
-    main(args.input_dir, args.output_dir)
-
