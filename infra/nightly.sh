@@ -31,7 +31,7 @@ echo "Switching to nighly script directory: $MYDIR"
 rm -rf $NIGHTLY_DIR
 
 # Prepare output directories
-mkdir -p "$NIGHTLY_DIR/raw" "$NIGHTLY_DIR/web"
+mkdir -p "$NIGHTLY_DIR/raw" "$NIGHTLY_DIR/output"
 
 pushd $TOP_DIR
 
@@ -49,15 +49,15 @@ done
 cargo run --release --bin poach -- tests/ "$NIGHTLY_DIR/raw/tests"
 
 # Annotate with time and command info
-python3 timeline/transform.py "$NIGHTLY_DIR/raw/" "$NIGHTLY_DIR/web/data/"
+python3 timeline/transform.py "$NIGHTLY_DIR/raw/" "$NIGHTLY_DIR/output/data/"
 
 popd
 
 
 # Update HTML index page.
-cp "$RESOURCE_DIR/web"/* "$NIGHTLY_DIR/web"
+cp "$RESOURCE_DIR/web"/* "$NIGHTLY_DIR/output"
 
 # No more uploading using nightly-results, that happens automatically by the nightly runner now.
 
 # For local dev
-# cd "$NIGHTLY_DIR/web" && python3 -m http.server 8002
+# cd "$NIGHTLY_DIR/output" && python3 -m http.server 8002
