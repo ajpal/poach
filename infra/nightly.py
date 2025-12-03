@@ -52,17 +52,11 @@ if __name__ == "__main__":
     dir_name = dir_path.name
     target_dir = nightly_dir / "raw" / dir_name
     target_dir.mkdir(parents = True, exist_ok = True)
+    run_cmd([str(poach_exe), str(dir_path), str(target_dir)], dry_run = False)
 
-    files = [f for f in dir_path.iterdir() if f.is_file() and f.suffix == ".egg"]
-    for (idx, file) in enumerate(files, start = 1):
-      run_cmd([str(poach_exe), str(file), str(target_dir)], msg=f"[{idx} / {len(files)}]", dry_run = False)
-  
+
   # Also run the egglog tests
-  files = [f for f in (top_dir / "tests").rglob('*.egg')]
-  target_dir = nightly_dir / "raw" / "tests"
-  target_dir.mkdir(parents = True, exist_ok = True)
-  for (idx, file) in enumerate(files, start = 1):
-    run_cmd([str(poach_exe), str(file), str(target_dir)], msg = f"[{idx} / {len(files)}]", dry_run = False)
+  run_cmd([str(poach_exe), str( top_dir / "tests"), str(nightly_dir / "raw" / "tests")], dry_run = False)
 
   # Post-process timeline data
   transform.transform((nightly_dir / "raw"), (nightly_dir / "output" / "data"))
