@@ -6,13 +6,14 @@ use env_logger::Env;
 use std::fmt::Debug;
 use std::fs;
 use std::path::PathBuf;
+use std::time::Instant;
 use walkdir::WalkDir;
 
 #[derive(Debug, Parser)]
 #[command(version = env!("FULL_VERSION"), about= env!("CARGO_PKG_DESCRIPTION"))]
 struct Args {
     input_path: PathBuf,
-    output_path: PathBuf,
+    output_dir: PathBuf,
     #[arg(long)]
     no_serialize: bool, // temporary flag to turn off serialization round trip because it can be too slow.
 }
@@ -72,7 +73,7 @@ fn old_serialize(egraph: &EGraph, path: PathBuf) -> std::io::Result<()> {
     }
 }
 
-fn run_one(path: &PathBuf, out_dir: &PathBuf, serialize: bool) -> Result<TimedEgraph> {
+fn poach(path: &PathBuf, out_dir: &PathBuf, serialize: bool) -> Result<TimedEgraph> {
     if path.extension().and_then(|s| s.to_str()) != Some("egg") {
         panic!("Not an egg file");
     }
@@ -140,24 +141,6 @@ fn run_one(path: &PathBuf, out_dir: &PathBuf, serialize: bool) -> Result<TimedEg
     Ok(egraph)
 }
 
-fn run_all(files: Vec<PathBuf>, args: Args) {
-    let out_dir = args.output_path;
-    fs::create_dir_all(&out_dir).expect("failed to create out dir");
-    for (i, path) in files.iter().enumerate() {
-        let name = format!("{}", path.display());
-        let out_path = out_dir.join(path.file_stem().unwrap().to_str().unwrap());
-
-        // Run the timed egraph + serialization
-        let res = run_one(&path, &out_dir, !args.no_serialize);
-
-        if let Ok(_) = res {
-            println!("[{}/{}] {} - SUCCESS", i, files.len(), name)
-        } else {
-            println!("[{}/{}] {} - FAIL", i, files.len(), name);
-        }
-    }
-}
-
 fn main() {
     let args = Args::parse();
     env_logger::Builder::from_env(Env::default().default_filter_or("warn"))
@@ -185,5 +168,30 @@ fn main() {
     } else {
         panic!("Input path is neither file nor directory: {:?}", input_path);
     };
-    run_all(entries, args);
+
+    for (i, path) in entries.iter().enumerate() {
+        let name = format!("{}", path.display());
+        let out_dir = args
+            .output_dir
+            .join(path.file_stem().unwrap().to_str().unwrap());
+
+        let timer = Instant::now();
+        match poach(&path, &out_dir, !args.no_serialize) {
+            Ok(_) => println!(
+                "[{}/{}][{}] {} - SUCCESS",
+                i + 1,
+                entries.len(),
+                timer.elapsed().as_secs(),
+                name
+            ),
+            Err(e) => println!(
+                "[{}/{}][{}] {} - FAIL: {}",
+                i + 1,
+                entries.len(),
+                timer.elapsed().as_secs(),
+                name,
+                e
+            ),
+        }
+    }
 }
