@@ -78,10 +78,6 @@ fn poach(path: &PathBuf, out_dir: &PathBuf, serialize: bool) -> Result<TimedEgra
         panic!("Not an egg file");
     }
 
-    // Create subdirectory for this file
-    let out_dir = out_dir.join(path.file_stem().unwrap().to_str().unwrap());
-    fs::create_dir_all(&out_dir).expect("fail");
-
     // filename for display
     let filename = path
         .file_name()
@@ -174,6 +170,7 @@ fn main() {
         let out_dir = args
             .output_dir
             .join(path.file_stem().unwrap().to_str().unwrap());
+        fs::create_dir_all(&out_dir).expect("failed to create out dir");
 
         let timer = Instant::now();
         match poach(&path, &out_dir, !args.no_serialize) {

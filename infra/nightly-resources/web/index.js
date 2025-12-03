@@ -1,7 +1,8 @@
 /**
  * Expected data layout:
- * data/list.json : List of all files (all benchmark suites)
- * data/<suite name>/<bench name>/timeline.json
+ * data/data.json : big JSON blob containing all of the timeline data
+ * key is the name of the benchmark egg file
+ * value is the array of timelines where each timeline contains an array of events
  */
 
 /**
@@ -36,6 +37,12 @@ const BENCH_SUITES = [
 ];
 
 let chart = null;
+
+// Aggregated/processed data for chart
+// key is the benchmark category
+// value contains an array of data points, corresponding to all of the individual
+// egg files in the benchmark category.
+// Each data point contains arrays of times for run, extract, serialize, and deserialize events
 let loadedData = Object.fromEntries(
   BENCH_SUITES.map((suite) => [suite.dir, { ...suite, data: [] }])
 );
@@ -44,10 +51,52 @@ let loadedData = Object.fromEntries(
  * Loads the timeline page.
  */
 function loadTimeline() {
-  fetch("data/list.json")
+  fetch("data/data.json")
     .then((response) => response.json())
-    .then((names) => Promise.all(names.map((name) => getDatapoint(name))))
+    .then(processRawData)
     .then(plot);
+}
+
+function processRawData(blob) {
+  const RUN_CMDS = ["run", "run-schedule"];
+  const EXT_CMDS = ["extract", "multi-extract"];
+  const SERIALIZE_CMDS = ["serialize"];
+  const DESERIALIZE_CMDS = ["deserialize"];
+
+  Object.entries(blob).forEach(([name, data]) => {
+    const [suite, benchmark, _] = name.split("/");
+    // Aggregate commands across all timelines
+    const times = {
+      benchmark,
+      run: [],
+      extract: [],
+      serialize: [],
+      deserialize: [],
+      other: [],
+    };
+
+    data.forEach((timeline) => {
+      timeline.evts.forEach((event) => {
+        const ms = event.total_time_ms;
+        const cmd = event.cmd;
+
+        // group commands by type (run, extract, (de)serialize, other)
+        if (RUN_CMDS.includes(cmd)) {
+          times.run.push(ms);
+        } else if (EXT_CMDS.includes(cmd)) {
+          times.extract.push(ms);
+        } else if (SERIALIZE_CMDS.includes(cmd)) {
+          times.serialize.push(ms);
+        } else if (DESERIALIZE_CMDS.includes(cmd)) {
+          times.deserialize.push(ms);
+        } else {
+          times.other.push(ms);
+        }
+      });
+    });
+
+    loadedData[suite].data.push(times);
+  });
 }
 
 function getDatapoint(name) {
