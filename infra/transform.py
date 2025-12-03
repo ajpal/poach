@@ -153,6 +153,8 @@ def transform(input_dir, output_dir):
     benchmark_names = [f.removeprefix(f"{input_dir}/") for f in glob.glob(pattern) if os.path.isfile(f)]
     save_json(os.path.join(output_dir, "list.json"), benchmark_names)
 
+    aggregated = {}
+
     for benchmark in benchmark_names:
         input_file_path = input_dir / benchmark
         output_file_path = os.path.join(output_dir, benchmark)
@@ -163,4 +165,7 @@ def transform(input_dir, output_dir):
         data = add_sexp_strs(data)
         data = add_egglog_cmds(data)
 
-        save_json(output_file_path, data)
+        aggregated[benchmark] = data
+
+        # save_json(output_file_path, data)
+    save_json(os.path.join(output_dir, "data.json"), aggregated)
