@@ -170,10 +170,10 @@ fn main() {
     };
 
     let out_dir = args.output_dir;
-    fs::create_dir_all(&out_dir).expect("failed to create out dir");
     for (i, path) in entries.iter().enumerate() {
         let name = format!("{}", path.display());
         let out_path = out_dir.join(path.file_stem().unwrap().to_str().unwrap());
+        fs::create_dir_all(&out_path).expect("failed to create out dir");
 
         match poach(&path, &out_path, !args.no_serialize) {
             Ok(_) => println!("[{}/{}] {} - SUCCESS", i + 1, entries.len(), name),
