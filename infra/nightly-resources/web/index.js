@@ -57,13 +57,23 @@ function loadTimeline() {
     .then(plot);
 }
 
+function getCmd(sexp) {
+  const match = sexp.match(/[^\(\s]+/);
+  if (match) {
+    return match[0];
+  } else {
+    console.warn(`could not parse command from ${sexp}`);
+    return null;
+  }
+}
+
 function processRawData(blob) {
   const RUN_CMDS = ["run", "run-schedule"];
   const EXT_CMDS = ["extract", "multi-extract"];
   const SERIALIZE_CMDS = ["serialize"];
   const DESERIALIZE_CMDS = ["deserialize"];
 
-  Object.entries(blob).forEach(([name, data]) => {
+  Object.entries(blob).forEach(([name, timelines]) => {
     const [suite, benchmark, _] = name.split("/");
     // Aggregate commands across all timelines
     const times = {
@@ -75,22 +85,21 @@ function processRawData(blob) {
       other: [],
     };
 
-    data.forEach((timeline) => {
-      timeline.evts.forEach((event) => {
-        const ms = event.total_time_ms;
-        const cmd = event.cmd;
+    timelines.forEach(({ events, sexps }) => {
+      events.forEach((time_ms, idx) => {
+        const cmd = getCmd(sexps[idx]);
 
         // group commands by type (run, extract, (de)serialize, other)
         if (RUN_CMDS.includes(cmd)) {
-          times.run.push(ms);
+          times.run.push(time_ms);
         } else if (EXT_CMDS.includes(cmd)) {
-          times.extract.push(ms);
+          times.extract.push(time_ms);
         } else if (SERIALIZE_CMDS.includes(cmd)) {
-          times.serialize.push(ms);
+          times.serialize.push(time_ms);
         } else if (DESERIALIZE_CMDS.includes(cmd)) {
-          times.deserialize.push(ms);
+          times.deserialize.push(time_ms);
         } else {
-          times.other.push(ms);
+          times.other.push(time_ms);
         }
       });
     });
