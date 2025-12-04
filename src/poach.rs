@@ -1,140 +1,239 @@
-use anyhow::{Context, Result};
-use clap::Parser;
-use egglog::{EGraph, SerializeConfig, TimedEgraph};
+use clap::{Parser, ValueEnum};
+use egglog::TimedEgraph;
 use env_logger::Env;
+use hashbrown::HashMap;
 
 use std::fmt::Debug;
-use std::fs;
+use std::fs::{self, read_to_string};
 use std::path::PathBuf;
-use std::time::Instant;
 use walkdir::WalkDir;
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ValueEnum, Debug)]
+enum RunMode {
+    // For each egg file under the input path,
+    //      run the egglog program and record timing information. Do not serialize.
+    //      Save the complete timeline, for consumption by the nightly frontend.
+    TimelineOnly,
+
+    // For each egg file under the input path,
+    //      Run the egglog program, recording timing information.
+    //      Serialize the resulting egraph, recording timing information.
+    //      Deserialize the serialized egraph, recording timing information.
+    //      Assert the deserialized egraph has the same size as the initial egraph
+    //      Save the complete timeline, for consumption by the nightly frontend.
+    SequentialRoundTrip,
+
+    // For each egg file under the input path,
+    //      Run the egglog program, recording timing information.
+    //      Serialize the resulting egraph
+    // For each egg file under the input path,
+    //      Deserialize the deserialized egraph
+    //      Assert the deserialized egraph has the same size as the initial egraph
+    // Save the complete timeline, for consumption by the nightly frontend.
+    InterleavedRoundTrip,
+
+    // For each egg file under the input path,
+    //      Run the egglog program.
+    //      Round trip to file twice.
+    //      Assert that the second round trip is idempotent (though the first may not be), crash if not.
+    IdempotentRoundTrip,
+
+    // For each egg file under the input path,
+    //      Run the egglog program, recording timing information.
+    //      Serialize the resulting egraph using both the poach serialization code and
+    //      the visualizer serialization code, which serializes only the parent-child relationships
+    //      Save the complete timeline, for consumption by the nightly frontend.
+    OldSerialize,
+}
 
 #[derive(Debug, Parser)]
 #[command(version = env!("FULL_VERSION"), about= env!("CARGO_PKG_DESCRIPTION"))]
 struct Args {
     input_path: PathBuf,
     output_dir: PathBuf,
-    #[arg(long)]
-    no_serialize: bool, // temporary flag to turn off serialization round trip because it can be too slow.
+    run_mode: RunMode,
 }
 
-fn check_egraph_size(egraph: &TimedEgraph) -> Result<()> {
+fn check_egraph_size(egraph: &TimedEgraph) {
     let expected = egraph.num_tuples();
-    for (i, eg) in egraph.egraphs().iter().enumerate() {
-        if eg.num_tuples() != expected {
-            anyhow::bail!(
-                "Egraph {} had {} tuples (expected {})",
-                i,
-                eg.num_tuples(),
-                expected
-            )
-        }
+    for eg in egraph.egraphs().iter() {
+        assert!(eg.num_tuples() == expected);
     }
-    Ok(())
 }
 
-fn check_idempotent(p1: &PathBuf, p2: &PathBuf, name: &str, out_dir: &PathBuf) -> Result<()> {
+fn check_idempotent(p1: &PathBuf, p2: &PathBuf, name: &str, out_dir: &PathBuf) {
     let json1: serde_json::Value = serde_json::from_str(
-        &fs::read_to_string(p1).context(format!("failed to open {}", p1.display()))?,
+        &fs::read_to_string(p1).expect(&format!("failed to open {}", p1.display())),
     )
-    .context(format!("failed to parse {}", p1.display()))?;
+    .expect(&format!("failed to parse {}", p1.display()));
 
     let json2: serde_json::Value = serde_json::from_str(
-        &fs::read_to_string(p2).context(format!("failed to open {}", p2.display()))?,
+        &fs::read_to_string(p2).expect(&format!("failed to open {}", p2.display())),
     )
-    .context(format!("failed to parse {}", p2.display()))?;
+    .expect(&format!("failed to parse {}", p2.display()));
 
-    match serde_json_diff::values(json1, json2) {
-        Some(diff) => {
-            let file = fs::File::create(out_dir.join("diff.json"))
-                .context("Failed to create diff file")?;
-            serde_json::to_writer_pretty(file, &diff).context("failed to serialize diff")?;
-            anyhow::bail!("diff for {}", name)
-        }
-        None => Ok(()),
+    if let Some(diff) = serde_json_diff::values(json1, json2) {
+        let file = fs::File::create(out_dir.join("diff.json")).expect("Failed to create diff file");
+        serde_json::to_writer_pretty(file, &diff).expect("failed to serialize diff");
+        panic!("Diff for {}", name)
     }
 }
 
-fn old_serialize(egraph: &EGraph, path: PathBuf) -> std::io::Result<()> {
-    let serialized_output = egraph.serialize(SerializeConfig::default());
-
-    if serialized_output.is_complete() {
-        serialized_output.egraph.to_json_file(path)
-    } else {
-        let parent = path.parent().unwrap();
-        let stem = path.file_stem().unwrap().to_string_lossy();
-        let ext = path.extension().unwrap_or_default().to_string_lossy();
-
-        println!("{stem} incomplete");
-
-        serialized_output
-            .egraph
-            .to_json_file(parent.join(format!("{stem}-incomplete.{ext}")))
-    }
-}
-
-fn poach(path: &PathBuf, out_dir: &PathBuf, serialize: bool) -> Result<TimedEgraph> {
-    if path.extension().and_then(|s| s.to_str()) != Some("egg") {
-        panic!("Not an egg file");
-    }
-
-    // filename for display
-    let filename = path
+fn run_egg_file(egg_file: &PathBuf) -> TimedEgraph {
+    let mut egraph = TimedEgraph::new();
+    let filename = egg_file
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("unknown");
 
-    // Create TimedEgraph
-    let mut egraph: TimedEgraph = TimedEgraph::new();
+    egraph
+        .parse_and_run_program(
+            filename,
+            &read_to_string(egg_file).expect(&format!("Failed to open {}", egg_file.display())),
+        )
+        .expect("fail");
 
-    // Read egg file
-    let program =
-        std::fs::read_to_string(path).expect(&format!("Failed to open {}", path.display()));
+    egraph
+}
 
-    // Run
-    egraph.parse_and_run_program(filename, &program)?;
+fn poach(files: Vec<PathBuf>, out_dir: &PathBuf, run_mode: RunMode) {
+    match run_mode {
+        RunMode::TimelineOnly => {
+            for (idx, file) in files.iter().enumerate() {
+                let name = file
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unknown");
+                println!("[{}/{}] {}", idx, files.len(), name);
+                let out_dir = out_dir.join(file.file_stem().unwrap().to_str().unwrap());
+                let egraph = run_egg_file(&file);
+                egraph.write_timeline(&out_dir).expect("fail");
+            }
+        }
+        RunMode::SequentialRoundTrip => {
+            for (idx, file) in files.iter().enumerate() {
+                let name = file
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unknown");
+                println!("[{}/{}] {}", idx, files.len(), name);
+                let out_dir = out_dir.join(file.file_stem().unwrap().to_str().unwrap());
+                let mut egraph = run_egg_file(&file);
+                let s1 = out_dir.join("serialize1.json");
 
-    if serialize {
-        // Round trip serialize egraph
-        let s1 = out_dir.join("serialize1.json");
-        let s2 = out_dir.join("serialize2.json");
-        let s3 = out_dir.join("serialize3.json");
+                egraph
+                    .serialize_egraph(&s1)
+                    .expect("failed to serialize s1.json");
 
-        old_serialize(egraph.egraphs().last().unwrap(), out_dir.join("old.json"))
-            .context("failed to serialize using old")?;
+                egraph
+                    .deserialize_egraph(&s1)
+                    .expect("failed to read s1.json");
 
-        egraph
-            .serialize_egraph(&s1)
-            .context("failed to serialize s1.json")?;
-        egraph
-            .deserialize_egraph(&s1)
-            .context("failed to read s1.json")?;
+                assert!(egraph.egraphs().len() == 2);
+                check_egraph_size(&egraph);
 
-        egraph
-            .serialize_egraph(&s2)
-            .context("failed to serialize s2.json")?;
-        egraph
-            .deserialize_egraph(&s2)
-            .context("failed to read s2.json")?;
+                egraph.write_timeline(&out_dir).expect("fail");
+            }
+        }
+        RunMode::InterleavedRoundTrip => {
+            let mut tmp = HashMap::new();
+            for (idx, file) in files.iter().enumerate() {
+                let name = file
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unknown");
+                println!("[{}/{}](Part 1) {}", idx, files.len(), name);
+                let out_dir = out_dir.join(file.file_stem().unwrap().to_str().unwrap());
+                let mut egraph = run_egg_file(&file);
+                let s1 = out_dir.join("serialize1.json");
+                egraph
+                    .serialize_egraph(&s1)
+                    .expect("failed to serialize s1.json");
+                tmp.insert(file, (out_dir, egraph));
+            }
+            for (idx, file) in files.iter().enumerate() {
+                let name = file
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unknown");
+                println!("[{}/{}](Part 2) {}", idx, files.len(), name);
+                let (out_dir, egraph) = tmp.get_mut(file).unwrap();
+                egraph
+                    .deserialize_egraph(&out_dir.join("serialize1.json"))
+                    .expect("failed to deserialize s1.json");
 
-        egraph
-            .serialize_egraph(&s3)
-            .context("failed to serialize s3.json")?;
-        egraph
-            .deserialize_egraph(&s3)
-            .context("failed to read s3.json")?;
+                assert!(egraph.egraphs().len() == 2);
+                check_egraph_size(&egraph);
 
-        // Check properties of serialization
-        check_egraph_size(&egraph)?;
-        check_idempotent(&s2, &s3, filename, &out_dir)?;
-        // todo: compare extracts between e1 and e3?
+                egraph.write_timeline(&out_dir).expect("fail");
+            }
+        }
+        RunMode::IdempotentRoundTrip => {
+            for (idx, file) in files.iter().enumerate() {
+                let name = file
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unknown");
+                println!("[{}/{}] {}", idx, files.len(), name);
+                let out_dir = out_dir.join(file.file_stem().unwrap().to_str().unwrap());
+                let mut egraph = run_egg_file(&file);
+                let s1 = out_dir.join("serialize1.json");
+                let s2 = out_dir.join("serialize2.json");
+                let s3 = out_dir.join("serialize3.json");
+
+                egraph
+                    .serialize_egraph(&s1)
+                    .expect("failed to serialize s1.json");
+
+                egraph
+                    .deserialize_egraph(&s1)
+                    .expect("failed to read s1.json");
+
+                egraph
+                    .serialize_egraph(&s2)
+                    .expect("failed to serialize s2.json");
+
+                egraph
+                    .deserialize_egraph(&s2)
+                    .expect("failed to read s2.json");
+
+                egraph
+                    .serialize_egraph(&s3)
+                    .expect("failed to serialize s3.json");
+
+                egraph
+                    .deserialize_egraph(&s3)
+                    .expect("failed to read s3.json");
+
+                assert!(egraph.egraphs().len() == 4);
+                check_egraph_size(&egraph);
+                check_idempotent(&s2, &s3, name, &out_dir);
+
+                egraph.write_timeline(&out_dir).expect("fail");
+            }
+        }
+        RunMode::OldSerialize => {
+            for (idx, file) in files.iter().enumerate() {
+                let name = file
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unknown");
+                println!("[{}/{}] {}", idx, files.len(), name);
+                let out_dir = out_dir.join(file.file_stem().unwrap().to_str().unwrap());
+                let mut egraph = run_egg_file(&file);
+
+                egraph
+                    .serialize_egraph(&out_dir.join("serialize-poach.json"))
+                    .expect("failed to serialize poach.json");
+
+                egraph
+                    .old_serialize_egraph(&out_dir.join("serialize-old.json"))
+                    .expect("failed to serialize old.json");
+
+                egraph.write_timeline(&out_dir).expect("fail");
+            }
+        }
     }
-
-    // Serialize Timeline
-    let timeline = egraph.serialized_timeline()?;
-    fs::write(out_dir.join("timeline.json"), timeline).context("failed to write timeline.json")?;
-
-    Ok(egraph)
 }
 
 fn main() {
@@ -165,30 +264,5 @@ fn main() {
         panic!("Input path is neither file nor directory: {:?}", input_path);
     };
 
-    for (i, path) in entries.iter().enumerate() {
-        let name = format!("{}", path.display());
-        let out_dir = args
-            .output_dir
-            .join(path.file_stem().unwrap().to_str().unwrap());
-        fs::create_dir_all(&out_dir).expect("failed to create out dir");
-
-        let timer = Instant::now();
-        match poach(&path, &out_dir, !args.no_serialize) {
-            Ok(_) => println!(
-                "[{}/{}][{}] {} - SUCCESS",
-                i + 1,
-                entries.len(),
-                timer.elapsed().as_secs(),
-                name
-            ),
-            Err(e) => println!(
-                "[{}/{}][{}] {} - FAIL: {}",
-                i + 1,
-                entries.len(),
-                timer.elapsed().as_secs(),
-                name,
-                e
-            ),
-        }
-    }
+    poach(entries, &args.output_dir, args.run_mode);
 }

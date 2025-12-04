@@ -2433,8 +2433,11 @@ impl TimedEgraph {
         output
     }
 
-    pub fn serialized_timeline(&self) -> Result<String, serde_json::Error> {
-        serde_json::to_string_pretty(&self.timeline)
+    pub fn write_timeline(&self, dir: &PathBuf) -> Result<(), serde_json::Error> {
+        fs::create_dir_all(dir).expect("Failed to create out dir");
+        let path = dir.join("timeline.json");
+        let file = File::create(&path).expect("Failed to create timeline.json");
+        serde_json::to_writer_pretty(file, &self.timeline)
     }
 
     fn run_program(
@@ -2469,6 +2472,28 @@ impl TimedEgraph {
         }
 
         Ok(outputs)
+    }
+
+    pub fn old_serialize_egraph(&mut self, path: &Path) -> Result<()> {
+        let mut timeline = ProgramTimeline::new("(old-serialize)");
+        let egraph = self.egraphs.last().unwrap();
+        timeline.evts.push(EgraphEvent {
+            sexp_idx: 0,
+            evt: START,
+            time_ms: self.timer.elapsed().as_millis(),
+        });
+
+        let serialized_output = egraph.serialize(SerializeConfig::default());
+        assert!(serialized_output.is_complete());
+        serialized_output.egraph.to_json_file(path)?;
+
+        timeline.evts.push(EgraphEvent {
+            sexp_idx: 0,
+            evt: END,
+            time_ms: self.timer.elapsed().as_millis(),
+        });
+        self.timeline.push(timeline);
+        Ok(())
     }
 
     pub fn serialize_egraph(&mut self, path: &Path) -> Result<()> {
