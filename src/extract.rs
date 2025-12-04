@@ -382,11 +382,15 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
                     if row.subsumed {
                         return;
                     }
-                    id2enode.insert(next_id, (func.clone(), row.vals.to_vec()));
+                    id2enode.push((func.clone(), row.vals.to_vec()));
                     let func_schema = &egraph.functions.get(func).unwrap().schema;
                     let mut num_children = 0;
-                    for (i, eclass) in row.vals.iter().take(row.vals.len() - 1).enumerate() {
-                        let sort = &func_schema.input[i];
+                    for (eclass, sort) in row
+                        .vals
+                        .iter()
+                        .take(row.vals.len() - 1)
+                        .zip(&func_schema.input)
+                    {
                         if sort.is_eq_sort() || sort.is_container_sort() {
                             eclass2parents
                                 .entry(*eclass)
