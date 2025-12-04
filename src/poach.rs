@@ -3,9 +3,10 @@ use clap::{Parser, ValueEnum};
 use egglog::TimedEgraph;
 use env_logger::Env;
 use hashbrown::HashMap;
+use serde::Serialize;
 
 use std::fmt::Debug;
-use std::fs::{self, create_dir_all, read_to_string};
+use std::fs::{self, create_dir_all, read_to_string, File};
 use std::path::PathBuf;
 use walkdir::WalkDir;
 
@@ -111,11 +112,16 @@ fn run_egg_file(egg_file: &PathBuf) -> TimedEgraph {
     egraph
 }
 
-fn process_files<F>(files: &[PathBuf], out_dir: &PathBuf, mut f: F)
+fn process_files<F>(
+    files: &[PathBuf],
+    out_dir: &PathBuf,
+    mut f: F,
+) -> (Vec<String>, Vec<(String, String)>)
 where
     F: FnMut(&PathBuf, &PathBuf) -> Result<()>,
 {
     let mut failures = vec![];
+    let mut successes = vec![];
     for (idx, file) in files.iter().enumerate() {
         let name = file
             .file_name()
@@ -126,9 +132,12 @@ where
         create_dir_all(&out_dir).expect("Failed to create out dir");
 
         match f(file, &out_dir) {
-            Ok(_) => println!("[{}/{}] {} : SUCCESS", idx, files.len(), name),
+            Ok(_) => {
+                successes.push(name.to_string());
+                println!("[{}/{}] {} : SUCCESS", idx, files.len(), name)
+            }
             Err(e) => {
-                failures.push((name, format!("{}", e)));
+                failures.push((name.to_string(), format!("{}", e)));
                 println!("[{}/{}] {} : FAILURE {}", idx, files.len(), name, e)
             }
         }
@@ -137,13 +146,18 @@ where
         println!("0 failures out of {} files", files.len());
     } else {
         println!("{} failures out of {} files", failures.len(), files.len());
-        for (name, reason) in failures {
+        for (name, reason) in failures.iter() {
             println!("{} | {}", name, reason);
         }
     }
+    (successes, failures)
 }
 
-fn poach(files: Vec<PathBuf>, out_dir: &PathBuf, run_mode: RunMode) {
+fn poach(
+    files: Vec<PathBuf>,
+    out_dir: &PathBuf,
+    run_mode: RunMode,
+) -> (Vec<String>, Vec<(String, String)>) {
     match run_mode {
         RunMode::TimelineOnly => process_files(&files, out_dir, |egg_file, out_dir| {
             let egraph = run_egg_file(egg_file);
@@ -196,7 +210,7 @@ fn poach(files: Vec<PathBuf>, out_dir: &PathBuf, run_mode: RunMode) {
 
                 egraph.write_timeline(out_dir)?;
                 Ok(())
-            });
+            })
         }
 
         RunMode::IdempotentRoundTrip => process_files(&files, out_dir, |egg_file, out_dir| {
@@ -286,5 +300,14 @@ fn main() {
         panic!("Input path is neither file nor directory: {:?}", input_path);
     };
 
-    poach(entries, &args.output_dir, args.run_mode);
+    let (success, failure) = poach(entries, &args.output_dir, args.run_mode);
+    #[derive(Serialize)]
+    struct Output {
+        success: Vec<String>,
+        failure: Vec<(String, String)>,
+    }
+    let out = Output { success, failure };
+    let file =
+        File::create(args.output_dir.join("summary.json")).expect("Failed to create summary.json");
+    serde_json::to_writer_pretty(file, &out).expect("failed to write summary.json");
 }
