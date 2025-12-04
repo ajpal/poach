@@ -131,9 +131,9 @@ where
         }
     }
     if failures.len() == 0 {
-        println!("No failures");
+        println!("0 failures out of {} files", files.len());
     } else {
-        println!("Failures:");
+        println!("{} failures out of {} files", failures.len(), files.len());
         for (name, reason) in failures {
             println!("{} | {}", name, reason);
         }
@@ -208,27 +208,27 @@ fn poach(files: Vec<PathBuf>, out_dir: &PathBuf, run_mode: RunMode) {
 
             egraph
                 .serialize_egraph(&s1)
-                .expect("failed to serialize s1.json");
+                .context("failed to serialize s1.json")?;
 
             egraph
                 .deserialize_egraph(&s1)
-                .expect("failed to read s1.json");
+                .context("failed to read s1.json")?;
 
             egraph
                 .serialize_egraph(&s2)
-                .expect("failed to serialize s2.json");
+                .context("failed to serialize s2.json")?;
 
             egraph
                 .deserialize_egraph(&s2)
-                .expect("failed to read s2.json");
+                .context("failed to read s2.json")?;
 
             egraph
                 .serialize_egraph(&s3)
-                .expect("failed to serialize s3.json");
+                .context("failed to serialize s3.json")?;
 
             egraph
                 .deserialize_egraph(&s3)
-                .expect("failed to read s3.json");
+                .context("failed to read s3.json")?;
 
             check_egraph_number(&egraph, 4)?;
             check_egraph_size(&egraph)?;
