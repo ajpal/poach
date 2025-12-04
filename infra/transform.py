@@ -81,9 +81,6 @@ def add_sexp_strs(timeline_events, program_text):
             raise IndexError("sexp_idx out of bounds")
     return sexps
 
-def poison(data):
-    data.append({"poison": True})
-
 def transform(input_dir, output_dir):
     """
     Processes all JSON files in the input directory, applying each transformation in order,

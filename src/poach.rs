@@ -55,6 +55,8 @@ fn check_idempotent(p1: &PathBuf, p2: &PathBuf, name: &str, out_dir: &PathBuf) -
     }
 }
 
+// Serialize using https://github.com/egraphs-good/egraph-serialize/
+// which was built primarily for the e-graph visualizer.
 fn old_serialize(egraph: &EGraph, path: PathBuf) -> std::io::Result<()> {
     let serialized_output = egraph.serialize(SerializeConfig::default());
 
