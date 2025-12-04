@@ -5,7 +5,7 @@ use env_logger::Env;
 use hashbrown::HashMap;
 
 use std::fmt::Debug;
-use std::fs::{self, read_to_string};
+use std::fs::{self, create_dir_all, read_to_string};
 use std::path::PathBuf;
 use walkdir::WalkDir;
 
@@ -122,6 +122,9 @@ where
             .and_then(|s| s.to_str())
             .unwrap_or("unknown");
         let out_dir = out_dir.join(file.file_stem().unwrap().to_str().unwrap());
+
+        create_dir_all(&out_dir).expect("Failed to create out dir");
+
         match f(file, &out_dir) {
             Ok(_) => println!("[{}/{}] {} : SUCCESS", idx, files.len(), name),
             Err(e) => {
