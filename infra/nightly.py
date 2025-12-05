@@ -60,6 +60,7 @@ if __name__ == "__main__":
   run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "interleaved-round-trip")
   run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "idempotent-round-trip")
   run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "old-serialize")
+  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "no-io")
 
   # Post-process timeline data
   transform.transform((nightly_dir / "raw"), (nightly_dir / "output" / "data"))
