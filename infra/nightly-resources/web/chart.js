@@ -85,45 +85,79 @@ function plotSerialization() {
   ).value;
   const benchmark = document.getElementById("tests").value;
 
-  const benchmarks = benchmark
-    ? [benchmark]
-    : Object.keys(GLOBAL_DATA.data.tests[runMode]);
+  if (benchmark) {
+    // Show all run modes for a single benchmark
+    const datasets = Object.fromEntries(
+      RUN_MODES.map((runMode) => [
+        runMode,
+        Object.fromEntries(
+          CMDS.map((cmd) => [
+            cmd,
+            aggregate(GLOBAL_DATA.data.tests[runMode][benchmark][cmd], "total"),
+          ])
+        ),
+      ])
+    );
 
-  const datasets = Object.fromEntries(
-    benchmarks.map((bench) => [
-      bench,
-      Object.fromEntries(
-        CMDS.map((cmd) => [
-          cmd,
-          aggregate(GLOBAL_DATA.data.tests[runMode][bench][cmd], "total"),
-        ])
-      ),
-    ])
-  );
-
-  if (mode === "percentage") {
-    benchmarks.forEach((bench) => {
-      const total = aggregate(
-        CMDS.map((cmd) => datasets[bench][cmd]),
-        "total"
-      );
-      CMDS.forEach((cmd) => {
-        datasets[bench][cmd] /= total;
+    if (mode === "percentage") {
+      Object.keys(datasets).forEach((entry) => {
+        const total = aggregate(
+          CMDS.map((cmd) => datasets[entry][cmd]),
+          "total"
+        );
+        CMDS.forEach((cmd) => {
+          datasets[entry][cmd] /= total;
+        });
       });
-    });
+    }
 
-    console.log(datasets);
+    const plotData = CMDS.map((cmd) => ({
+      label: cmd,
+      data: RUN_MODES.map((r) => datasets[r][cmd]),
+    }));
+
+    GLOBAL_DATA.serializeChart.data = {
+      labels: RUN_MODES,
+      datasets: plotData,
+    };
+  } else {
+    // Show a single run mode for all benchmarks
+
+    const benchmarks = Object.keys(GLOBAL_DATA.data.tests[runMode]);
+    const datasets = Object.fromEntries(
+      benchmarks.map((bench) => [
+        bench,
+        Object.fromEntries(
+          CMDS.map((cmd) => [
+            cmd,
+            aggregate(GLOBAL_DATA.data.tests[runMode][bench][cmd], "total"),
+          ])
+        ),
+      ])
+    );
+
+    if (mode === "percentage") {
+      Object.keys(datasets).forEach((entry) => {
+        const total = aggregate(
+          CMDS.map((cmd) => datasets[entry][cmd]),
+          "total"
+        );
+        CMDS.forEach((cmd) => {
+          datasets[entry][cmd] /= total;
+        });
+      });
+    }
+
+    const plotData = CMDS.map((cmd) => ({
+      label: cmd,
+      data: benchmarks.map((b) => datasets[b][cmd]),
+    }));
+
+    GLOBAL_DATA.serializeChart.data = {
+      labels: benchmarks,
+      datasets: plotData,
+    };
   }
-
-  const plotData = CMDS.map((cmd) => ({
-    label: cmd,
-    data: benchmarks.map((b) => datasets[b][cmd]),
-  }));
-
-  GLOBAL_DATA.serializeChart.data = {
-    labels: benchmarks,
-    datasets: plotData,
-  };
 
   GLOBAL_DATA.serializeChart.update();
 }
