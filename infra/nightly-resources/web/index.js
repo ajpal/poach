@@ -29,10 +29,16 @@ const BENCH_SUITES = [
   },
 ];
 
+const RUN_MODES = ["sequential", "interleaved", "old-serialize"];
+
 let chart = null;
 
+// Initialize map that will store the data for each run more for each benchmark suite
 let loadedData = Object.fromEntries(
-  BENCH_SUITES.map((suite) => [suite.dir, { ...suite, data: [] }])
+  BENCH_SUITES.map((suite) => [
+    suite.dir,
+    { ...suite, ...Object.fromEntries(RUN_MODES.map((mode) => [mode, []])) },
+  ])
 );
 
 /**
@@ -73,7 +79,10 @@ function processRawData(blob) {
   const DESERIALIZE_CMDS = ["deserialize"];
 
   Object.entries(blob).forEach(([name, timelines]) => {
-    const [suite, benchmark, _] = name.split("/");
+    const [suite, runMode, benchmark, _] = name.split("/");
+    if (!loadedData[suite]) {
+      return;
+    }
     // Aggregate commands across all timelines
     const times = {
       benchmark,
@@ -103,7 +112,7 @@ function processRawData(blob) {
       });
     });
 
-    loadedData[suite].data.push(times);
+    loadedData[suite][runMode].push(times);
   });
 }
 
@@ -176,12 +185,11 @@ function plot() {
 
   const datasets = Object.values(loadedData).map((suite) => ({
     label: suite.name,
-    data: Object.values(suite.data).map((entry) => {
-      return {
-        x: aggregate(entry.run, mode),
-        y: aggregate(entry.extract, mode),
-      };
-    }),
+    // todo other run modes
+    data: Object.values(suite.sequential).map((entry) => ({
+      x: aggregate(entry.run, mode),
+      y: aggregate(entry.extract, mode),
+    })),
     backgroundColor: suite.color,
     pointRadius: 4,
   }));
