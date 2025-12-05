@@ -2433,8 +2433,11 @@ impl TimedEgraph {
         output
     }
 
-    pub fn serialized_timeline(&self) -> Result<String, serde_json::Error> {
-        serde_json::to_string_pretty(&self.timeline)
+    pub fn write_timeline(&self, dir: &PathBuf) -> Result<(), serde_json::Error> {
+        fs::create_dir_all(dir).expect("Failed to create out dir");
+        let path = dir.join("timeline.json");
+        let file = File::create(&path).expect("Failed to create timeline.json");
+        serde_json::to_writer_pretty(file, &self.timeline)
     }
 
     fn run_program(
@@ -2471,18 +2474,19 @@ impl TimedEgraph {
         Ok(outputs)
     }
 
-    pub fn serialize_egraph(&mut self, path: &Path) -> Result<()> {
-        let mut timeline = ProgramTimeline::new("(serialize)");
+    pub fn old_serialize_egraph(&mut self, path: &Path) -> Result<()> {
+        let mut timeline = ProgramTimeline::new("(old-serialize)");
         let egraph = self.egraphs.last().unwrap();
         timeline.evts.push(EgraphEvent {
             sexp_idx: 0,
             evt: START,
             time_ms: self.timer.elapsed().as_millis(),
         });
-        let file = fs::File::create(path)
-            .with_context(|| format!("failed to create file {}", path.display()))?;
-        serde_json::to_writer_pretty(file, egraph)
-            .with_context(|| format!("failed to serialize egraph to {}", path.display()))?;
+
+        let serialized_output = egraph.serialize(SerializeConfig::default());
+        assert!(serialized_output.is_complete());
+        serialized_output.egraph.to_json_file(path)?;
+
         timeline.evts.push(EgraphEvent {
             sexp_idx: 0,
             evt: END,
@@ -2492,25 +2496,127 @@ impl TimedEgraph {
         Ok(())
     }
 
-    pub fn deserialize_egraph(&mut self, path: &Path) -> Result<()> {
-        let mut timeline = ProgramTimeline::new("(deserialize)");
+    pub fn to_value(&mut self) -> Result<serde_json::Value> {
+        let mut timeline = ProgramTimeline::new("(serialize)");
+
+        let egraph = self.egraphs.last().unwrap();
         timeline.evts.push(EgraphEvent {
             sexp_idx: 0,
             evt: START,
             time_ms: self.timer.elapsed().as_millis(),
         });
-        let file = fs::File::open(path)
-            .with_context(|| format!("failed to open file {}", path.display()))?;
-        let reader = BufReader::new(file);
-        let egraph = serde_json::from_reader(reader)?;
+
+        let value = serde_json::to_value(egraph).context("Failed to encode egraph as json")?;
 
         timeline.evts.push(EgraphEvent {
             sexp_idx: 0,
             evt: END,
             time_ms: self.timer.elapsed().as_millis(),
         });
+
+        self.timeline.push(timeline);
+        Ok(value)
+    }
+
+    pub fn from_value(&mut self, value: serde_json::Value) -> Result<()> {
+        let mut timeline = ProgramTimeline::new("(deserialize)");
+
+        timeline.evts.push(EgraphEvent {
+            sexp_idx: 0,
+            evt: START,
+            time_ms: self.timer.elapsed().as_millis(),
+        });
+
+        let egraph: EGraph =
+            serde_json::from_value(value).context("Failed to decode egraph from json")?;
+
+        timeline.evts.push(EgraphEvent {
+            sexp_idx: 0,
+            evt: END,
+            time_ms: self.timer.elapsed().as_millis(),
+        });
+
+        self.egraphs.push(egraph);
         self.timeline.push(timeline);
 
+        Ok(())
+    }
+
+    pub fn to_file(&mut self, path: &Path) -> Result<()> {
+        let mut timeline = ProgramTimeline::new("(serialize)\n(write)");
+        let egraph = self.egraphs.last().unwrap();
+        timeline.evts.push(EgraphEvent {
+            sexp_idx: 0,
+            evt: START,
+            time_ms: self.timer.elapsed().as_millis(),
+        });
+
+        let value = serde_json::to_value(egraph).context("Failed to encode egraph as json")?;
+
+        timeline.evts.push(EgraphEvent {
+            sexp_idx: 0,
+            evt: END,
+            time_ms: self.timer.elapsed().as_millis(),
+        });
+
+        timeline.evts.push(EgraphEvent {
+            sexp_idx: 1,
+            evt: START,
+            time_ms: self.timer.elapsed().as_millis(),
+        });
+
+        let file = fs::File::create(path)
+            .with_context(|| format!("failed to create file {}", path.display()))?;
+        serde_json::to_writer_pretty(file, &value).context("Failed to write value to file")?;
+
+        timeline.evts.push(EgraphEvent {
+            sexp_idx: 1,
+            evt: END,
+            time_ms: self.timer.elapsed().as_millis(),
+        });
+
+        self.timeline.push(timeline);
+
+        Ok(())
+    }
+
+    pub fn from_file(&mut self, path: &Path) -> Result<()> {
+        let mut timeline = ProgramTimeline::new("(read)\n(deserialize)");
+
+        timeline.evts.push(EgraphEvent {
+            sexp_idx: 0,
+            evt: START,
+            time_ms: self.timer.elapsed().as_millis(),
+        });
+
+        let file = fs::File::open(path)
+            .with_context(|| format!("failed to open file {}", path.display()))?;
+        let reader = BufReader::new(file);
+        let value: serde_json::Value =
+            serde_json::from_reader(reader).context("Failed to read json from file")?;
+
+        timeline.evts.push(EgraphEvent {
+            sexp_idx: 0,
+            evt: END,
+            time_ms: self.timer.elapsed().as_millis(),
+        });
+
+        timeline.evts.push(EgraphEvent {
+            sexp_idx: 1,
+            evt: START,
+            time_ms: self.timer.elapsed().as_millis(),
+        });
+
+        let egraph: EGraph =
+            serde_json::from_value(value).context("Failed to decode value as egraph")?;
+
+        timeline.evts.push(EgraphEvent {
+            sexp_idx: 1,
+            evt: END,
+            time_ms: self.timer.elapsed().as_millis(),
+        });
+
+        self.timeline.push(timeline);
         self.egraphs.push(egraph);
 
         Ok(())
