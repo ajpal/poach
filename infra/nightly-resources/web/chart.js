@@ -75,6 +75,11 @@ function plotTimeline() {
 function plotSerialization() {
   console.assert(GLOBAL_DATA.serializeChart !== null);
 
+  const runMode = document.querySelector(
+    'input[name="runModeToggle"]:checked'
+  ).value;
+  console.assert(RUN_MODES.includes(runMode));
+
   const mode = document.querySelector(
     'input[name="serializationMode"]:checked'
   ).value;
@@ -82,7 +87,7 @@ function plotSerialization() {
 
   const benchmarks = benchmark
     ? [benchmark]
-    : Object.keys(GLOBAL_DATA.data.tests.sequential);
+    : Object.keys(GLOBAL_DATA.data.tests[runMode]);
 
   const datasets = Object.fromEntries(
     benchmarks.map((bench) => [
@@ -90,11 +95,12 @@ function plotSerialization() {
       Object.fromEntries(
         CMDS.map((cmd) => [
           cmd,
-          aggregate(GLOBAL_DATA.data.tests.sequential[bench][cmd], "total"),
+          aggregate(GLOBAL_DATA.data.tests[runMode][bench][cmd], "total"),
         ])
       ),
     ])
   );
+
   if (mode === "percentage") {
     benchmarks.forEach((bench) => {
       const total = aggregate(

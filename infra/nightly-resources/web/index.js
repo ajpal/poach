@@ -2,7 +2,7 @@ const GLOBAL_DATA = {};
 
 function initializePage() {
   initializeGlobalData()
-    .then(initializeSerializationDropdown)
+    .then(initializeSerializationOptions)
     .then(initializeCharts)
     .then(plotTimeline)
     .then(plotSerialization);
@@ -50,7 +50,8 @@ const RUN_MODES = [
 
 const CMDS = ["run", "extract", "serialize", "deserialize", "read", "write"];
 
-function initializeSerializationDropdown() {
+function initializeSerializationOptions() {
+  // Populate dropdown with benchmarks
   const files = Object.keys(GLOBAL_DATA.data.tests.sequential).sort();
   const dropdownElt = document.getElementById("tests");
   files.forEach((file) => {
@@ -59,10 +60,24 @@ function initializeSerializationDropdown() {
     opt.textContent = file;
     dropdownElt.appendChild(opt);
   });
-}
 
-// Handlers
+  // Add run modes as radio buttons
+  const formElt = document.getElementById("runModeToggle");
+  RUN_MODES.forEach((runMode, idx) => {
+    const label = document.createElement("label");
+    const input = document.createElement("input");
 
-function serializationDropdownChange(e) {
-  plotSerialization(e.target.value);
+    input.type = "radio";
+    input.name = "runModeToggle";
+    input.value = runMode;
+
+    if (idx === 0) {
+      input.checked = true; // select first run mode
+    }
+
+    label.appendChild(input);
+    label.append(" " + runMode);
+
+    formElt.appendChild(label);
+  });
 }

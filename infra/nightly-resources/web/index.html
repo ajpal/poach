@@ -31,7 +31,7 @@
   <canvas class="content" id="run-extract-chart"></canvas>
 
   <h2>Serialization Tests</h2>
-  <select id="tests" onchange="serializationDropdownChange(event)">
+  <select id="tests" onchange="plotSerialization()">
     <option value="" selected>Show All Bechmarks</option>
   </select>
 
@@ -45,6 +45,8 @@
       Percentage
     </label>
   </form>
+
+  <form id="runModeToggle" onchange="plotSerialization()"></form>
 
   <canvas class="content" id="serialize-chart"></canvas>
 
