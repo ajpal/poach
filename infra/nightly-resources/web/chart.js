@@ -74,12 +74,15 @@ function plotTimeline() {
  */
 function plotSerialization() {
   console.assert(GLOBAL_DATA.serializeChart !== null);
-  const benchmarks = Object.keys(GLOBAL_DATA.data.tests.sequential);
 
   const mode = document.querySelector(
     'input[name="serializationMode"]:checked'
   ).value;
   const benchmark = document.getElementById("tests").value;
+
+  const benchmarks = benchmark
+    ? [benchmark]
+    : Object.keys(GLOBAL_DATA.data.tests.sequential);
 
   const datasets = Object.fromEntries(
     benchmarks.map((bench) => [
