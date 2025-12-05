@@ -2575,6 +2575,8 @@ impl TimedEgraph {
             time_ms: self.timer.elapsed().as_millis(),
         });
 
+        self.timeline.push(timeline);
+
         Ok(())
     }
 
