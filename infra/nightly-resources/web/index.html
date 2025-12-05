@@ -14,17 +14,17 @@
 
 <body onload="initializePage()">
   <h2>Plots</h2>
-  <form onchange="plot()">
+  <form onchange="plotTimeline()">
     <label>
-      <input type="radio" name="mode" value="total" checked>
+      <input type="radio" name="timelineMode" value="total" checked>
       Total
     </label>
     <label>
-      <input type="radio" name="mode" value="average">
+      <input type="radio" name="timelineMode" value="average">
       Average
     </label>
     <label>
-      <input type="radio" name="mode" value="max">
+      <input type="radio" name="timelineMode" value="max">
       Max
     </label>
   </form>
@@ -32,8 +32,19 @@
 
   <h2>Serialization Tests</h2>
   <select id="tests" onchange="serializationDropdownChange(event)">
-    <option value="AVERAGE" selected>Average All Bechmarks</option>
+    <option value="ALL" selected>Show All Bechmarks</option>
   </select>
+
+  <form onchange="plotSerialization()">
+    <label>
+      <input type="radio" name="serializationMode" value="total" checked>
+      Total
+    </label>
+    <label>
+      <input type="radio" name="serializationMode" value="percentage">
+      Percentage
+    </label>
+  </form>
 
   <canvas class="content" id="serialize-chart"></canvas>
 

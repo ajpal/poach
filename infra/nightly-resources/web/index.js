@@ -5,7 +5,7 @@ function initializePage() {
     .then(initializeSerializationDropdown)
     .then(initializeCharts)
     .then(plotTimeline)
-    .then(() => plotSerialization("AVERAGE"));
+    .then(plotSerialization);
 }
 
 /**
