@@ -31,7 +31,7 @@ enum RunMode {
     // For each egg file under the input path,
     //      Deserialize the deserialized egraph
     //      Assert the deserialized egraph has the same size as the initial egraph
-    // Save the complete timeline, for consumption by the nightly frontend.
+    //      Save the complete timeline, for consumption by the nightly frontend.
     InterleavedRoundTrip,
 
     // For each egg file under the input path,
@@ -46,6 +46,13 @@ enum RunMode {
     //      the visualizer serialization code, which serializes only the parent-child relationships
     //      Save the complete timeline, for consumption by the nightly frontend.
     OldSerialize,
+
+    // For each egg file under the input path,
+    //      Run the egglog program, recording timing information.
+    //      Round trip to JSON Value, but do not read/write from file
+    //      Assert the deserialized egraph has hthe same size as the initial egraph.
+    //      Save the completed timeline, for consumption by the nightly frontend
+    NoIO,
 }
 
 impl Display for RunMode {
@@ -59,6 +66,7 @@ impl Display for RunMode {
                 RunMode::InterleavedRoundTrip => "interleaved",
                 RunMode::IdempotentRoundTrip => "idempotent",
                 RunMode::OldSerialize => "old-serialize",
+                RunMode::NoIO => "no-io",
             }
         )
     }
@@ -187,13 +195,9 @@ fn poach(
                 let mut egraph = run_egg_file(egg_file);
                 let s1 = out_dir.join("serialize1.json");
 
-                egraph
-                    .serialize_egraph(&s1)
-                    .context("Failed to write s1.json")?;
+                egraph.to_file(&s1).context("Failed to write s1.json")?;
 
-                egraph
-                    .deserialize_egraph(&s1)
-                    .context("failed to read s1.json")?;
+                egraph.from_file(&s1).context("failed to read s1.json")?;
 
                 check_egraph_number(&egraph, 2)?;
 
@@ -209,16 +213,14 @@ fn poach(
             process_files(&files, out_dir, |egg_file, out_dir| {
                 let mut egraph = run_egg_file(egg_file);
                 let s1 = out_dir.join("serialize1.json");
-                egraph
-                    .serialize_egraph(&s1)
-                    .context("Failed to write s1.json")?;
+                egraph.to_file(&s1).context("Failed to write s1.json")?;
                 tmp.insert(egg_file.clone(), (out_dir.clone(), egraph));
                 Ok(())
             });
             process_files(&files, out_dir, |egg_file, _| {
                 let (out_dir, egraph) = tmp.get_mut(egg_file).unwrap();
                 egraph
-                    .deserialize_egraph(&out_dir.join("serialize1.json"))
+                    .from_file(&out_dir.join("serialize1.json"))
                     .context("Failed to read s1.json")?;
 
                 check_egraph_number(&egraph, 2)?;
@@ -239,29 +241,17 @@ fn poach(
             let s2 = out_dir.join("serialize2.json");
             let s3 = out_dir.join("serialize3.json");
 
-            egraph
-                .serialize_egraph(&s1)
-                .context("failed to serialize s1.json")?;
+            egraph.to_file(&s1).context("failed to serialize s1.json")?;
 
-            egraph
-                .deserialize_egraph(&s1)
-                .context("failed to read s1.json")?;
+            egraph.from_file(&s1).context("failed to read s1.json")?;
 
-            egraph
-                .serialize_egraph(&s2)
-                .context("failed to serialize s2.json")?;
+            egraph.to_file(&s2).context("failed to serialize s2.json")?;
 
-            egraph
-                .deserialize_egraph(&s2)
-                .context("failed to read s2.json")?;
+            egraph.from_file(&s2).context("failed to read s2.json")?;
 
-            egraph
-                .serialize_egraph(&s3)
-                .context("failed to serialize s3.json")?;
+            egraph.to_file(&s3).context("failed to serialize s3.json")?;
 
-            egraph
-                .deserialize_egraph(&s3)
-                .context("failed to read s3.json")?;
+            egraph.from_file(&s3).context("failed to read s3.json")?;
 
             check_egraph_number(&egraph, 4)?;
             check_egraph_size(&egraph)?;
@@ -275,7 +265,7 @@ fn poach(
             let mut egraph = run_egg_file(egg_file);
 
             egraph
-                .serialize_egraph(&out_dir.join("serialize-poach.json"))
+                .to_file(&out_dir.join("serialize-poach.json"))
                 .context("failed to write poach.json")?;
 
             egraph
@@ -283,6 +273,26 @@ fn poach(
                 .context("Failed to serialize old.json")?;
 
             egraph.write_timeline(out_dir)?;
+            Ok(())
+        }),
+
+        RunMode::NoIO => process_files(&files, out_dir, |egg_file, out_dir| {
+            let mut egraph = run_egg_file(egg_file);
+
+            let value = egraph
+                .to_value()
+                .context("Failed to encode egraph as json")?;
+
+            egraph
+                .from_value(value)
+                .context("failed to decode egraph from json")?;
+
+            check_egraph_number(&egraph, 2)?;
+
+            check_egraph_size(&egraph)?;
+
+            egraph.write_timeline(out_dir)?;
+
             Ok(())
         }),
     }

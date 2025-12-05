@@ -43,7 +43,7 @@ def parse_top_level_s_expressions(program_text):
     # Remove comments and blanks
     lines = [strip_comments(line) for line in program_text.splitlines()]
     lines = [line.strip() for line in lines if line.strip() != ""]
-    stripped_text = ''.join(lines)
+    stripped_text = '\n'.join(lines)
 
     stack = []
     current = ''

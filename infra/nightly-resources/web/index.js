@@ -45,6 +45,7 @@ const RUN_MODES = [
   "old-serialize",
   "idempotent",
   "timeline",
+  "no-io",
 ];
 
 function initializeGlobalData() {
@@ -150,6 +151,19 @@ function getCmd(sexp) {
   }
 }
 
+function getCmdType(cmd) {
+  const CMDS = ["run", "extract", "serialize", "deserialize", "read", "write"];
+  if (cmd === "run-schedule") {
+    return "run";
+  } else if (cmd === "multi-extract") {
+    return "extract";
+  } else if (CMDS.includes(cmd)) {
+    return cmd;
+  } else {
+    return "other";
+  }
+}
+
 /**
  * Expected data layout:
  * key is the name of the benchmark egg file
@@ -162,10 +176,7 @@ function getCmd(sexp) {
  * Each data point contains arrays of times for run, extract, serialize, and deserialize events
  */
 function processRawData(blob) {
-  const RUN_CMDS = ["run", "run-schedule"];
-  const EXT_CMDS = ["extract", "multi-extract"];
-  const SERIALIZE_CMDS = ["serialize"];
-  const DESERIALIZE_CMDS = ["deserialize"];
+  const CMDS = ["run", "extract", "serialize", "deserialize", "read", "write"];
 
   Object.entries(blob).forEach(([name, timelines]) => {
     const [suite, runMode, benchmark, _] = name.split("/");
@@ -175,10 +186,7 @@ function processRawData(blob) {
     // Aggregate commands across all timelines
     const times = {
       benchmark,
-      run: [],
-      extract: [],
-      serialize: [],
-      deserialize: [],
+      ...Object.fromEntries(CMDS.map((cmd) => [cmd, []])),
       other: [],
     };
 
@@ -186,18 +194,8 @@ function processRawData(blob) {
       events.forEach((time_ms, idx) => {
         const cmd = getCmd(sexps[idx]);
 
-        // group commands by type (run, extract, (de)serialize, other)
-        if (RUN_CMDS.includes(cmd)) {
-          times.run.push(time_ms);
-        } else if (EXT_CMDS.includes(cmd)) {
-          times.extract.push(time_ms);
-        } else if (SERIALIZE_CMDS.includes(cmd)) {
-          times.serialize.push(time_ms);
-        } else if (DESERIALIZE_CMDS.includes(cmd)) {
-          times.deserialize.push(time_ms);
-        } else {
-          times.other.push(time_ms);
-        }
+        // Group times by command type
+        times[getCmdType(cmd)].push(time_ms);
       });
     });
 
