@@ -5,7 +5,7 @@ use env_logger::Env;
 use hashbrown::HashMap;
 use serde::Serialize;
 
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::fs::{self, create_dir_all, read_to_string, File};
 use std::path::PathBuf;
 use walkdir::WalkDir;
@@ -46,6 +46,22 @@ enum RunMode {
     //      the visualizer serialization code, which serializes only the parent-child relationships
     //      Save the complete timeline, for consumption by the nightly frontend.
     OldSerialize,
+}
+
+impl Display for RunMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                RunMode::TimelineOnly => "timeline",
+                RunMode::SequentialRoundTrip => "sequential",
+                RunMode::InterleavedRoundTrip => "interleaved",
+                RunMode::IdempotentRoundTrip => "idempotent",
+                RunMode::OldSerialize => "old-serialize",
+            }
+        )
+    }
 }
 
 #[derive(Debug, Parser)]
@@ -300,7 +316,11 @@ fn main() {
         panic!("Input path is neither file nor directory: {:?}", input_path);
     };
 
-    let (success, failure) = poach(entries, &args.output_dir, args.run_mode);
+    let (success, failure) = poach(
+        entries,
+        &args.output_dir.join(args.run_mode.to_string()),
+        args.run_mode,
+    );
     #[derive(Serialize)]
     struct Output {
         success: Vec<String>,

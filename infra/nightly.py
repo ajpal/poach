@@ -55,10 +55,10 @@ if __name__ == "__main__":
     run_poach(resource_dir / "test-files" / suite, nightly_dir / "raw" / suite, "timeline-only")
 
   # Run the egglog tests under each serialization experiemntal treatment:
-  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests" / "sequential", "sequential-round-trip")
-  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests" / "interleaved", "interleaved-round-trip")
-  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests-idempotent", "idempotent-round-trip")
-  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests " / "old-serialize", "old-serialize")
+  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "sequential-round-trip")
+  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "interleaved-round-trip")
+  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "idempotent-round-trip")
+  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "old-serialize")
 
   # Post-process timeline data
   transform.transform((nightly_dir / "raw"), (nightly_dir / "output" / "data"))
