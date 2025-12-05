@@ -1,4 +1,6 @@
 // Set up chart containers
+// Seems important for Chart.js to change the data but not
+// create a new chart object to avoid some weird rendering flicekrs.
 function initializeCharts() {
   console.assert(GLOBAL_DATA.runExtractChart === null);
 
@@ -61,6 +63,13 @@ function plotTimeline() {
   GLOBAL_DATA.runExtractChart.update();
 }
 
+/**
+ * Plots a stacked bar chart, showing time spent in each phase (run, extract, serialize, deserialize, read, write)
+ * across the egglog tests benchmarks
+ *
+ * TODO: Use the dropdown value to zoom in one benchmark
+ * TODO: Toggle to switch between absolute and percentage
+ */
 function plotSerialization(benchmark) {
   console.assert(GLOBAL_DATA.serializeChart !== null);
   const benchmarks = Object.keys(GLOBAL_DATA.data.tests.sequential);
@@ -76,4 +85,6 @@ function plotSerialization(benchmark) {
       })),
     ],
   };
+
+  GLOBAL_DATA.serializeChart.update();
 }

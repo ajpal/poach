@@ -16,12 +16,6 @@ function initializeGlobalData() {
  * Expected data layout:
  * key is the name of the benchmark egg file
  * value is the array of timelines where each timeline contains an array of events
- *
- * Populated `GLOBAL_DATA` map with aggregated/processed data for chart
- * key is the benchmark category
- * value contains an array of data points, corresponding to all of the individual
- * egg files in the benchmark category.
- * Each data point contains arrays of times for run, extract, serialize, and deserialize events
  */
 function processRawData(blob) {
   Object.entries(blob).forEach(([name, timelines]) => {

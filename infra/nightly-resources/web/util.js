@@ -25,6 +25,9 @@ function aggregate(times, mode) {
   }
 }
 
+/**
+ * Extracts the first token from an s-expression.
+ */
 function getCmd(sexp) {
   const match = sexp.match(/[^\(\s\)]+/);
   if (match) {
