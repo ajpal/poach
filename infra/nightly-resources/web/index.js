@@ -29,7 +29,13 @@ const BENCH_SUITES = [
   },
 ];
 
-const RUN_MODES = ["sequential", "interleaved", "old-serialize"];
+const RUN_MODES = [
+  "sequential",
+  "interleaved",
+  "old-serialize",
+  "idempotent",
+  "timeline",
+];
 
 let chart = null;
 
@@ -186,7 +192,7 @@ function plot() {
   const datasets = Object.values(loadedData).map((suite) => ({
     label: suite.name,
     // todo other run modes
-    data: Object.values(suite.sequential).map((entry) => ({
+    data: Object.values(suite.timeline).map((entry) => ({
       x: aggregate(entry.run, mode),
       y: aggregate(entry.extract, mode),
     })),

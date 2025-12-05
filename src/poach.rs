@@ -296,6 +296,7 @@ fn main() {
         .parse_default_env()
         .init();
     let input_path = args.input_path.clone();
+    let output_dir = args.output_dir.join(args.run_mode.to_string());
 
     let entries = if input_path.is_file() {
         if input_path.extension().and_then(|s| s.to_str()) == Some("egg") {
@@ -316,11 +317,7 @@ fn main() {
         panic!("Input path is neither file nor directory: {:?}", input_path);
     };
 
-    let (success, failure) = poach(
-        entries,
-        &args.output_dir.join(args.run_mode.to_string()),
-        args.run_mode,
-    );
+    let (success, failure) = poach(entries, &output_dir, args.run_mode);
     #[derive(Serialize)]
     struct Output {
         success: Vec<String>,
@@ -328,6 +325,6 @@ fn main() {
     }
     let out = Output { success, failure };
     let file =
-        File::create(args.output_dir.join("summary.json")).expect("Failed to create summary.json");
+        File::create(output_dir.join("summary.json")).expect("Failed to create summary.json");
     serde_json::to_writer_pretty(file, &out).expect("failed to write summary.json");
 }
