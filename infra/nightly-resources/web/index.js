@@ -48,10 +48,10 @@ const RUN_MODES = [
   "no-io",
 ];
 
+const CMDS = ["run", "extract", "serialize", "deserialize", "read", "write"];
+
 function initializeSerializationDropdown() {
-  const files = GLOBAL_DATA.data.tests.sequential
-    .map((x) => x.benchmark)
-    .sort();
+  const files = Object.keys(GLOBAL_DATA.data.tests.sequential).sort();
   const dropdownElt = document.getElementById("tests");
   files.forEach((file) => {
     const opt = document.createElement("option");

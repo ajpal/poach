@@ -2,7 +2,7 @@ function initializeGlobalData() {
   GLOBAL_DATA.data = Object.fromEntries(
     BENCH_SUITES.map((suite) => [
       suite.dir,
-      { ...suite, ...Object.fromEntries(RUN_MODES.map((mode) => [mode, []])) },
+      { ...suite, ...Object.fromEntries(RUN_MODES.map((mode) => [mode, {}])) },
     ])
   );
   GLOBAL_DATA.runExtractChart = null;
@@ -24,8 +24,6 @@ function initializeGlobalData() {
  * Each data point contains arrays of times for run, extract, serialize, and deserialize events
  */
 function processRawData(blob) {
-  const CMDS = ["run", "extract", "serialize", "deserialize", "read", "write"];
-
   Object.entries(blob).forEach(([name, timelines]) => {
     const [suite, runMode, benchmark, _] = name.split("/");
     if (!GLOBAL_DATA.data[suite]) {
@@ -47,6 +45,6 @@ function processRawData(blob) {
       });
     });
 
-    GLOBAL_DATA.data[suite][runMode].push(times);
+    GLOBAL_DATA.data[suite][runMode][benchmark] = times;
   });
 }

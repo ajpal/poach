@@ -11,26 +11,6 @@ function initializeCharts() {
         title: {
           display: false,
         },
-        scales: {
-          xAxes: [
-            {
-              type: "linear",
-              position: "bottom",
-              scaleLabel: {
-                display: true,
-                labelString: "Run Time (ms)",
-              },
-            },
-          ],
-          yAxes: [
-            {
-              scaleLabel: {
-                display: true,
-                labelString: "Extract Time (ms)",
-              },
-            },
-          ],
-        },
       },
     }
   );
@@ -38,20 +18,19 @@ function initializeCharts() {
   console.assert(GLOBAL_DATA.serializeChart === null);
 
   GLOBAL_DATA.serializeChart = new Chart(
-    document.getElementById("serialize-chart").getContext("2d"),
+    document.getElementById("serialize-chart"),
     {
       type: "bar",
-      data: { labels: ["Serialize", "Deserialize"], datasets: [] },
+      data: {},
       options: {
+        indexAxis: "y",
         scales: {
-          y: {
-            beginAtZero: true,
-            title: {
-              display: true,
-              text: "Time (ms)",
-            },
+          x: {
+            stacked: true,
           },
-          x: {},
+          y: {
+            stacked: true,
+          },
         },
       },
     }
@@ -84,89 +63,17 @@ function plotTimeline() {
 
 function plotSerialization(benchmark) {
   console.assert(GLOBAL_DATA.serializeChart !== null);
+  const benchmarks = Object.keys(GLOBAL_DATA.data.tests.sequential);
 
-  const data = {
-    sequential: { serialize: 0, deserialize: 0 },
-    interleaved: { serialize: 0, deserialize: 0 },
+  GLOBAL_DATA.serializeChart.data = {
+    labels: benchmarks,
+    datasets: [
+      ...CMDS.map((cmd) => ({
+        label: cmd,
+        data: benchmarks.map((b) =>
+          aggregate(GLOBAL_DATA.data.tests.sequential[b][cmd], "total")
+        ),
+      })),
+    ],
   };
-  if (benchmark === "AVERAGE") {
-    data.sequential.serialize = GLOBAL_DATA.data.tests.sequential
-      .map((x) => {
-        if (x.serialize.length !== 1) {
-          console.warn(`Expected one serialize event, found ${x.serialize}`);
-        }
-        return x.serialize[0];
-      })
-      .reduce((acc, curr) => acc + curr, 0);
-    data.sequential.deserialize = GLOBAL_DATA.data.tests.sequential
-      .map((x) => {
-        if (x.deserialize.length !== 1) {
-          console.warn(
-            `Expected one deserialize event, found ${x.deserialize}`
-          );
-        }
-        return x.deserialize[0];
-      })
-      .reduce((acc, curr) => acc + curr, 0);
-
-    data.interleaved.serialize = GLOBAL_DATA.data.tests.interleaved
-      .map((x) => {
-        if (x.serialize.length !== 1) {
-          console.warn(`Expected one serialize event, found ${x.serialize}`);
-        }
-        return x.serialize[0];
-      })
-      .reduce((acc, curr) => acc + curr, 0);
-    data.interleaved.deserialize = GLOBAL_DATA.data.tests.interleaved
-      .map((x) => {
-        if (x.deserialize.length !== 1) {
-          console.warn(
-            `Expected one deserialize event, found ${x.deserialize}`
-          );
-        }
-        return x.deserialize[0];
-      })
-      .reduce((acc, curr) => acc + curr, 0);
-  } else {
-    const sequential = GLOBAL_DATA.data.tests.sequential.find(
-      (b) => b.benchmark == benchmark
-    );
-    const interleaved = GLOBAL_DATA.data.tests.interleaved.find(
-      (b) => b.benchmark == benchmark
-    );
-    if (!sequential || !interleaved) {
-      console.warn(`Couldn't find serialization data for ${benchmark}`);
-      return;
-    }
-
-    if (
-      sequential.serialize.length !== 1 ||
-      sequential.deserialize.length !== 1 ||
-      interleaved.serialize.length !== 1 ||
-      interleaved.deserialize.length !== 1
-    ) {
-      console.warn("Unexpected number of serialize/deserialize events");
-      return;
-    }
-
-    data.sequential.serialize = sequential.serialize[0];
-    data.sequential.deserialize = sequential.deserialize[0];
-    data.interleaved.serialize = interleaved.serialize[0];
-    data.interleaved.deserialize = interleaved.deserialize[0];
-  }
-
-  GLOBAL_DATA.serializeChart.data.datasets = [
-    {
-      label: "Sequential",
-      data: [data.sequential.serialize, data.sequential.deserialize],
-      backgroundColor: "red",
-    },
-    {
-      label: "Interleaved",
-      data: [data.interleaved.serialize, data.interleaved.deserialize],
-      backgroundColor: "blue",
-    },
-  ];
-
-  GLOBAL_DATA.serializeChart.update();
 }
