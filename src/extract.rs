@@ -1,7 +1,8 @@
 use crate::termdag::{Term, TermDag};
 use crate::util::{HashMap, HashSet};
 use crate::*;
-use std::collections::VecDeque;
+use std::cmp::Reverse;
+use std::collections::{BinaryHeap, VecDeque};
 
 /// An interface for custom cost model.
 ///
@@ -128,8 +129,8 @@ pub struct Extractor<C: Cost + Ord + Eq + Clone + Debug> {
     funcs: Vec<String>,
     cost_model: Box<dyn CostModel<C>>,
     costs: HashMap<String, HashMap<Value, C>>,
-    topo_rnk_cnt: usize,
-    topo_rnk: HashMap<String, HashMap<Value, usize>>,
+    // topo_rnk_cnt: usize,
+    // topo_rnk: HashMap<String, HashMap<Value, usize>>,
     parent_edge: HashMap<String, HashMap<Value, (String, Vec<Value>)>>,
 }
 
@@ -209,7 +210,7 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
 
         // Initialize the tables to have the reachable entries
         let mut costs: HashMap<String, HashMap<Value, C>> = Default::default();
-        let mut topo_rnk: HashMap<String, HashMap<Value, usize>> = Default::default();
+        // let mut topo_rnk: HashMap<String, HashMap<Value, usize>> = Default::default();
         let mut parent_edge: HashMap<String, HashMap<Value, (String, Vec<Value>)>> =
             Default::default();
 
@@ -218,7 +219,7 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
             if !costs.contains_key(func.schema.output.name()) {
                 debug_assert!(func.schema.output.is_eq_sort());
                 costs.insert(func.schema.output.name().to_owned(), Default::default());
-                topo_rnk.insert(func.schema.output.name().to_owned(), Default::default());
+                // topo_rnk.insert(func.schema.output.name().to_owned(), Default::default());
                 parent_edge.insert(func.schema.output.name().to_owned(), Default::default());
             }
         }
@@ -228,12 +229,12 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
             funcs,
             cost_model: Box::new(cost_model),
             costs,
-            topo_rnk_cnt: 0,
-            topo_rnk,
+            // topo_rnk_cnt: 0,
+            // topo_rnk,
             parent_edge,
         };
 
-        extractor.bellman_ford(egraph);
+        extractor.knuth_dijkstra(egraph);
 
         extractor
     }
@@ -304,37 +305,148 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
         ))
     }
 
-    fn compute_topo_rnk_node(&self, egraph: &EGraph, value: Value, sort: &ArcSort) -> usize {
-        if sort.is_container_sort() {
-            sort.inner_values(egraph.backend.container_values(), value)
-                .iter()
-                .fold(0, |ret, (sort, value)| {
-                    usize::max(ret, self.compute_topo_rnk_node(egraph, *value, sort))
-                })
-        } else if sort.is_eq_sort() {
-            if let Some(t) = self.topo_rnk.get(sort.name()) {
-                *t.get(&value).unwrap_or(&usize::MAX)
-            } else {
-                usize::MAX
-            }
-        } else {
-            0
-        }
-    }
+    // fn compute_topo_rnk_node(&self, egraph: &EGraph, value: Value, sort: &ArcSort) -> usize {
+    //     if sort.is_container_sort() {
+    //         sort.inner_values(egraph.backend.container_values(), value)
+    //             .iter()
+    //             .fold(0, |ret, (sort, value)| {
+    //                 usize::max(ret, self.compute_topo_rnk_node(egraph, *value, sort))
+    //             })
+    //     } else if sort.is_eq_sort() {
+    //         if let Some(t) = self.topo_rnk.get(sort.name()) {
+    //             *t.get(&value).unwrap_or(&usize::MAX)
+    //         } else {
+    //             usize::MAX
+    //         }
+    //     } else {
+    //         0
+    //     }
+    // }
 
-    fn compute_topo_rnk_hyperedge(
+    // fn compute_topo_rnk_hyperedge(
+    //     &self,
+    //     egraph: &EGraph,
+    //     row: &egglog_bridge::FunctionRow,
+    //     func: &Function,
+    // ) -> usize {
+    //     let sorts = &func.schema.input;
+    //     row.vals
+    //         .iter()
+    //         .zip(sorts.iter())
+    //         .fold(0, |ret, (value, sort)| {
+    //             usize::max(ret, self.compute_topo_rnk_node(egraph, *value, sort))
+    //         })
+    // }
+
+    fn compute_cost_hyperedge_kd(
         &self,
         egraph: &EGraph,
-        row: &egglog_bridge::FunctionRow,
+        row: &Vec<Value>,
         func: &Function,
-    ) -> usize {
+    ) -> Option<C> {
+        let mut ch_costs: Vec<C> = Vec::new();
         let sorts = &func.schema.input;
-        row.vals
-            .iter()
-            .zip(sorts.iter())
-            .fold(0, |ret, (value, sort)| {
-                usize::max(ret, self.compute_topo_rnk_node(egraph, *value, sort))
-            })
+        //log::debug!("compute_cost_hyperedge head {} sorts {:?}", head, sorts);
+        // Relying on .zip to truncate the values
+        for (value, sort) in row.iter().zip(sorts.iter()) {
+            if let Some(c) = self.compute_cost_node(egraph, *value, sort) {
+                ch_costs.push(c);
+            } else {
+                return None;
+            }
+        }
+        Some(self.cost_model.fold(
+            &func.decl.name,
+            &ch_costs,
+            self.cost_model.enode_cost(
+                egraph,
+                func,
+                &egglog_bridge::FunctionRow {
+                    subsumed: false,
+                    vals: row,
+                },
+            ),
+        ))
+    }
+
+    fn knuth_dijkstra(&mut self, egraph: &EGraph) {
+        type EnodeId = usize;
+        let mut id2enode: Vec<(String, Vec<Value>)> = Vec::new();
+        let mut eclass2parents: HashMap<Value, Vec<EnodeId>> = Default::default();
+        let mut remaining_children = Vec::new();
+        let mut next_id = 0;
+        for func in self.funcs.iter() {
+            egraph.backend.for_each(
+                egraph.functions.get(func).unwrap().backend_id,
+                |row: egglog_bridge::FunctionRow| {
+                    if row.subsumed {
+                        return;
+                    }
+                    id2enode.push((func.clone(), row.vals.to_vec()));
+                    let func_schema = &egraph.functions.get(func).unwrap().schema;
+                    let mut num_children = 0;
+                    for (eclass, sort) in row
+                        .vals
+                        .iter()
+                        .take(row.vals.len() - 1)
+                        .zip(&func_schema.input)
+                    {
+                        if sort.is_eq_sort() || sort.is_container_sort() {
+                            eclass2parents
+                                .entry(*eclass)
+                                .or_insert(Vec::new())
+                                .push(next_id);
+                            num_children += 1;
+                        }
+                    }
+                    remaining_children.push(num_children);
+                    next_id += 1;
+                },
+            );
+        }
+
+        let mut pq = BinaryHeap::new();
+        for (id, (func, vals)) in id2enode.iter().enumerate() {
+            if remaining_children[id] == 0 {
+                if let Some(cost) = self.compute_cost_hyperedge_kd(
+                    egraph,
+                    vals,
+                    &egraph.functions.get(func).unwrap(),
+                ) {
+                    pq.push(Reverse((cost, id)));
+                }
+            }
+        }
+
+        while let Some(Reverse((cost, enode_id))) = pq.pop() {
+            let (func, vals) = &id2enode[enode_id];
+            let eclass = vals.last().unwrap();
+            let func_tbl = egraph.functions.get(func).unwrap();
+            let func_name = func_tbl.schema.output.name();
+
+            if let (HEntry::Vacant(e_c), HEntry::Vacant(e_p)) = (
+                self.costs.get_mut(func_name).unwrap().entry(*eclass),
+                self.parent_edge.get_mut(func_name).unwrap().entry(*eclass),
+            ) {
+                e_c.insert(cost);
+                e_p.insert((func_tbl.decl.name.clone(), vals.clone()));
+            } else {
+                continue;
+            }
+
+            for &parent_id in eclass2parents.entry(*eclass).or_default().iter() {
+                remaining_children[parent_id] -= 1;
+                if remaining_children[parent_id] == 0 {
+                    if let Some(new_cost) = self.compute_cost_hyperedge_kd(
+                        egraph,
+                        &id2enode[parent_id].1,
+                        egraph.functions.get(&id2enode[parent_id].0).unwrap(),
+                    ) {
+                        pq.push(Reverse((new_cost, parent_id)));
+                    }
+                }
+            }
+        }
     }
 
     /// We use Bellman-Ford to compute the costs of the relevant eq sorts' terms
@@ -347,102 +459,102 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
     /// Additionally, to avoid cycles in the extraction even when the cost model can assign an equal cost to a term and its subterm.
     /// It computes a topological rank for each eclass
     /// and only allows each eclass to have children of classes of strictly smaller ranks in the extraction.
-    fn bellman_ford(&mut self, egraph: &EGraph) {
-        let mut ensure_fixpoint = false;
+    // fn bellman_ford(&mut self, egraph: &EGraph) {
+    //     let mut ensure_fixpoint = false;
 
-        let funcs = self.funcs.clone();
+    //     let funcs = self.funcs.clone();
 
-        while !ensure_fixpoint {
-            ensure_fixpoint = true;
+    //     while !ensure_fixpoint {
+    //         ensure_fixpoint = true;
 
-            for func_name in funcs.iter() {
-                let func = egraph.functions.get(func_name).unwrap();
-                let target_sort = func.schema.output.clone();
+    //         for func_name in funcs.iter() {
+    //             let func = egraph.functions.get(func_name).unwrap();
+    //             let target_sort = func.schema.output.clone();
 
-                let relax_hyperedge = |row: egglog_bridge::FunctionRow| {
-                    log::debug!("Relaxing a new hyperedge: {:?}", row);
-                    if !row.subsumed {
-                        let target = row.vals.last().unwrap();
-                        let mut updated = false;
-                        if let Some(new_cost) = self.compute_cost_hyperedge(egraph, &row, func) {
-                            match self
-                                .costs
-                                .get_mut(target_sort.name())
-                                .unwrap()
-                                .entry(*target)
-                            {
-                                HEntry::Vacant(e) => {
-                                    updated = true;
-                                    e.insert(new_cost);
-                                }
-                                HEntry::Occupied(mut e) => {
-                                    if new_cost < *(e.get()) {
-                                        updated = true;
-                                        e.insert(new_cost);
-                                    }
-                                }
-                            }
-                        }
-                        // record the chronological order of the updates
-                        // which serves as a topological order that avoids cycles
-                        // even when a term has a cost equal to its subterms
-                        if updated {
-                            ensure_fixpoint = false;
-                            self.topo_rnk_cnt += 1;
-                            self.topo_rnk
-                                .get_mut(target_sort.name())
-                                .unwrap()
-                                .insert(*target, self.topo_rnk_cnt);
-                        }
-                    }
-                };
+    //             let relax_hyperedge = |row: egglog_bridge::FunctionRow| {
+    //                 log::debug!("Relaxing a new hyperedge: {:?}", row);
+    //                 if !row.subsumed {
+    //                     let target = row.vals.last().unwrap();
+    //                     let mut updated = false;
+    //                     if let Some(new_cost) = self.compute_cost_hyperedge(egraph, &row, func) {
+    //                         match self
+    //                             .costs
+    //                             .get_mut(target_sort.name())
+    //                             .unwrap()
+    //                             .entry(*target)
+    //                         {
+    //                             HEntry::Vacant(e) => {
+    //                                 updated = true;
+    //                                 e.insert(new_cost);
+    //                             }
+    //                             HEntry::Occupied(mut e) => {
+    //                                 if new_cost < *(e.get()) {
+    //                                     updated = true;
+    //                                     e.insert(new_cost);
+    //                                 }
+    //                             }
+    //                         }
+    //                     }
+    //                     // record the chronological order of the updates
+    //                     // which serves as a topological order that avoids cycles
+    //                     // even when a term has a cost equal to its subterms
+    //                     if updated {
+    //                         ensure_fixpoint = false;
+    //                         self.topo_rnk_cnt += 1;
+    //                         self.topo_rnk
+    //                             .get_mut(target_sort.name())
+    //                             .unwrap()
+    //                             .insert(*target, self.topo_rnk_cnt);
+    //                     }
+    //                 }
+    //             };
 
-                egraph.backend.for_each(func.backend_id, relax_hyperedge);
-            }
-        }
+    //             egraph.backend.for_each(func.backend_id, relax_hyperedge);
+    //         }
+    //     }
 
-        // Save the edges for reconstruction
-        for func_name in funcs.iter() {
-            let func = egraph.functions.get(func_name).unwrap();
-            let target_sort = func.schema.output.clone();
+    //     // Save the edges for reconstruction
+    //     for func_name in funcs.iter() {
+    //         let func = egraph.functions.get(func_name).unwrap();
+    //         let target_sort = func.schema.output.clone();
 
-            let save_best_parent_edge = |row: egglog_bridge::FunctionRow| {
-                if !row.subsumed {
-                    let target = row.vals.last().unwrap();
-                    if let Some(best_cost) = self.costs.get(target_sort.name()).unwrap().get(target)
-                    {
-                        if Some(best_cost.clone())
-                            == self.compute_cost_hyperedge(egraph, &row, func)
-                        {
-                            // one of the possible best parent edges
-                            let target_topo_rnk = *self
-                                .topo_rnk
-                                .get(target_sort.name())
-                                .unwrap()
-                                .get(target)
-                                .unwrap();
-                            if target_topo_rnk > self.compute_topo_rnk_hyperedge(egraph, &row, func)
-                            {
-                                // one of the parent edges that avoids cycles
-                                if let HEntry::Vacant(e) = self
-                                    .parent_edge
-                                    .get_mut(target_sort.name())
-                                    .unwrap()
-                                    .entry(*target)
-                                {
-                                    e.insert((func.decl.name.clone(), row.vals.to_vec()));
-                                }
-                            }
-                        }
-                    }
-                }
-            };
+    //         let save_best_parent_edge = |row: egglog_bridge::FunctionRow| {
+    //             if !row.subsumed {
+    //                 let target = row.vals.last().unwrap();
+    //                 if let Some(best_cost) = self.costs.get(target_sort.name()).unwrap().get(target)
+    //                 {
+    //                     if Some(best_cost.clone())
+    //                         == self.compute_cost_hyperedge(egraph, &row, func)
+    //                     {
+    //                         // one of the possible best parent edges
+    //                         let target_topo_rnk = *self
+    //                             .topo_rnk
+    //                             .get(target_sort.name())
+    //                             .unwrap()
+    //                             .get(target)
+    //                             .unwrap();
+    //                         if target_topo_rnk > self.compute_topo_rnk_hyperedge(egraph, &row, func)
+    //                         {
+    //                             // one of the parent edges that avoids cycles
+    //                             if let HEntry::Vacant(e) = self
+    //                                 .parent_edge
+    //                                 .get_mut(target_sort.name())
+    //                                 .unwrap()
+    //                                 .entry(*target)
+    //                             {
+    //                                 e.insert((func.decl.name.clone(), row.vals.to_vec()));
+    //                             }
+    //                         }
+    //                     }
+    //                 }
+    //             }
+    //         };
 
-            egraph
-                .backend
-                .for_each(func.backend_id, save_best_parent_edge);
-        }
-    }
+    //         egraph
+    //             .backend
+    //             .for_each(func.backend_id, save_best_parent_edge);
+    //     }
+    // }
 
     /// This recursively reconstruct the termdag that gives the minimum cost for eclass value.
     fn reconstruct_termdag_node(
