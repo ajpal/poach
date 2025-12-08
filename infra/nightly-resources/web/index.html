@@ -31,9 +31,13 @@
   <canvas class="content" id="run-extract-chart"></canvas>
 
   <h2>Serialization Tests</h2>
+  <form id="suite" onchange="updateSerializationOptions()"></form>
+
   <select id="tests" onchange="plotSerialization()">
     <option value="" selected>Show All Bechmarks</option>
   </select>
+
+
 
   <form onchange="plotSerialization()">
     <label>
@@ -48,7 +52,7 @@
 
   <form id="runModeToggle" onchange="plotSerialization()"></form>
 
-  <canvas class="content" id="serialize-chart"></canvas>
+  <canvas class="content" id="serialize-chart" height="500px"></canvas>
 
   <h2>Raw</h2>
   <p>

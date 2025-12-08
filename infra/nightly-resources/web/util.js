@@ -6,7 +6,7 @@
  * @returns {number} - The aggregated value based on the selected mode.
  */
 function aggregate(times, mode) {
-  if (times.length == 0) {
+  if (!times || times.length == 0) {
     return 0;
   }
   switch (mode) {

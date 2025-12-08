@@ -25,6 +25,15 @@ function initializeCharts() {
       type: "bar",
       data: {},
       options: {
+        plugins: {
+          title: {
+            display: true,
+            text: "Placeholder Title",
+            font: {
+              size: 20,
+            },
+          },
+        },
         indexAxis: "y",
         scales: {
           x: {
@@ -73,17 +82,32 @@ function plotTimeline() {
  * TODO: Toggle to switch between absolute and percentage
  */
 function plotSerialization() {
-  console.assert(GLOBAL_DATA.serializeChart !== null);
+  if (GLOBAL_DATA.serializeChart === null) {
+    return;
+  }
+
+  const suite = document.querySelector(
+    'input[name="suiteToggle"]:checked'
+  ).value;
 
   const runMode = document.querySelector(
     'input[name="runModeToggle"]:checked'
   ).value;
+
   console.assert(RUN_MODES.includes(runMode));
 
   const mode = document.querySelector(
     'input[name="serializationMode"]:checked'
   ).value;
   const benchmark = document.getElementById("tests").value;
+
+  const title = benchmark
+    ? `Showing all run modes for ${benchmark} (${
+        mode === "percentage" ? "% Run Time" : "Total Run Time"
+      })`
+    : `Showing ${runMode} for ${suite} benchmarks (${
+        mode === "percentage" ? "% Run Time" : "Total Run Time"
+      })`;
 
   if (benchmark) {
     // Show all run modes for a single benchmark
@@ -93,10 +117,13 @@ function plotSerialization() {
         Object.fromEntries(
           CMDS.map((cmd) => [
             cmd,
-            aggregate(GLOBAL_DATA.data.tests[runMode][benchmark][cmd], "total"),
+            aggregate(
+              GLOBAL_DATA.data[suite][runMode]?.[benchmark]?.[cmd],
+              "total"
+            ),
           ])
         ),
-      ])
+      ]).filter((entry) => Object.values(entry[1]).some((v) => v !== 0))
     );
 
     if (mode === "percentage") {
@@ -113,24 +140,24 @@ function plotSerialization() {
 
     const plotData = CMDS.map((cmd) => ({
       label: cmd,
-      data: RUN_MODES.map((r) => datasets[r][cmd]),
+      data: Object.keys(datasets).map((r) => datasets[r]?.[cmd]),
     }));
 
     GLOBAL_DATA.serializeChart.data = {
-      labels: RUN_MODES,
+      labels: Object.keys(datasets),
       datasets: plotData,
     };
   } else {
     // Show a single run mode for all benchmarks
 
-    const benchmarks = Object.keys(GLOBAL_DATA.data.tests[runMode]);
+    const benchmarks = Object.keys(GLOBAL_DATA.data[suite][runMode]);
     const datasets = Object.fromEntries(
       benchmarks.map((bench) => [
         bench,
         Object.fromEntries(
           CMDS.map((cmd) => [
             cmd,
-            aggregate(GLOBAL_DATA.data.tests[runMode][bench][cmd], "total"),
+            aggregate(GLOBAL_DATA.data[suite][runMode][bench][cmd], "total"),
           ])
         ),
       ])
@@ -153,6 +180,7 @@ function plotSerialization() {
       data: benchmarks.map((b) => datasets[b][cmd]),
     }));
 
+    GLOBAL_DATA.serializeChart.options.plugins.title.text = title;
     GLOBAL_DATA.serializeChart.data = {
       labels: benchmarks,
       datasets: plotData,
