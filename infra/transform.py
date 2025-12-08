@@ -23,7 +23,7 @@ def merge_start_end_events(timeline_events):
             raise ValueError("Events must alternate between start and end")
         
         assert(start['sexp_idx'] == end['sexp_idx'])
-        merged_events.append(end['time_ms'] - start['time_ms'])
+        merged_events.append(end['time_micros'] - start['time_micros'])
     return merged_events
 
 def strip_comments(line):
