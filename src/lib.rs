@@ -2437,7 +2437,7 @@ impl TimedEgraph {
         fs::create_dir_all(dir).expect("Failed to create out dir");
         let path = dir.join("timeline.json");
         let file = File::create(&path).expect("Failed to create timeline.json");
-        serde_json::to_writer_pretty(file, &self.timeline)
+        serde_json::to_writer(file, &self.timeline)
     }
 
     fn run_program(
@@ -2567,7 +2567,7 @@ impl TimedEgraph {
 
         let file = fs::File::create(path)
             .with_context(|| format!("failed to create file {}", path.display()))?;
-        serde_json::to_writer_pretty(file, &value).context("Failed to write value to file")?;
+        serde_json::to_writer(file, &value).context("Failed to write value to file")?;
 
         timeline.evts.push(EgraphEvent {
             sexp_idx: 1,
