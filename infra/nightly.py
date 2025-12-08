@@ -53,6 +53,7 @@ if __name__ == "__main__":
   for suite in benchmark_suites:
     # Run timeline-only mode for the benchmark suites where serialization is too slow:
     run_poach(resource_dir / "test-files" / suite, nightly_dir / "raw" / suite, "timeline-only")
+    run_poach(resource_dir / "test-files" / suite, nightly_dir / "raw" / suite, "no-io")
 
   # Run the egglog tests under each serialization experiemntal treatment:
   run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "timeline-only")
