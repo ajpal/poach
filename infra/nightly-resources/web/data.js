@@ -31,11 +31,11 @@ function processRawData(blob) {
     };
 
     timelines.forEach(({ events, sexps }) => {
-      events.forEach((time_ms, idx) => {
+      events.forEach((time_micros, idx) => {
         const cmd = getCmd(sexps[idx]);
 
         // Group times by command type
-        times[getCmdType(cmd)].push(time_ms);
+        times[getCmdType(cmd)].push(time_micros);
       });
     });
 

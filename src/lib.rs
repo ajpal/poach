@@ -2374,7 +2374,7 @@ static END: &'static str = "end";
 pub struct EgraphEvent {
     sexp_idx: i32,
     evt: &'static str,
-    time_ms: u128,
+    time_micros: u128,
 }
 
 #[derive(Serialize, Clone)]
@@ -2452,7 +2452,7 @@ impl TimedEgraph {
             program_timeline.evts.push(EgraphEvent {
                 sexp_idx: i,
                 evt: START,
-                time_ms: self.timer.elapsed().as_millis(),
+                time_micros: self.timer.elapsed().as_micros(),
             });
 
             for processed in egraph.process_command(command)? {
@@ -2465,7 +2465,7 @@ impl TimedEgraph {
             program_timeline.evts.push(EgraphEvent {
                 sexp_idx: i,
                 evt: END,
-                time_ms: self.timer.elapsed().as_millis(),
+                time_micros: self.timer.elapsed().as_micros(),
             });
 
             i = i + 1;
@@ -2480,7 +2480,7 @@ impl TimedEgraph {
         timeline.evts.push(EgraphEvent {
             sexp_idx: 0,
             evt: START,
-            time_ms: self.timer.elapsed().as_millis(),
+            time_micros: self.timer.elapsed().as_micros(),
         });
 
         let serialized_output = egraph.serialize(SerializeConfig::default());
@@ -2490,7 +2490,7 @@ impl TimedEgraph {
         timeline.evts.push(EgraphEvent {
             sexp_idx: 0,
             evt: END,
-            time_ms: self.timer.elapsed().as_millis(),
+            time_micros: self.timer.elapsed().as_micros(),
         });
         self.timeline.push(timeline);
         Ok(())
@@ -2503,7 +2503,7 @@ impl TimedEgraph {
         timeline.evts.push(EgraphEvent {
             sexp_idx: 0,
             evt: START,
-            time_ms: self.timer.elapsed().as_millis(),
+            time_micros: self.timer.elapsed().as_micros(),
         });
 
         let value = serde_json::to_value(egraph).context("Failed to encode egraph as json")?;
@@ -2511,7 +2511,7 @@ impl TimedEgraph {
         timeline.evts.push(EgraphEvent {
             sexp_idx: 0,
             evt: END,
-            time_ms: self.timer.elapsed().as_millis(),
+            time_micros: self.timer.elapsed().as_micros(),
         });
 
         self.timeline.push(timeline);
@@ -2524,7 +2524,7 @@ impl TimedEgraph {
         timeline.evts.push(EgraphEvent {
             sexp_idx: 0,
             evt: START,
-            time_ms: self.timer.elapsed().as_millis(),
+            time_micros: self.timer.elapsed().as_micros(),
         });
 
         let egraph: EGraph =
@@ -2533,7 +2533,7 @@ impl TimedEgraph {
         timeline.evts.push(EgraphEvent {
             sexp_idx: 0,
             evt: END,
-            time_ms: self.timer.elapsed().as_millis(),
+            time_micros: self.timer.elapsed().as_micros(),
         });
 
         self.egraphs.push(egraph);
@@ -2548,7 +2548,7 @@ impl TimedEgraph {
         timeline.evts.push(EgraphEvent {
             sexp_idx: 0,
             evt: START,
-            time_ms: self.timer.elapsed().as_millis(),
+            time_micros: self.timer.elapsed().as_micros(),
         });
 
         let value = serde_json::to_value(egraph).context("Failed to encode egraph as json")?;
@@ -2556,13 +2556,13 @@ impl TimedEgraph {
         timeline.evts.push(EgraphEvent {
             sexp_idx: 0,
             evt: END,
-            time_ms: self.timer.elapsed().as_millis(),
+            time_micros: self.timer.elapsed().as_micros(),
         });
 
         timeline.evts.push(EgraphEvent {
             sexp_idx: 1,
             evt: START,
-            time_ms: self.timer.elapsed().as_millis(),
+            time_micros: self.timer.elapsed().as_micros(),
         });
 
         let file = fs::File::create(path)
@@ -2572,7 +2572,7 @@ impl TimedEgraph {
         timeline.evts.push(EgraphEvent {
             sexp_idx: 1,
             evt: END,
-            time_ms: self.timer.elapsed().as_millis(),
+            time_micros: self.timer.elapsed().as_micros(),
         });
 
         self.timeline.push(timeline);
@@ -2586,7 +2586,7 @@ impl TimedEgraph {
         timeline.evts.push(EgraphEvent {
             sexp_idx: 0,
             evt: START,
-            time_ms: self.timer.elapsed().as_millis(),
+            time_micros: self.timer.elapsed().as_micros(),
         });
 
         let file = fs::File::open(path)
@@ -2598,13 +2598,13 @@ impl TimedEgraph {
         timeline.evts.push(EgraphEvent {
             sexp_idx: 0,
             evt: END,
-            time_ms: self.timer.elapsed().as_millis(),
+            time_micros: self.timer.elapsed().as_micros(),
         });
 
         timeline.evts.push(EgraphEvent {
             sexp_idx: 1,
             evt: START,
-            time_ms: self.timer.elapsed().as_millis(),
+            time_micros: self.timer.elapsed().as_micros(),
         });
 
         let egraph: EGraph =
@@ -2613,7 +2613,7 @@ impl TimedEgraph {
         timeline.evts.push(EgraphEvent {
             sexp_idx: 1,
             evt: END,
-            time_ms: self.timer.elapsed().as_millis(),
+            time_micros: self.timer.elapsed().as_micros(),
         });
 
         self.timeline.push(timeline);
