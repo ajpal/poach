@@ -35,7 +35,7 @@ function processRawData(blob) {
         const cmd = getCmd(sexps[idx]);
 
         // Group times by command type
-        times[getCmdType(cmd)].push(time_micros);
+        times[getCmdType(cmd)].push(time_micros / 1000); // we measure microseconds, but for charts, it's nicer to show in ms
       });
     });
 

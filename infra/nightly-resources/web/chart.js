@@ -13,6 +13,21 @@ function initializeCharts() {
         title: {
           display: false,
         },
+        scales: {
+          x: {
+            type: "linear",
+            title: {
+              display: true,
+              text: "Run Time (ms)",
+            },
+          },
+          y: {
+            title: {
+              display: true,
+              text: "Extract Time (ms)",
+            },
+          },
+        },
       },
     }
   );
@@ -26,6 +41,9 @@ function initializeCharts() {
       data: {},
       options: {
         plugins: {
+          legend: {
+            onClick: (e) => {}, // no-op (disable toggling series)
+          },
           title: {
             display: true,
             text: "Placeholder Title",
@@ -37,6 +55,11 @@ function initializeCharts() {
         indexAxis: "y",
         scales: {
           x: {
+            type: "linear",
+            title: {
+              display: true,
+              text: "",
+            },
             stacked: true,
           },
           y: {
@@ -179,6 +202,10 @@ function plotSerialization() {
       label: cmd,
       data: benchmarks.map((b) => datasets[b][cmd]),
     }));
+
+    GLOBAL_DATA.serializeChart.options.scales.x.title.text = `Run Time (${
+      mode === "percentage" ? "%" : "ms"
+    })`;
 
     GLOBAL_DATA.serializeChart.options.plugins.title.text = title;
     GLOBAL_DATA.serializeChart.data = {
