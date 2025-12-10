@@ -11,6 +11,9 @@ def run_cmd(cmd, msg = "", dry_run = False):
   if not dry_run:
     subprocess.run(cmd, check = True)
 
+def run_poach(in_dir, out_dir, run_mode):
+  poach_exe = top_dir / "target" / "release" / "poach"
+  run_cmd([str(poach_exe), str(in_dir), str(out_dir), run_mode])
 
 if __name__ == "__main__":
   print("Beginning poach nightly")
@@ -36,7 +39,6 @@ if __name__ == "__main__":
 
   # Build poach
   run_cmd(["cargo", "build", "--release"])
-  poach_exe = top_dir / "target" / "release" / "poach"
 
   # Clean previous nightly run
   if nightly_dir.exists():
@@ -47,16 +49,21 @@ if __name__ == "__main__":
   (nightly_dir / "output").mkdir(parents = True, exist_ok = False)
 
   # Iterate through each benchmark suite:
-  dirs = [d for d in (resource_dir / "test-files").iterdir() if d.is_dir()]
-  for dir_path in dirs:
-    dir_name = dir_path.name
-    target_dir = nightly_dir / "raw" / dir_name
-    target_dir.mkdir(parents = True, exist_ok = True)
-    run_cmd([str(poach_exe), str(dir_path), str(target_dir), "--no-serialize"], dry_run = False)
+  timeline_suites = ["easteregg", "herbie-hamming", "herbie-math-rewrite", "herbie-math-taylor"]
+  for suite in timeline_suites:
+    run_poach(resource_dir / "test-files" / suite, nightly_dir / "raw" / suite, "timeline-only")
 
+  no_io_suites = ["easteregg", "herbie-hamming", "herbie-math-rewrite"] # herbie-math-taylor runs out of memory
+  for suite in no_io_suites:
+    run_poach(resource_dir / "test-files" / suite, nightly_dir / "raw" / suite, "no-io")
 
-  # Also run the egglog tests
-  run_cmd([str(poach_exe), str( top_dir / "tests"), str(nightly_dir / "raw" / "tests")], dry_run = False)
+  # Run the egglog tests under each serialization experiemntal treatment:
+  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "timeline-only")
+  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "sequential-round-trip")
+  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "interleaved-round-trip")
+  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "idempotent-round-trip")
+  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "old-serialize")
+  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "no-io")
 
   # Post-process timeline data
   transform.transform((nightly_dir / "raw"), (nightly_dir / "output" / "data"))
