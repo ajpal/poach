@@ -54,7 +54,7 @@ if __name__ == "__main__":
     run_poach(resource_dir / "test-files" / suite, nightly_dir / "raw" / suite, "timeline-only")
 
   no_io_suites = ["easteregg", "herbie-hamming", "herbie-math-rewrite"] # herbie-math-taylor runs out of memory
-  for suite in timeline_suites:
+  for suite in no_io_suites:
     run_poach(resource_dir / "test-files" / suite, nightly_dir / "raw" / suite, "no-io")
 
   # Run the egglog tests under each serialization experiemntal treatment:
