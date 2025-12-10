@@ -49,10 +49,12 @@ if __name__ == "__main__":
   (nightly_dir / "output").mkdir(parents = True, exist_ok = False)
 
   # Iterate through each benchmark suite:
-  benchmark_suites = ["easteregg", "herbie-hamming", "herbie-math-rewrite", "herbie-math-taylor"]
-  for suite in benchmark_suites:
-    # Run timeline-only mode for the benchmark suites where serialization is too slow:
+  timeline_suites = ["easteregg", "herbie-hamming", "herbie-math-rewrite", "herbie-math-taylor"]
+  for suite in timeline_suites:
     run_poach(resource_dir / "test-files" / suite, nightly_dir / "raw" / suite, "timeline-only")
+
+  no_io_suites = ["easteregg", "herbie-hamming", "herbie-math-rewrite"] # herbie-math-taylor runs out of memory
+  for suite in timeline_suites:
     run_poach(resource_dir / "test-files" / suite, nightly_dir / "raw" / suite, "no-io")
 
   # Run the egglog tests under each serialization experiemntal treatment:
