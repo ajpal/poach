@@ -1,63 +1,16 @@
 <!DOCTYPE html>
-<link rel="stylesheet" href="stylesheet.css" type="text/css" charset="utf-8" />
+
 <html>
 
 <head>
-  <script src="index.js"></script>
-  <script src="data.js"></script>
-  <script src="chart.js"></script>
-  <script src="util.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 
 <title>Poach</title>
 
-<body onload="initializePage()">
-  <h2>Plots</h2>
-  <form onchange="plotTimeline()">
-    <label>
-      <input type="radio" name="timelineMode" value="total" checked>
-      Total
-    </label>
-    <label>
-      <input type="radio" name="timelineMode" value="average">
-      Average
-    </label>
-    <label>
-      <input type="radio" name="timelineMode" value="max">
-      Max
-    </label>
-  </form>
-  <canvas class="content" id="run-extract-chart"></canvas>
+<body>
+  <h2>Flame Graph</h2>
 
-  <h2>Serialization Tests</h2>
-  <form id="suite" onchange="updateSerializationOptions()"></form>
-
-  <select id="tests" onchange="plotSerialization()">
-    <option value="" selected>Show All Bechmarks</option>
-  </select>
-
-
-
-  <form onchange="plotSerialization()">
-    <label>
-      <input type="radio" name="serializationMode" value="total" checked>
-      Total
-    </label>
-    <label>
-      <input type="radio" name="serializationMode" value="percentage">
-      Percentage
-    </label>
-  </form>
-
-  <form id="runModeToggle" onchange="plotSerialization()"></form>
-
-  <canvas class="content" id="serialize-chart" height="500px"></canvas>
-
-  <h2>Raw</h2>
-  <p>
-    <a href="data/">Data</a>
-  </p>
+  <img src="./flamegraph.svg" />
 </body>
 
 </html>
