@@ -9,6 +9,8 @@ export PATH=~/.cargo/bin:$PATH
 
 rustup update
 
+cargo install rustfilt
+
 git clone https://github.com/brendangregg/FlameGraph.git
 
 cargo build --release
