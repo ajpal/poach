@@ -7,6 +7,7 @@ use serde::Serialize;
 
 use std::fmt::{Debug, Display};
 use std::fs::{self, create_dir_all, read_to_string, File};
+use std::io::BufWriter;
 use std::path::PathBuf;
 use walkdir::WalkDir;
 
@@ -114,7 +115,8 @@ fn check_idempotent(p1: &PathBuf, p2: &PathBuf, name: &str, out_dir: &PathBuf) {
 
     if let Some(diff) = serde_json_diff::values(json1, json2) {
         let file = fs::File::create(out_dir.join("diff.json")).expect("Failed to create diff file");
-        serde_json::to_writer_pretty(file, &diff).expect("failed to serialize diff");
+        serde_json::to_writer_pretty(BufWriter::new(file), &diff)
+            .expect("failed to serialize diff");
         panic!("Diff for {}", name)
     }
 }
@@ -336,5 +338,5 @@ fn main() {
     let out = Output { success, failure };
     let file =
         File::create(output_dir.join("summary.json")).expect("Failed to create summary.json");
-    serde_json::to_writer_pretty(file, &out).expect("failed to write summary.json");
+    serde_json::to_writer_pretty(BufWriter::new(file), &out).expect("failed to write summary.json");
 }
