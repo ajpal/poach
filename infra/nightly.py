@@ -54,6 +54,15 @@ if __name__ == "__main__":
     target_dir.mkdir(parents = True, exist_ok = True)
     run_cmd([str(poach_exe), str(dir_path), str(target_dir), "--no-serialize"], dry_run = False)
 
+  # Temporary for timing new extraction
+  (nightly_dir / "raw" / "bellman-ford").mkdir(parents = True, exist_ok = False)
+  (nightly_dir / "output" / "bellman-ford").mkdir(parents = True, exist_ok = False)
+  for dir_path in dirs:
+    dir_name = dir_path.name
+    target_dir = nightly_dir / "raw" / "bellman-ford" / dir_name
+    target_dir.mkdir(parents = True, exist_ok = True)
+    run_cmd(["env", "EXTRACTION=BF", str(poach_exe), str(dir_path), str(target_dir), "--no-serialize"], dry_run = False)
+  transform.transform((nightly_dir / "raw" / "bellman-ford"), (nightly_dir / "output" / "data" / "bellman-ford"))
 
   # Also run the egglog tests
   run_cmd([str(poach_exe), str( top_dir / "tests"), str(nightly_dir / "raw" / "tests")], dry_run = False)

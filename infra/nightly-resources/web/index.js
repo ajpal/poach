@@ -42,7 +42,10 @@ function loadTimeline() {
   fetch("data/data.json")
     .then((response) => response.json())
     .then(processRawData)
-    .then(plot);
+    .then(() => {
+      plot();
+      compareExtractionTypes();
+    });
 }
 
 function getCmd(sexp) {
@@ -189,4 +192,90 @@ function plot() {
   chart.data.datasets = datasets;
 
   chart.update();
+}
+
+/**
+ * Temporary for timing new extraction
+ */
+function compareExtractionTypes() {
+  bellmanFordData = Object.fromEntries(
+    BENCH_SUITES.map((suite) => [suite.dir, { ...suite, data: [] }])
+  );
+
+  console.log(loadedData);
+  console.log(bellmanFordData);
+
+  fetch("data/bellman-ford/data.json")
+    .then((response) => response.json())
+    .then((blob) => {
+      const RUN_CMDS = ["run", "run-schedule"];
+      const EXT_CMDS = ["extract", "multi-extract"];
+      const SERIALIZE_CMDS = ["serialize"];
+      const DESERIALIZE_CMDS = ["deserialize"];
+
+      Object.entries(blob).forEach(([name, timelines]) => {
+        const [suite, benchmark, _] = name.split("/");
+        // Aggregate commands across all timelines
+        const times = {
+          benchmark,
+          run: [],
+          extract: [],
+          serialize: [],
+          deserialize: [],
+          other: [],
+        };
+
+        timelines.forEach(({ events, sexps }) => {
+          events.forEach((time_ms, idx) => {
+            const cmd = getCmd(sexps[idx]);
+
+            // group commands by type (run, extract, (de)serialize, other)
+            if (RUN_CMDS.includes(cmd)) {
+              times.run.push(time_ms);
+            } else if (EXT_CMDS.includes(cmd)) {
+              times.extract.push(time_ms);
+            } else if (SERIALIZE_CMDS.includes(cmd)) {
+              times.serialize.push(time_ms);
+            } else if (DESERIALIZE_CMDS.includes(cmd)) {
+              times.deserialize.push(time_ms);
+            } else {
+              times.other.push(time_ms);
+            }
+          });
+        });
+
+        bellmanFordData[suite].data.push(times);
+
+        const tableData = BENCH_SUITES.map(suite => ({
+          benchmarks: suite.dir,
+          bf: aggregate(bellmanFordData[suite.dir].data.map(
+            (data) => aggregate(data.extract, "total")
+          ), "total"),
+          kd: aggregate(loadedData[suite.dir].data.map(
+            (data) => aggregate(data.extract, "total")
+          ), "total"),
+        }));
+
+        let html = '<table style="border-collapse: collapse;"><thead><tr>';
+
+        headers = ["Benchmarks", "Bellman-Ford (ms)", "Knuth (ms)"]
+
+        headers.forEach(header => {
+          html += `<th style="padding: 8px 16px; border: 1px solid #ddd;">${header}</th>`;
+        });
+        html += '</tr></thead><tbody>';
+
+        tableData.forEach(row => {
+          html += '<tr>';
+          html += `<td style="padding: 8px 16px; border: 1px solid #ddd;">${row.benchmarks}</td>`;
+          html += `<td style="padding: 8px 16px; border: 1px solid #ddd;">${row.bf}</td>`;
+          html += `<td style="padding: 8px 16px; border: 1px solid #ddd;">${row.kd}</td>`;
+          html += '</tr>';
+        });
+
+        html += '</tbody></table>';
+
+        document.getElementById('extraction-types-table').innerHTML = html;
+      });
+    });
 }
