@@ -1,4 +1,13 @@
 #!/bin/bash
 # Nightly script for the egraph timeline
 
-python3 infra/nightly.py
+# python3 infra/nightly.py
+
+echo "Beginning eggcc nightly script..."
+
+export PATH=~/.cargo/bin:$PATH
+
+rustup update
+
+cargo build --release
+perf record -F 999 --call-graph dwarf -- ./target/release/poach tests/repro-unsound.egg out sequential-round-trip ; perf script --demangle | rustfilt | ../FlameGraph/stackcollapse-perf.pl | ../FlameGraph/flamegraph.pl > graph.svg
