@@ -3,6 +3,17 @@ import subprocess
 import shutil
 from pathlib import Path
 import transform
+import glob
+
+###############################################################################
+# IMPORTANT:
+# In order, for this script to run successfully, requires:
+# 1. https://github.com/brendangregg/FlameGraph is located in the directory
+# above this script.
+# 2. Directories nightly/output, nightly/raw, and nightly/flamegraphs exist
+# 3. Poach is built in release mode at target/release/poach
+# 4. rustfilt is installed
+###############################################################################
 
 def run_cmd(cmd, msg = "", dry_run = False):
   prefix = "[DRY_RUN]" if dry_run else "[RUN]"
@@ -18,10 +29,6 @@ def run_poach(in_dir, out_dir, run_mode):
 if __name__ == "__main__":
   print("Beginning poach nightly")
 
-  rust_path = Path.home() / ".cargo" / "bin"
-  os.environ["PATH"] = f"{rust_path}:{os.environ['PATH']}"
-  run_cmd(["rustup", "update"])
-
   # determine location of this script
   script_dir = Path(__file__).resolve().parent
 
@@ -30,23 +37,8 @@ if __name__ == "__main__":
   resource_dir = script_dir / "nightly-resources"
   nightly_dir = top_dir / "nightly"
 
-  print(top_dir)
-  print(resource_dir)
-  print(nightly_dir)
-
   # Make sure we're in the right place
   os.chdir(top_dir)
-
-  # Build poach
-  run_cmd(["cargo", "build", "--release"])
-
-  # Clean previous nightly run
-  if nightly_dir.exists():
-    shutil.rmtree(nightly_dir)
-
-  # Prepare output directories
-  (nightly_dir / "raw").mkdir(parents = True, exist_ok = False)
-  (nightly_dir / "output").mkdir(parents = True, exist_ok = False)
 
   # Iterate through each benchmark suite:
   timeline_suites = ["easteregg", "herbie-hamming", "herbie-math-rewrite", "herbie-math-taylor"]
@@ -67,6 +59,10 @@ if __name__ == "__main__":
 
   # Post-process timeline data
   transform.transform((nightly_dir / "raw"), (nightly_dir / "output" / "data"))
+
+  # Generate flamegraphs
+  for egg_file in glob.glob("tests/*.egg") + glob.glob("tests/web-demo/*.egg"):
+    run_cmd([str(script_dir / "flamegraph.sh"), egg_file, str(nightly_dir / "output" / "flamegraphs")])
 
   # Update HTML index page
   shutil.copytree(resource_dir / "web", nightly_dir / "output", dirs_exist_ok = True)
