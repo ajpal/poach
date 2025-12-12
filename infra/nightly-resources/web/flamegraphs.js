@@ -1,5 +1,5 @@
 function loadFlamegraphs() {
-  fetch("flamegraphs/files.txt")
+  fetch("flamegraphs.txt")
     .then((response) => response.text())
     .then((blob) => blob.split(/\r?\n/))
     .then((files) => {
@@ -9,10 +9,7 @@ function loadFlamegraphs() {
         const li = document.createElement("li");
         li.textContent = file;
         const img = document.createElement("img");
-        img.src = `flamegraphs/${file
-          .split("/")
-          .pop()
-          .replace(/\.egg$/, ".svg")}`;
+        img.src = `flamegraphs/${file}`;
         img.alt = `flamegraph for ${file}`;
 
         // If the image fails to load
