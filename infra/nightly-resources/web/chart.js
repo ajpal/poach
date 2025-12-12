@@ -41,9 +41,6 @@ function initializeCharts() {
       data: {},
       options: {
         plugins: {
-          legend: {
-            onClick: (e) => {}, // no-op (disable toggling series)
-          },
           title: {
             display: true,
             text: "Placeholder Title",
@@ -109,6 +106,8 @@ function plotSerialization() {
     return;
   }
 
+  console.log(GLOBAL_DATA.serializeChart._metasets);
+
   const suite = document.querySelector(
     'input[name="suiteToggle"]:checked'
   ).value;
@@ -150,6 +149,7 @@ function plotSerialization() {
     );
 
     if (mode === "percentage") {
+      console.log("here");
       Object.keys(datasets).forEach((entry) => {
         const total = aggregate(
           CMDS.map((cmd) => datasets[entry][cmd]),
