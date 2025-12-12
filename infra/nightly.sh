@@ -11,17 +11,24 @@ rustup update
 
 cargo install rustfilt
 
+rm -rf FlameGraph
 git clone https://github.com/brendangregg/FlameGraph.git
 
 cargo build --release
-perf record -F 999 --call-graph dwarf -- ./target/release/poach tests/repro-unsound.egg out sequential-round-trip ; perf script --demangle | rustfilt | ./FlameGraph/stackcollapse-perf.pl | ./FlameGraph/flamegraph.pl > flamegraph.svg
 
 rm -rf nightly
+mkdir -p nightly/output/flamegraphs
 
-mkdir -p nightly/output
+touch nightly/output/flamegraphs/files.txt
+for egg_file in tests/*/*.egg; do
+  # If no files match, the pattern expands to itself
+  [[ -f "$egg_file" ]] || continue
+
+  echo "Processing $egg_file"
+  echo "$egg_file" >> nightly/output/flamegraphs/files.txt
+  ./infra/flamegraph.sh "$egg_file" nightly/output/flamegraphs
+done
 
 cp infra/nightly-resources/web/* nightly/output
-
-cp flamegraph.svg nightly/output
 
 rm -rf FlameGraph
