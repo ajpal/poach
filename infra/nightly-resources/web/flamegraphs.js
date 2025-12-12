@@ -16,11 +16,6 @@ function loadFlamegraphs() {
           .replace(/\.egg$/, ".svg")}`;
         img.alt = `flamegraph for ${file}`;
 
-        // If the image fails to load
-        img.onerror = () => {
-          li.textContent = `No flamegraph for ${file}`;
-        };
-
         li.appendChild(p);
         li.appendChild(img);
         listElt.appendChild(li);
