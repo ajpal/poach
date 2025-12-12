@@ -7,9 +7,13 @@ function loadFlamegraphs() {
       files.forEach((file) => {
         if (!file) return;
         const li = document.createElement("li");
-        li.textContent = file;
+        const p = document.createElement("p");
+        p.textContent = file;
         const img = document.createElement("img");
-        img.src = `flamegraphs/${file}`;
+        img.src = `flamegraphs/${file
+          .split("/")
+          .pop()
+          .replace(/\.egg$/, ".svg")}`;
         img.alt = `flamegraph for ${file}`;
 
         // If the image fails to load
@@ -17,6 +21,7 @@ function loadFlamegraphs() {
           li.textContent = `No flamegraph for ${file}`;
         };
 
+        li.appendChild(p);
         li.appendChild(img);
         listElt.appendChild(li);
       });
