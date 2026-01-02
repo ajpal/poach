@@ -348,37 +348,6 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
             })
     }
 
-    fn compute_cost_hyperedge_kd(
-        &self,
-        egraph: &EGraph,
-        row: &Vec<Value>,
-        func: &Function,
-    ) -> Option<C> {
-        let mut ch_costs: Vec<C> = Vec::new();
-        let sorts = &func.schema.input;
-        //log::debug!("compute_cost_hyperedge head {} sorts {:?}", head, sorts);
-        // Relying on .zip to truncate the values
-        for (value, sort) in row.iter().zip(sorts.iter()) {
-            if let Some(c) = self.compute_cost_node(egraph, *value, sort) {
-                ch_costs.push(c);
-            } else {
-                return None;
-            }
-        }
-        Some(self.cost_model.fold(
-            &func.decl.name,
-            &ch_costs,
-            self.cost_model.enode_cost(
-                egraph,
-                func,
-                &egglog_bridge::FunctionRow {
-                    subsumed: false,
-                    vals: row,
-                },
-            ),
-        ))
-    }
-
     fn knuth_dijkstra(&mut self, egraph: &EGraph) {
         let mut enodes: Vec<(String, Vec<Value>)> = Vec::new();
         let mut eclass2parents: HashMap<Value, Vec<usize>> = Default::default();
@@ -414,9 +383,12 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
         let mut pq = BinaryHeap::new();
         for (id, (func_name, vals)) in enodes.iter().enumerate() {
             if remaining_children[id] == 0 {
-                if let Some(cost) = self.compute_cost_hyperedge_kd(
+                if let Some(cost) = self.compute_cost_hyperedge(
                     egraph,
-                    vals,
+                    &egglog_bridge::FunctionRow {
+                        subsumed: false,
+                        vals,
+                    },
                     &egraph.functions.get(func_name).unwrap(),
                 ) {
                     pq.push(Reverse((cost, id)));
@@ -446,9 +418,12 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
             for &parent_id in eclass2parents.entry(*eclass).or_default().iter() {
                 remaining_children[parent_id] -= 1;
                 if remaining_children[parent_id] == 0 {
-                    if let Some(new_cost) = self.compute_cost_hyperedge_kd(
+                    if let Some(new_cost) = self.compute_cost_hyperedge(
                         egraph,
-                        &enodes[parent_id].1,
+                        &egglog_bridge::FunctionRow {
+                            subsumed: false,
+                            vals: &enodes[parent_id].1,
+                        },
                         egraph.functions.get(&enodes[parent_id].0).unwrap(),
                     ) {
                         pq.push(Reverse((new_cost, parent_id)));
