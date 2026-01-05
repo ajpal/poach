@@ -2394,7 +2394,7 @@ impl ProgramTimeline {
 
 #[derive(Clone)]
 pub struct TimedEgraph {
-    egraphs: Vec<EGraph>,
+    pub egraphs: Vec<EGraph>,
     timeline: Vec<ProgramTimeline>,
     timer: std::time::Instant,
 }
@@ -2409,15 +2409,13 @@ impl TimedEgraph {
         }
     }
 
-    pub fn egraphs(&self) -> Vec<&EGraph> {
-        self.egraphs.iter().map(|x| x).collect()
-    }
-
     pub fn parse_and_run_program(
         &mut self,
         filename: &str,
         input: &str,
     ) -> Result<Vec<CommandOutput>, Error> {
+        println!("Running egglog program on egraph {}", self.egraphs.len());
+
         let mut program_timeline = ProgramTimeline::new(input);
 
         let parsed = self
@@ -2426,7 +2424,9 @@ impl TimedEgraph {
             .expect("there are no egraphs")
             .parser
             .get_program_from_string(Some(filename.to_string()), input)?;
-        let output = self.run_program(parsed, &mut program_timeline);
+
+        let commands: Vec<&GenericCommand<String, String>> = parsed.iter().collect();
+        let output = self.run_program(commands, &mut program_timeline);
 
         self.timeline.push(program_timeline);
 
@@ -2440,9 +2440,19 @@ impl TimedEgraph {
         serde_json::to_writer(BufWriter::new(file), &self.timeline)
     }
 
+    pub fn run_commands(&mut self, commands: Vec<&Command>) -> Result<Vec<CommandOutput>, Error> {
+        let mut timeline = ProgramTimeline::new("commands");
+
+        let output = self.run_program(commands, &mut timeline);
+
+        self.timeline.push(timeline);
+
+        output
+    }
+
     fn run_program(
         &mut self,
-        program: Vec<Command>,
+        program: Vec<&Command>,
         program_timeline: &mut ProgramTimeline,
     ) -> Result<Vec<CommandOutput>, Error> {
         let egraph: &mut EGraph = self.egraphs.last_mut().expect("there are no egraphs");
@@ -2455,7 +2465,7 @@ impl TimedEgraph {
                 time_micros: self.timer.elapsed().as_micros(),
             });
 
-            for processed in egraph.process_command(command)? {
+            for processed in egraph.process_command(command.clone())? {
                 let result = egraph.run_command(processed)?;
                 if let Some(output) = result {
                     outputs.push(output);

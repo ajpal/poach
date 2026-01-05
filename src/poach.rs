@@ -54,6 +54,13 @@ enum RunMode {
     //      Assert the deserialized egraph has hthe same size as the initial egraph.
     //      Save the completed timeline, for consumption by the nightly frontend
     NoIO,
+
+    // For each egg file undee the input path,
+    //      Run the egglog program, recording timing information
+    //      Round trip to JSON Value (not important to do file I/O)
+    //      Assert the deserialized egraph has the same size as the initial egraph
+    //      Rerun the egglog program, starting from the deserialized egraph
+    RunRules,
 }
 
 impl Display for RunMode {
@@ -68,6 +75,7 @@ impl Display for RunMode {
                 RunMode::IdempotentRoundTrip => "idempotent",
                 RunMode::OldSerialize => "old-serialize",
                 RunMode::NoIO => "no-io",
+                RunMode::RunRules => "run-rules",
             }
         )
     }
@@ -82,11 +90,11 @@ struct Args {
 }
 
 fn check_egraph_number(egraph: &TimedEgraph, expected: usize) -> Result<()> {
-    if egraph.egraphs().len() != expected {
+    if egraph.egraphs.len() != expected {
         anyhow::bail!(
             "Expected {} egraphs, found {}",
             expected,
-            egraph.egraphs().len()
+            egraph.egraphs.len()
         );
     }
     Ok(())
@@ -94,7 +102,7 @@ fn check_egraph_number(egraph: &TimedEgraph, expected: usize) -> Result<()> {
 
 fn check_egraph_size(egraph: &TimedEgraph) -> Result<()> {
     let expected = egraph.num_tuples();
-    for eg in egraph.egraphs().iter() {
+    for eg in egraph.egraphs.iter() {
         if eg.num_tuples() != expected {
             anyhow::bail!("Expected {} tuples, found {}", expected, eg.num_tuples());
         }
@@ -294,6 +302,45 @@ fn poach(
             check_egraph_size(&egraph)?;
 
             egraph.write_timeline(out_dir)?;
+
+            Ok(())
+        }),
+
+        RunMode::RunRules => process_files(&files, out_dir, |egg_file, _out_dir| {
+            let mut egraph = run_egg_file(egg_file);
+
+            let value = egraph
+                .to_value()
+                .context("Failed to encode egraph as JSON")?;
+
+            egraph
+                .from_value(value)
+                .context("Failed to decode egraph from json")?;
+
+            check_egraph_size(&egraph)?;
+            check_egraph_number(&egraph, 2)?;
+
+            let filename = egg_file
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown");
+
+            let program = egraph
+                .egraphs
+                .last_mut()
+                .expect("there are no egraphs")
+                .parser
+                .get_program_from_string(
+                    Some(filename.to_string()),
+                    &read_to_string(egg_file).expect("failed to read egg file"),
+                )
+                .expect("fail");
+            let rules: Vec<_> = program
+                .iter()
+                .filter(|x| matches!(x, egglog::ast::GenericCommand::RunSchedule(..)))
+                .collect();
+
+            egraph.run_commands(rules)?;
 
             Ok(())
         }),
