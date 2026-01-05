@@ -417,17 +417,34 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
 
             for &parent_id in eclass2parents.entry(*eclass).or_default().iter() {
                 remaining_children[parent_id] -= 1;
-                if remaining_children[parent_id] == 0 {
-                    if let Some(new_cost) = self.compute_cost_hyperedge(
-                        egraph,
-                        &egglog_bridge::FunctionRow {
-                            subsumed: false,
-                            vals: &enodes[parent_id].1,
-                        },
-                        egraph.functions.get(&enodes[parent_id].0).unwrap(),
-                    ) {
-                        pq.push(Reverse((new_cost, parent_id)));
-                    }
+                if remaining_children[parent_id] != 0 {
+                    continue;
+                }
+
+                let (parent_func_name, parent_vals) = &enodes[parent_id];
+                let parent_eclass = parent_vals.last().unwrap();
+                let parent_func = egraph.functions.get(parent_func_name).unwrap();
+                let parent_output_sort = parent_func.schema.output.name();
+
+                if self
+                    .costs
+                    .get(parent_output_sort)
+                    .unwrap()
+                    .get(parent_eclass)
+                    .is_some()
+                {
+                    continue;
+                }
+
+                if let Some(new_cost) = self.compute_cost_hyperedge(
+                    egraph,
+                    &egglog_bridge::FunctionRow {
+                        subsumed: false,
+                        vals: parent_vals,
+                    },
+                    parent_func,
+                ) {
+                    pq.push(Reverse((new_cost, parent_id)));
                 }
             }
         }
