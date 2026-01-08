@@ -2414,8 +2414,6 @@ impl TimedEgraph {
         filename: &str,
         input: &str,
     ) -> Result<Vec<CommandOutput>, Error> {
-        println!("Running egglog program on egraph {}", self.egraphs.len());
-
         let mut program_timeline = ProgramTimeline::new(input);
 
         let parsed = self
