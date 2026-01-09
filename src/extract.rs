@@ -348,6 +348,24 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
             })
     }
 
+    /// Recursively collect all eq_sort values contained in a value.
+    fn collect_eq_sort_values(
+        egraph: &EGraph,
+        value: Value,
+        sort: &ArcSort,
+        result: &mut Vec<Value>,
+    ) {
+        if sort.is_eq_sort() {
+            result.push(value);
+        } else if sort.is_container_sort() {
+            let elements = sort.inner_values(egraph.backend.container_values(), value);
+            for (inner_sort, inner_value) in elements {
+                Self::collect_eq_sort_values(egraph, inner_value, &inner_sort, result);
+            }
+        }
+        // Primitives don't contain any eq_sorts
+    }
+
     fn knuth_dijkstra(&mut self, egraph: &EGraph) {
         let mut enodes: Vec<(String, Vec<Value>)> = Vec::new();
         let mut eclass2parents: HashMap<Value, Vec<usize>> = Default::default();
@@ -361,19 +379,35 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
                         return;
                     }
                     enodes.push((func_name.clone(), row.vals.to_vec()));
+                    let enode_id = enodes.len() - 1;
                     let mut num_children = 0;
-                    for (eclass, sort) in row
+                    for (value, sort) in row
                         .vals
                         .iter()
                         .take(row.vals.len() - 1)
                         .zip(&func.schema.input)
                     {
-                        if sort.is_eq_sort() || sort.is_container_sort() {
+                        if sort.is_eq_sort() {
                             eclass2parents
-                                .entry(*eclass)
+                                .entry(*value)
                                 .or_insert(Vec::new())
-                                .push(enodes.len() - 1);
+                                .push(enode_id);
                             num_children += 1;
+                        } else if sort.is_container_sort() {
+                            let mut inner_eq_values = Vec::new();
+                            Self::collect_eq_sort_values(
+                                egraph,
+                                *value,
+                                sort,
+                                &mut inner_eq_values,
+                            );
+                            for inner_value in inner_eq_values {
+                                eclass2parents
+                                    .entry(inner_value)
+                                    .or_insert(Vec::new())
+                                    .push(enode_id);
+                                num_children += 1;
+                            }
                         }
                     }
                     remaining_children.push(num_children);
