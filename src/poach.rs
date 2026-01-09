@@ -307,40 +307,25 @@ fn poach(
         }),
 
         RunMode::RunRules => process_files(&files, out_dir, |egg_file, _out_dir| {
-            let mut egraph = run_egg_file(egg_file);
+            let mut timed_egraph = run_egg_file(egg_file);
 
-            let value = egraph
-                .to_value()
-                .context("Failed to encode egraph as JSON")?;
+            timed_egraph.to_file(&out_dir.join("o1.json"))?;
+            timed_egraph.from_file(&out_dir.join("o1.json"))?;
 
-            egraph
-                .from_value(value)
-                .context("Failed to decode egraph from json")?;
+            assert!(timed_egraph.egraphs.len() == 2);
 
-            check_egraph_size(&egraph)?;
-            check_egraph_number(&egraph, 2)?;
+            let egraph = timed_egraph.egraphs.last_mut().unwrap();
 
-            let filename = egg_file
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown");
-
-            let program = egraph
-                .egraphs
-                .last_mut()
-                .expect("there are no egraphs")
+            let parsed = egraph
                 .parser
-                .get_program_from_string(
-                    Some(filename.to_string()),
-                    &read_to_string(egg_file).expect("failed to read egg file"),
-                )
-                .expect("fail");
-            let rules: Vec<_> = program
+                .get_program_from_string(None, &read_to_string(egg_file).expect("fail"))?;
+            let rules = parsed
                 .iter()
-                .filter(|x| matches!(x, egglog::ast::GenericCommand::RunSchedule(..)))
-                .collect();
+                .filter(|x| matches!(x, egglog::ast::GenericCommand::RunSchedule(..)));
 
-            egraph.run_commands(rules)?;
+            timed_egraph.run_commands(rules.collect())?;
+
+            timed_egraph.to_file(&out_dir.join("out.json"))?;
 
             Ok(())
         }),

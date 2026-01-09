@@ -2575,7 +2575,7 @@ impl TimedEgraph {
 
         let file = fs::File::create(path)
             .with_context(|| format!("failed to create file {}", path.display()))?;
-        serde_json::to_writer(BufWriter::new(file), &value)
+        serde_json::to_writer_pretty(BufWriter::new(file), &value)
             .context("Failed to write value to file")?;
 
         timeline.evts.push(EgraphEvent {

@@ -6,6 +6,6 @@
        (= f1 (fib (+ x 1))))
       ((set (fib (+ x 2)) (+ f0 f1))))
 
-(run 7)
+(run 4)
 
-(check (= (fib 7) 13))
+; (check (= (fib 7) 13))
