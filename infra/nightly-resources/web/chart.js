@@ -41,9 +41,6 @@ function initializeCharts() {
       data: {},
       options: {
         plugins: {
-          legend: {
-            onClick: (e) => {}, // no-op (disable toggling series)
-          },
           title: {
             display: true,
             text: "Placeholder Title",
