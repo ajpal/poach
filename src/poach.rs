@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
+use egglog::ast::Command;
 use egglog::TimedEgraph;
 use env_logger::Env;
 use hashbrown::HashMap;
@@ -54,6 +55,15 @@ enum RunMode {
     //      Assert the deserialized egraph has hthe same size as the initial egraph.
     //      Save the completed timeline, for consumption by the nightly frontend
     NoIO,
+
+    // For each egg file under the input path,
+    //      Run the egglog program, recording timing information
+    //      Round trip to JSON Value, no File I/O
+    //      Find all extract commands from the egglog program and perform
+    //      the same extractions on the deserialized egraph
+    //      Ensure the results are the same
+    //      Save the completed timeline, for consumption by the nighly frontend
+    Extract,
 }
 
 impl Display for RunMode {
@@ -68,6 +78,7 @@ impl Display for RunMode {
                 RunMode::IdempotentRoundTrip => "idempotent",
                 RunMode::OldSerialize => "old-serialize",
                 RunMode::NoIO => "no-io",
+                RunMode::Extract => "extract",
             }
         )
     }
@@ -294,6 +305,47 @@ fn poach(
             check_egraph_size(&egraph)?;
 
             egraph.write_timeline(out_dir)?;
+
+            Ok(())
+        }),
+
+        RunMode::Extract => process_files(&files, out_dir, |egg_file, _| {
+            let mut timed_egraph = run_egg_file(egg_file);
+
+            let value = timed_egraph
+                .to_value()
+                .context("Failed to encode egraph as JSON")?;
+
+            timed_egraph
+                .from_value(value)
+                .context("failed to decode egraph from json")?;
+
+            check_egraph_number(&timed_egraph, 2)?;
+
+            let (left, right) = timed_egraph.egraphs.split_at_mut(1);
+            let egraph1 = &mut left[0];
+            let egraph2 = &mut right[0];
+
+            let parsed = egraph1
+                .parser
+                .get_program_from_string(None, &read_to_string(egg_file).expect("fail"))?;
+
+            let extract_cmds: Vec<Command> = parsed
+                .into_iter()
+                .filter(|x| {
+                    matches!(
+                        x,
+                        egglog::ast::GenericCommand::Extract(_, _, _)
+                            | egglog::ast::GenericCommand::MultiExtract(_, _, _)
+                    )
+                })
+                .collect();
+
+            let r1 = egraph1.run_program(extract_cmds.clone())?;
+            println!("{:?}", r1);
+            let r2 = egraph2.run_program(extract_cmds.clone())?;
+
+            println!("R1 {:?} R2 {:?}", r1, r2);
 
             Ok(())
         }),

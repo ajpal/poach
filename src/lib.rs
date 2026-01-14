@@ -2394,7 +2394,7 @@ impl ProgramTimeline {
 
 #[derive(Clone)]
 pub struct TimedEgraph {
-    egraphs: Vec<EGraph>,
+    pub egraphs: Vec<EGraph>,
     timeline: Vec<ProgramTimeline>,
     timer: std::time::Instant,
 }
