@@ -132,21 +132,25 @@ fn check_idempotent(p1: &PathBuf, p2: &PathBuf, name: &str, out_dir: &PathBuf) {
     }
 }
 
-fn run_egg_file(egg_file: &PathBuf) -> TimedEgraph {
+fn run_egg_file(egg_file: &PathBuf) -> Result<TimedEgraph> {
     let mut egraph = TimedEgraph::new();
     let filename = egg_file
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("unknown");
 
-    egraph
-        .parse_and_run_program(
-            filename,
-            &read_to_string(egg_file).expect(&format!("Failed to open {}", egg_file.display())),
-        )
-        .expect("fail");
+    let program_text = read_to_string(egg_file)?;
 
-    egraph
+    let parsed_commands = egraph
+        .egraphs
+        .last_mut()
+        .expect("There are no egraphs")
+        .parser
+        .get_program_from_string(Some(filename.to_string()), &program_text)?;
+
+    egraph.run_program_with_timeline(parsed_commands, &program_text)?;
+
+    Ok(egraph)
 }
 
 fn process_files<F>(
@@ -197,7 +201,7 @@ fn poach(
 ) -> (Vec<String>, Vec<(String, String)>) {
     match run_mode {
         RunMode::TimelineOnly => process_files(&files, out_dir, |egg_file, out_dir| {
-            let egraph = run_egg_file(egg_file);
+            let egraph = run_egg_file(egg_file)?;
             egraph.write_timeline(out_dir)?;
 
             Ok(())
@@ -205,7 +209,7 @@ fn poach(
 
         RunMode::SequentialRoundTrip => {
             process_files(&files, out_dir, |egg_file, out_dir: &PathBuf| {
-                let mut egraph = run_egg_file(egg_file);
+                let mut egraph = run_egg_file(egg_file)?;
                 let s1 = out_dir.join("serialize1.json");
 
                 egraph.to_file(&s1).context("Failed to write s1.json")?;
@@ -224,7 +228,7 @@ fn poach(
         RunMode::InterleavedRoundTrip => {
             let mut tmp = HashMap::new();
             process_files(&files, out_dir, |egg_file, out_dir| {
-                let mut egraph = run_egg_file(egg_file);
+                let mut egraph = run_egg_file(egg_file)?;
                 let s1 = out_dir.join("serialize1.json");
                 egraph.to_file(&s1).context("Failed to write s1.json")?;
                 tmp.insert(egg_file.clone(), (out_dir.clone(), egraph));
@@ -249,7 +253,7 @@ fn poach(
                 .file_name()
                 .and_then(|s| s.to_str())
                 .unwrap_or("unknown");
-            let mut egraph = run_egg_file(&egg_file);
+            let mut egraph = run_egg_file(&egg_file)?;
             let s1 = out_dir.join("serialize1.json");
             let s2 = out_dir.join("serialize2.json");
             let s3 = out_dir.join("serialize3.json");
@@ -275,7 +279,7 @@ fn poach(
         }),
 
         RunMode::OldSerialize => process_files(&files, out_dir, |egg_file, out_dir| {
-            let mut egraph = run_egg_file(egg_file);
+            let mut egraph = run_egg_file(egg_file)?;
 
             egraph
                 .to_file(&out_dir.join("serialize-poach.json"))
@@ -290,7 +294,7 @@ fn poach(
         }),
 
         RunMode::NoIO => process_files(&files, out_dir, |egg_file, out_dir| {
-            let mut egraph = run_egg_file(egg_file);
+            let mut egraph = run_egg_file(egg_file)?;
 
             let value = egraph
                 .to_value()
@@ -309,24 +313,13 @@ fn poach(
             Ok(())
         }),
 
-        RunMode::Extract => process_files(&files, out_dir, |egg_file, _| {
-            let mut timed_egraph = run_egg_file(egg_file);
+        RunMode::Extract => process_files(&files, out_dir, |egg_file, out_dir| {
+            let mut timed_egraph = run_egg_file(egg_file)?;
 
-            let value = timed_egraph
-                .to_value()
-                .context("Failed to encode egraph as JSON")?;
-
-            timed_egraph
-                .from_value(value)
-                .context("failed to decode egraph from json")?;
-
-            check_egraph_number(&timed_egraph, 2)?;
-
-            let (left, right) = timed_egraph.egraphs.split_at_mut(1);
-            let egraph1 = &mut left[0];
-            let egraph2 = &mut right[0];
-
-            let parsed = egraph1
+            let parsed = timed_egraph
+                .egraphs
+                .last_mut()
+                .expect("there are no egraphs")
                 .parser
                 .get_program_from_string(None, &read_to_string(egg_file).expect("fail"))?;
 
@@ -341,11 +334,19 @@ fn poach(
                 })
                 .collect();
 
-            let r1 = egraph1.run_program(extract_cmds.clone())?;
-            println!("{:?}", r1);
-            let r2 = egraph2.run_program(extract_cmds.clone())?;
+            let value = timed_egraph
+                .to_value()
+                .context("Failed to encode egraph as JSON")?;
 
-            println!("R1 {:?} R2 {:?}", r1, r2);
+            timed_egraph
+                .from_value(value)
+                .context("failed to decode egraph from json")?;
+
+            check_egraph_number(&timed_egraph, 2)?;
+
+            timed_egraph.run_program_with_timeline(extract_cmds, "(extracts)")?;
+
+            timed_egraph.write_timeline(out_dir)?;
 
             Ok(())
         }),
