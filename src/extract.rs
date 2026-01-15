@@ -237,13 +237,13 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
         // Temporary for timing new extraction
         match std::env::var("EXTRACTION") {
             Ok(extr) => {
-                if &extr[..] == "BF" {
-                    extractor.bellman_ford(egraph);
-                } else {
+                if &extr[..] == "KD" {
                     extractor.knuth_dijkstra(egraph);
+                } else {
+                    extractor.bellman_ford(egraph);
                 }
             }
-            _ => extractor.knuth_dijkstra(egraph),
+            _ => extractor.bellman_ford(egraph),
         }
 
         extractor
