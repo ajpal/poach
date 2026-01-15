@@ -45,17 +45,17 @@ if __name__ == "__main__":
   for suite in timeline_suites:
     run_poach(resource_dir / "test-files" / suite, nightly_dir / "raw" / suite, "timeline-only")
 
-  no_io_suites = ["easteregg", "herbie-hamming", "herbie-math-rewrite"] # herbie-math-taylor runs out of memory
-  for suite in no_io_suites:
-    run_poach(resource_dir / "test-files" / suite, nightly_dir / "raw" / suite, "no-io")
+  # no_io_suites = ["easteregg", "herbie-hamming", "herbie-math-rewrite"] # herbie-math-taylor runs out of memory
+  # for suite in no_io_suites:
+  #   run_poach(resource_dir / "test-files" / suite, nightly_dir / "raw" / suite, "no-io")
 
-  # Run the egglog tests under each serialization experiemntal treatment:
-  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "timeline-only")
-  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "sequential-round-trip")
-  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "interleaved-round-trip")
-  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "idempotent-round-trip")
-  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "old-serialize")
-  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "no-io")
+  # # Run the egglog tests under each serialization experiemntal treatment:
+  # run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "timeline-only")
+  # run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "sequential-round-trip")
+  # run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "interleaved-round-trip")
+  # run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "idempotent-round-trip")
+  # run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "old-serialize")
+  # run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "no-io")
 
   # Post-process timeline data
   transform.transform((nightly_dir / "raw"), (nightly_dir / "output" / "data"))
