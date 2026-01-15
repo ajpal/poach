@@ -23,7 +23,7 @@ def merge_start_end_events(timeline_events):
             raise ValueError("Events must alternate between start and end")
         
         assert(start['sexp_idx'] == end['sexp_idx'])
-        merged_events.append(end['time_ms'] - start['time_ms'])
+        merged_events.append(end['time_micros'] - start['time_micros'])
     return merged_events
 
 def strip_comments(line):
@@ -43,7 +43,7 @@ def parse_top_level_s_expressions(program_text):
     # Remove comments and blanks
     lines = [strip_comments(line) for line in program_text.splitlines()]
     lines = [line.strip() for line in lines if line.strip() != ""]
-    stripped_text = ''.join(lines)
+    stripped_text = '\n'.join(lines)
 
     stack = []
     current = ''
@@ -92,8 +92,7 @@ def transform(input_dir, output_dir):
     """
     os.makedirs(output_dir, exist_ok=True)
 
-    pattern = os.path.join(input_dir, "*/*/timeline.json")
-    benchmark_names = [f.removeprefix(f"{input_dir}/") for f in glob.glob(pattern) if os.path.isfile(f)]
+    benchmark_names = [str(f.relative_to(input_dir)) for f in input_dir.rglob("timeline.json")]
     save_json(os.path.join(output_dir, "list.json"), benchmark_names)
 
     aggregated = {}
