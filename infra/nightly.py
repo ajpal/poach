@@ -69,8 +69,11 @@ if __name__ == "__main__":
   transform.transform((nightly_dir / "raw" / "kd"), (nightly_dir / "output" / "data" / "kd"))
 
   # Flamegraphs for Knuth extraction
-  for egg_file in [f for f in glob.glob(f"infra/nightly-resources/test-files/{suite}") for suite in timeline_suites]:
-    run_cmd(["env", "EXTRACTION=KD", str(script_dir / "flamegraph.sh"), egg_file, str(nightly_dir / "output" / "flamegraphs")])
+  flamegraph_dir = nightly_dir / "output" / "flamegraphs"
+  flamegraph_dir.mkdir(parents=True, exist_ok=True)
+  for egg_file in [f for suite in timeline_suites for f in glob.glob(f"infra/nightly-resources/test-files/{suite}/*.egg")]:
+    print(egg_file)
+    run_cmd(["env", "EXTRACTION=KD", str(script_dir / "flamegraph.sh"), egg_file, str(flamegraph_dir)])
 
   # Update HTML index page
   shutil.copytree(resource_dir / "web", nightly_dir / "output", dirs_exist_ok = True)
