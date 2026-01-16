@@ -2592,8 +2592,7 @@ impl TimedEgraph {
             time_micros: self.timer.elapsed().as_micros(),
         });
 
-        let egraph: EGraph =
-            serde_json::from_value(value).context("Failed to decode value as egraph")?;
+        let egraph: EGraph = serde_json::from_value(value)?;
 
         timeline.evts.push(EgraphEvent {
             sexp_idx: 1,

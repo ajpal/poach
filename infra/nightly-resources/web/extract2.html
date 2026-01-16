@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Stacked Side-by-Side Bar Chart</title>
+
+  <!-- Chart.js latest version -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+</head>
+<body>
+
+<canvas id="benchChart" width="1300" height="600"></canvas>
+
+<script>
+// Example data
+const benchmarks = [
+  "bench1", "bench2", "bench3", "bench4", "bench5",
+  "bench6", "bench7", "bench8", "bench9", "bench10",
+  "bench11", "bench12", "bench13", "bench14", "bench15",
+  "bench16", "bench17", "bench18", "bench19", "bench20",
+  "bench21", "bench22", "bench23", "bench24", "bench25",
+  "bench26", "bench27", "bench28", "bench29", "bench30"
+];
+
+// Random example values
+const runTimes = benchmarks.map(() => Math.random() * 100 + 50);
+const extractRun = benchmarks.map(() => Math.random() * 50 + 10);
+const deserializeTimes = benchmarks.map(() => Math.random() * 80 + 40);
+const extractDeser = benchmarks.map(() => Math.random() * 60 + 15);
+
+// Build the chart
+const ctx = document.getElementById("benchChart").getContext("2d");
+
+new Chart(ctx, {
+  type: "bar",
+  data: {
+    labels: benchmarks,
+    datasets: [
+      // Run + Extract
+      {
+        label: "Run",
+        data: runTimes,
+        backgroundColor: "rgba(75, 192, 192, 0.8)",
+        stack: "runStack"
+      },
+      {
+        label: "Extract (run)",
+        data: extractRun,
+        backgroundColor: "rgba(75, 192, 192, 0.4)",
+        stack: "runStack"
+      },
+
+      // Deserialize + Extract
+      {
+        label: "Deserialize",
+        data: deserializeTimes,
+        backgroundColor: "rgba(255, 159, 64, 0.8)",
+        stack: "deserStack"
+      },
+      {
+        label: "Extract (deser)",
+        data: extractDeser,
+        backgroundColor: "rgba(255, 159, 64, 0.4)",
+        stack: "deserStack"
+      }
+    ]
+  },
+
+  options: {
+    responsive: true,
+    plugins: {
+      title: {
+        display: true,
+        text: "Benchmark: Run+Extract vs Deserialize+Extract"
+      },
+      tooltip: {
+        mode: "index",
+        intersect: false
+      },
+      legend: {
+        position: "top"
+      }
+    },
+
+    interaction: {
+      mode: "nearest",
+      axis: "x",
+      intersect: false
+    },
+
+    scales: {
+      x: {
+        stacked: false,  // side-by-side stacks
+        ticks: {
+          maxRotation: 90,
+          minRotation: 45
+        }
+      },
+      y: {
+        stacked: true,  // stack within each group
+        title: {
+          display: true,
+          text: "Time (ms)"
+        }
+      }
+    }
+  }
+});
+</script>
+
+</body>
+</html>

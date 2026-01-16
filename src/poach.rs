@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
-use egglog::ast::Command;
+use egglog::ast::{all_sexps, Sexp, SexpParser};
 use egglog::TimedEgraph;
 use env_logger::Env;
 use hashbrown::HashMap;
@@ -316,23 +316,37 @@ fn poach(
         RunMode::Extract => process_files(&files, out_dir, |egg_file, out_dir| {
             let mut timed_egraph = run_egg_file(egg_file)?;
 
-            let parsed = timed_egraph
+            let program_string = &read_to_string(egg_file)?;
+
+            let is_extract = |sexp: &&Sexp| {
+                if let Sexp::List(xs, _) = sexp {
+                    if !xs.is_empty() {
+                        match &xs[0] {
+                            Sexp::Atom(s, _) => s == "extract",
+                            _ => false,
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            };
+
+            let all_sexps = all_sexps(SexpParser::new(None, program_string))?;
+            let extracts: String = all_sexps
+                .iter()
+                .filter(is_extract)
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            let extract_cmds = timed_egraph
                 .egraphs
                 .last_mut()
                 .expect("there are no egraphs")
                 .parser
-                .get_program_from_string(None, &read_to_string(egg_file).expect("fail"))?;
-
-            let extract_cmds: Vec<Command> = parsed
-                .into_iter()
-                .filter(|x| {
-                    matches!(
-                        x,
-                        egglog::ast::GenericCommand::Extract(_, _, _)
-                            | egglog::ast::GenericCommand::MultiExtract(_, _, _)
-                    )
-                })
-                .collect();
+                .get_program_from_string(None, &extracts)?;
 
             let value = timed_egraph
                 .to_value()
@@ -344,7 +358,7 @@ fn poach(
 
             check_egraph_number(&timed_egraph, 2)?;
 
-            timed_egraph.run_program_with_timeline(extract_cmds, "(extracts)")?;
+            timed_egraph.run_program_with_timeline(extract_cmds, &extracts)?;
 
             timed_egraph.write_timeline(out_dir)?;
 
