@@ -60,9 +60,17 @@ if __name__ == "__main__":
   # Post-process timeline data
   transform.transform((nightly_dir / "raw"), (nightly_dir / "output" / "data"))
 
-  # Generate flamegraphs
-  for egg_file in glob.glob("tests/*.egg") + glob.glob("tests/web-demo/*.egg"):
-    run_cmd([str(script_dir / "flamegraph.sh"), egg_file, str(nightly_dir / "output" / "flamegraphs")])
+  # Run benchmark suites with Knuth extraction
+  for suite in timeline_suites:
+    poach_exe = top_dir / "target" / "release" / "poach"
+    in_dir = resource_dir / "test-files" / suite
+    out_dir = nightly_dir / "raw" / "kd" / suite
+    run_cmd(["env", "EXTRACTION=KD", str(poach_exe), str(in_dir), str(out_dir), "timeline-only"])
+  transform.transform((nightly_dir / "raw" / "kd"), (nightly_dir / "output" / "data" / "kd"))
+
+  # Flamegraphs for Knuth extraction
+  for egg_file in [f for f in glob.glob(f"infra/nightly-resources/test-files/{suite}") for suite in timeline_suites]:
+    run_cmd(["env", "EXTRACTION=KD", str(script_dir / "flamegraph.sh"), egg_file, str(nightly_dir / "output" / "flamegraphs")])
 
   # Update HTML index page
   shutil.copytree(resource_dir / "web", nightly_dir / "output", dirs_exist_ok = True)
