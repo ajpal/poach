@@ -1,7 +1,8 @@
 use crate::termdag::{Term, TermDag};
 use crate::util::{HashMap, HashSet};
 use crate::*;
-use std::collections::VecDeque;
+use std::cmp::Reverse;
+use std::collections::{BinaryHeap, VecDeque};
 
 /// An interface for custom cost model.
 ///
@@ -233,7 +234,17 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
             parent_edge,
         };
 
-        extractor.bellman_ford(egraph);
+        // Temporary for timing new extraction
+        match std::env::var("EXTRACTION") {
+            Ok(extr) => {
+                if &extr[..] == "KD" {
+                    extractor.knuth_dijkstra(egraph);
+                } else {
+                    extractor.bellman_ford(egraph);
+                }
+            }
+            _ => extractor.bellman_ford(egraph),
+        }
 
         extractor
     }
@@ -335,6 +346,142 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
             .fold(0, |ret, (value, sort)| {
                 usize::max(ret, self.compute_topo_rnk_node(egraph, *value, sort))
             })
+    }
+
+    /// Recursively collect all eq_sort values contained in a value.
+    fn collect_eq_sort_values(
+        egraph: &EGraph,
+        value: Value,
+        sort: &ArcSort,
+        result: &mut Vec<Value>,
+    ) {
+        if sort.is_eq_sort() {
+            result.push(value);
+        } else if sort.is_container_sort() {
+            let elements = sort.inner_values(egraph.backend.container_values(), value);
+            for (inner_sort, inner_value) in elements {
+                Self::collect_eq_sort_values(egraph, inner_value, &inner_sort, result);
+            }
+        }
+        // Primitives don't contain any eq_sorts
+    }
+
+    fn knuth_dijkstra(&mut self, egraph: &EGraph) {
+        let mut enodes: Vec<(String, Vec<Value>)> = Vec::new();
+        let mut eclass2parents: HashMap<Value, Vec<usize>> = Default::default();
+        let mut remaining_children = Vec::new();
+        for func_name in self.funcs.iter() {
+            let func = egraph.functions.get(func_name).unwrap();
+            egraph
+                .backend
+                .for_each(func.backend_id, |row: egglog_bridge::FunctionRow| {
+                    if row.subsumed {
+                        return;
+                    }
+                    enodes.push((func_name.clone(), row.vals.to_vec()));
+                    let enode_id = enodes.len() - 1;
+                    let mut num_children = 0;
+                    for (value, sort) in row
+                        .vals
+                        .iter()
+                        .take(row.vals.len() - 1)
+                        .zip(&func.schema.input)
+                    {
+                        if sort.is_eq_sort() {
+                            eclass2parents
+                                .entry(*value)
+                                .or_insert(Vec::new())
+                                .push(enode_id);
+                            num_children += 1;
+                        } else if sort.is_container_sort() {
+                            let mut inner_eq_values = Vec::new();
+                            Self::collect_eq_sort_values(
+                                egraph,
+                                *value,
+                                sort,
+                                &mut inner_eq_values,
+                            );
+                            for inner_value in inner_eq_values {
+                                eclass2parents
+                                    .entry(inner_value)
+                                    .or_insert(Vec::new())
+                                    .push(enode_id);
+                                num_children += 1;
+                            }
+                        }
+                    }
+                    remaining_children.push(num_children);
+                });
+        }
+
+        let mut pq = BinaryHeap::new();
+        for (id, (func_name, vals)) in enodes.iter().enumerate() {
+            if remaining_children[id] == 0 {
+                if let Some(cost) = self.compute_cost_hyperedge(
+                    egraph,
+                    &egglog_bridge::FunctionRow {
+                        subsumed: false,
+                        vals,
+                    },
+                    &egraph.functions.get(func_name).unwrap(),
+                ) {
+                    pq.push(Reverse((cost, id)));
+                }
+            }
+        }
+
+        while let Some(Reverse((cost, enode_id))) = pq.pop() {
+            let (func_name, vals) = &enodes[enode_id];
+            let eclass = vals.last().unwrap();
+            let func = egraph.functions.get(func_name).unwrap();
+            let output_sort = func.schema.output.name();
+
+            if let (HEntry::Vacant(e_c), HEntry::Vacant(e_p)) = (
+                self.costs.get_mut(output_sort).unwrap().entry(*eclass),
+                self.parent_edge
+                    .get_mut(output_sort)
+                    .unwrap()
+                    .entry(*eclass),
+            ) {
+                e_c.insert(cost);
+                e_p.insert((func.decl.name.clone(), vals.clone()));
+            } else {
+                continue;
+            }
+
+            for &parent_id in eclass2parents.entry(*eclass).or_default().iter() {
+                remaining_children[parent_id] -= 1;
+                if remaining_children[parent_id] != 0 {
+                    continue;
+                }
+
+                let (parent_func_name, parent_vals) = &enodes[parent_id];
+                let parent_eclass = parent_vals.last().unwrap();
+                let parent_func = egraph.functions.get(parent_func_name).unwrap();
+                let parent_output_sort = parent_func.schema.output.name();
+
+                if self
+                    .costs
+                    .get(parent_output_sort)
+                    .unwrap()
+                    .get(parent_eclass)
+                    .is_some()
+                {
+                    continue;
+                }
+
+                if let Some(new_cost) = self.compute_cost_hyperedge(
+                    egraph,
+                    &egglog_bridge::FunctionRow {
+                        subsumed: false,
+                        vals: parent_vals,
+                    },
+                    parent_func,
+                ) {
+                    pq.push(Reverse((new_cost, parent_id)));
+                }
+            }
+        }
     }
 
     /// We use Bellman-Ford to compute the costs of the relevant eq sorts' terms
