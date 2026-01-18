@@ -73,7 +73,7 @@ if __name__ == "__main__":
   flamegraph_dir.mkdir(parents=True, exist_ok=True)
   for suite in timeline_suites:
     egg_files = glob.glob(f"infra/nightly-resources/test-files/{suite}/*.egg")
-    for i in range(4):
+    for i in range(8):
       if i >= len(egg_files):
         break
       run_cmd(["env", "EXTRACTION=KD", str(script_dir / "flamegraph.sh"), egg_files[i], str(flamegraph_dir)])
