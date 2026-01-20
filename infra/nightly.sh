@@ -22,7 +22,5 @@ python3 infra/nightly.py
 
 ls nightly/output/flamegraphs > nightly/output/flamegraphs.txt
 
-cp infra/nightly-resources/web/* nightly/output
-
 rm -rf FlameGraph
 rm -rf nightly/raw

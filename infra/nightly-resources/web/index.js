@@ -5,7 +5,8 @@ function initializePage() {
     .then(initializeSerializationOptions)
     .then(initializeCharts)
     .then(plotTimeline)
-    .then(plotSerialization);
+    .then(plotSerialization)
+    .then(compareExtractionTypes);
 }
 
 /**
@@ -173,7 +174,7 @@ function compareExtractionTypes() {
 
         const tableData = BENCH_SUITES.map(suite => ({
           benchmarks: suite.dir,
-          bf: aggregate(loadedData[suite.dir].data.map(
+          bf: aggregate(GLOBAL_DATA.data[suite.dir].data.map(
             (data) => aggregate(data.extract, "total")
           ), "total"),
           kd: aggregate(kdData[suite.dir].data.map(
@@ -183,7 +184,7 @@ function compareExtractionTypes() {
 
         let html = '<table style="border-collapse: collapse;"><thead><tr>';
 
-        headers = ["Benchmarks", "Bellman-Ford (ms)", "Knuth (ms)"]
+        const headers = ["Benchmarks", "Bellman-Ford (ms)", "Knuth (ms)"]
 
         headers.forEach(header => {
           html += `<th style="padding: 8px 16px; border: 1px solid #ddd;">${header}</th>`;
