@@ -152,8 +152,9 @@ function compareExtractionTypes() {
         };
 
         timelines.forEach(({ events, sexps }) => {
-          events.forEach((time_ms, idx) => {
+          events.forEach((time_micros, idx) => {
             const cmd = getCmd(sexps[idx]);
+            const time_ms = time_micros / 1000;
 
             // group commands by type (run, extract, (de)serialize, other)
             if (RUN_CMDS.includes(cmd)) {
@@ -174,7 +175,7 @@ function compareExtractionTypes() {
 
         const tableData = BENCH_SUITES.map(suite => ({
           benchmarks: suite.dir,
-          bf: aggregate(GLOBAL_DATA.data[suite.dir].data.map(
+          bf: aggregate(Object.values(GLOBAL_DATA.data[suite.dir].timeline || {}).map(
             (data) => aggregate(data.extract, "total")
           ), "total"),
           kd: aggregate(kdData[suite.dir].data.map(
