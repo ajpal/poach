@@ -366,10 +366,30 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
         // Primitives don't contain any eq_sorts
     }
 
+    /// Compute cost directly from a list of costs.
+    /// Assumes enode_cost() doesn't depend on children,
+    /// total node cost doesn't depend on child order.
+    fn compute_cost_hyperedge_kd(&self, egraph: &EGraph, costs: &Vec<C>, func: &Function) -> C {
+        self.cost_model.fold(
+            &func.decl.name,
+            costs,
+            self.cost_model.enode_cost(
+                egraph,
+                func,
+                &egglog_bridge::FunctionRow {
+                    subsumed: false,
+                    vals: &vec![],
+                },
+            ),
+        )
+    }
+
     fn knuth_dijkstra(&mut self, egraph: &EGraph) {
-        let mut enodes: Vec<(String, Vec<Value>)> = Vec::new();
+        // let mut enodes: Vec<(String, Vec<Value>)> = Vec::new();
         let mut eclass2parents: HashMap<Value, Vec<usize>> = Default::default();
-        let mut remaining_children = Vec::new();
+        let mut eclasses = Vec::new();
+        let mut child_counts = Vec::new();
+        let mut pq = BinaryHeap::new();
         for func_name in self.funcs.iter() {
             let func = egraph.functions.get(func_name).unwrap();
             egraph
@@ -378,8 +398,8 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
                     if row.subsumed {
                         return;
                     }
-                    enodes.push((func_name.clone(), row.vals.to_vec()));
-                    let enode_id = enodes.len() - 1;
+                    // enodes.push((func_name.clone(), row.vals.to_vec()));
+                    let enode_id = child_counts.len(); // == eclasses.len()
                     let mut num_children = 0;
                     for (value, sort) in row
                         .vals
@@ -410,78 +430,149 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
                             }
                         }
                     }
-                    remaining_children.push(num_children);
+                    eclasses.push((func, row.vals.last().unwrap().clone()));
+                    child_counts.push(num_children);
+                    if num_children == 0 {
+                        if let Some(cost) = self.compute_cost_hyperedge(egraph, &row, func) {
+                            pq.push(Reverse((cost, enode_id)));
+                        }
+                    }
                 });
         }
+        // this approach is optimized for cost models where order doesn't matter and where
+        // folding the cost of a container is the same as folding the cost of each of its children
+        let mut child_costs: Vec<Vec<C>> = child_counts
+            .iter()
+            .map(|&count| Vec::with_capacity(count))
+            .collect();
+        let mut is_best = vec![false; child_counts.len()];
 
-        let mut pq = BinaryHeap::new();
-        for (id, (func_name, vals)) in enodes.iter().enumerate() {
-            if remaining_children[id] == 0 {
-                if let Some(cost) = self.compute_cost_hyperedge(
-                    egraph,
-                    &egglog_bridge::FunctionRow {
-                        subsumed: false,
-                        vals,
-                    },
-                    &egraph.functions.get(func_name).unwrap(),
-                ) {
-                    pq.push(Reverse((cost, id)));
-                }
-            }
-        }
+        // for (id, (func_name, vals)) in enodes.iter().enumerate() {
+        //     if remaining_children[id] == 0 {
+        //         if let Some(cost) = self.compute_cost_hyperedge(
+        //             egraph,
+        //             &egglog_bridge::FunctionRow {
+        //                 subsumed: false,
+        //                 vals,
+        //             },
+        //             &egraph.functions.get(func_name).unwrap(),
+        //         ) {
+        //             pq.push(Reverse((cost, id)));
+        //         }
+        //     }
+        // }
 
         while let Some(Reverse((cost, enode_id))) = pq.pop() {
-            let (func_name, vals) = &enodes[enode_id];
-            let eclass = vals.last().unwrap();
-            let func = egraph.functions.get(func_name).unwrap();
-            let output_sort = func.schema.output.name();
+            let (func, eclass) = eclasses[enode_id];
 
-            if let (HEntry::Vacant(e_c), HEntry::Vacant(e_p)) = (
-                self.costs.get_mut(output_sort).unwrap().entry(*eclass),
-                self.parent_edge
-                    .get_mut(output_sort)
-                    .unwrap()
-                    .entry(*eclass),
-            ) {
-                e_c.insert(cost);
-                e_p.insert((func.decl.name.clone(), vals.clone()));
+            if let HEntry::Vacant(e) = self
+                .costs
+                .get_mut(func.schema.output.name())
+                .unwrap()
+                .entry(eclass)
+            {
+                e.insert(cost.clone());
+                is_best[enode_id] = true;
             } else {
                 continue;
             }
 
-            for &parent_id in eclass2parents.entry(*eclass).or_default().iter() {
-                remaining_children[parent_id] -= 1;
-                if remaining_children[parent_id] != 0 {
-                    continue;
-                }
+            for &parent_id in eclass2parents.get(&eclass).unwrap() {
+                child_counts[parent_id] -= 1;
+                child_costs[parent_id].push(cost.clone());
 
-                let (parent_func_name, parent_vals) = &enodes[parent_id];
-                let parent_eclass = parent_vals.last().unwrap();
-                let parent_func = egraph.functions.get(parent_func_name).unwrap();
-                let parent_output_sort = parent_func.schema.output.name();
-
-                if self
-                    .costs
-                    .get(parent_output_sort)
-                    .unwrap()
-                    .get(parent_eclass)
-                    .is_some()
-                {
-                    continue;
-                }
-
-                if let Some(new_cost) = self.compute_cost_hyperedge(
-                    egraph,
-                    &egglog_bridge::FunctionRow {
-                        subsumed: false,
-                        vals: parent_vals,
-                    },
-                    parent_func,
-                ) {
-                    pq.push(Reverse((new_cost, parent_id)));
+                if child_counts[parent_id] == 0 {
+                    pq.push(Reverse((
+                        self.compute_cost_hyperedge_kd(
+                            egraph,
+                            &child_costs[parent_id],
+                            eclasses[parent_id].0,
+                        ),
+                        parent_id,
+                    )));
                 }
             }
         }
+
+        let mut curr_id = 0;
+        for func_name in self.funcs.iter() {
+            let func = egraph.functions.get(func_name).unwrap();
+            egraph
+                .backend
+                .for_each(func.backend_id, |row: egglog_bridge::FunctionRow| {
+                    if row.subsumed {
+                        return;
+                    }
+
+                    // we are assuming that the iteration will be in the same order,
+                    // since we haven't modified the database
+                    if is_best[curr_id] {
+                        if let HEntry::Vacant(e) = self
+                            .parent_edge
+                            .get_mut(func.schema.output.name())
+                            .unwrap()
+                            .entry(eclasses[curr_id].1)
+                        {
+                            e.insert((func.decl.name.clone(), row.vals.to_vec()));
+                        }
+                    }
+
+                    curr_id += 1;
+                });
+        }
+
+        // while let Some(Reverse((cost, enode_id))) = pq.pop() {
+        // let (func_name, vals) = &enodes[enode_id];
+        // let eclass = vals.last().unwrap();
+        // let func = egraph.functions.get(func_name).unwrap();
+        // let output_sort = func.schema.output.name();
+
+        // if let (HEntry::Vacant(e_c), HEntry::Vacant(e_p)) = (
+        //     self.costs.get_mut(output_sort).unwrap().entry(*eclass),
+        //     self.parent_edge
+        //         .get_mut(output_sort)
+        //         .unwrap()
+        //         .entry(*eclass),
+        // ) {
+        //     e_c.insert(cost);
+        //     e_p.insert((func.decl.name.clone(), vals.clone()));
+        // } else {
+        //     continue;
+        // }
+
+        // for &parent_id in eclass2parents.entry(*eclass).or_default().iter() {
+        //     remaining_children[parent_id] -= 1;
+        //     if remaining_children[parent_id] != 0 {
+        //         continue;
+        //     }
+
+        //     let (parent_func_name, parent_vals) = &enodes[parent_id];
+        //     let parent_eclass = parent_vals.last().unwrap();
+        //     let parent_func = egraph.functions.get(parent_func_name).unwrap();
+        //     let parent_output_sort = parent_func.schema.output.name();
+
+        //     if self
+        //         .costs
+        //         .get(parent_output_sort)
+        //         .unwrap()
+        //         .get(parent_eclass)
+        //         .is_some()
+        //     {
+        //         continue;
+        //     }
+
+        //     if let Some(new_cost) = self.compute_cost_hyperedge(
+        //         egraph,
+        //         &egglog_bridge::FunctionRow {
+        //             subsumed: false,
+        //             vals: parent_vals,
+        //         },
+        //         parent_func,
+        //     ) {
+        //         pq.push(Reverse((new_cost, parent_id)));
+        //     }
+        // }
+        // }
     }
 
     /// We use Bellman-Ford to compute the costs of the relevant eq sorts' terms
