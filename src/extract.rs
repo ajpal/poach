@@ -477,7 +477,7 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
                 continue;
             }
 
-            for &parent_id in eclass2parents.get(&eclass).unwrap() {
+            for &parent_id in eclass2parents.get(&eclass).unwrap_or(&Vec::new()) {
                 child_counts[parent_id] -= 1;
                 child_costs[parent_id].push(cost.clone());
 
