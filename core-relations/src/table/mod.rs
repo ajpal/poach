@@ -233,7 +233,11 @@ impl Serialize for SortedWritesTable {
             .hash
             .shards
             .iter()
-            .map(|shard| shard.iter().cloned().collect())
+            .map(|shard| {
+                let mut v: Vec<_> = shard.iter().cloned().collect();
+                v.sort_by_key(|entry| entry.hashcode);
+                v
+            })
             .collect();
 
         let mut state = serializer.serialize_struct("SortedWritesTable", 11)?;
