@@ -39,6 +39,7 @@ const RUN_MODES = [
   "timeline",
   "no-io",
   "extract",
+  "baseline",
 ];
 
 const CMDS = ["run", "extract", "serialize", "deserialize", "read", "write"];

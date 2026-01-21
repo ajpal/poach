@@ -208,6 +208,8 @@ function plotSerialization() {
     return;
   }
 
+  const cmdTypes = [...CMDS, "other"];
+
   const suite = document.querySelector(
     'input[name="suiteToggle"]:checked'
   ).value;
@@ -237,7 +239,7 @@ function plotSerialization() {
       RUN_MODES.map((runMode) => [
         runMode,
         Object.fromEntries(
-          CMDS.map((cmd) => [
+          cmdTypes.map((cmd) => [
             cmd,
             aggregate(
               GLOBAL_DATA.data[suite][runMode]?.[benchmark]?.[cmd],
@@ -251,16 +253,16 @@ function plotSerialization() {
     if (mode === "percentage") {
       Object.keys(datasets).forEach((entry) => {
         const total = aggregate(
-          CMDS.map((cmd) => datasets[entry][cmd]),
+          cmdTypes.map((cmd) => datasets[entry][cmd]),
           "total"
         );
-        CMDS.forEach((cmd) => {
+        cmdTypes.forEach((cmd) => {
           datasets[entry][cmd] /= total;
         });
       });
     }
 
-    const plotData = CMDS.map((cmd) => ({
+    const plotData = cmdTypes.map((cmd) => ({
       label: cmd,
       data: Object.keys(datasets).map((r) => datasets[r]?.[cmd]),
     }));
@@ -277,7 +279,7 @@ function plotSerialization() {
       benchmarks.map((bench) => [
         bench,
         Object.fromEntries(
-          CMDS.map((cmd) => [
+          cmdTypes.map((cmd) => [
             cmd,
             aggregate(GLOBAL_DATA.data[suite][runMode][bench][cmd], "total"),
           ])
@@ -288,16 +290,16 @@ function plotSerialization() {
     if (mode === "percentage") {
       Object.keys(datasets).forEach((entry) => {
         const total = aggregate(
-          CMDS.map((cmd) => datasets[entry][cmd]),
+          cmdTypes.map((cmd) => datasets[entry][cmd]),
           "total"
         );
-        CMDS.forEach((cmd) => {
+        cmdTypes.forEach((cmd) => {
           datasets[entry][cmd] /= total;
         });
       });
     }
 
-    const plotData = CMDS.map((cmd) => ({
+    const plotData = cmdTypes.map((cmd) => ({
       label: cmd,
       data: benchmarks.map((b) => datasets[b][cmd]),
     }));
