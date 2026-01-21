@@ -12,6 +12,7 @@ rm -rf FlameGraph
 rm -rf nightly
 
 mkdir -p nightly/output
+mkdir -p nightly/output/flamegraphs
 mkdir -p nightly/raw
 
 git clone https://github.com/brendangregg/FlameGraph.git

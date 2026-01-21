@@ -64,6 +64,10 @@ if __name__ == "__main__":
   # Generate flamegraphs
   for egg_file in glob.glob("tests/*.egg") + glob.glob("tests/web-demo/*.egg"):
     run_cmd([str(script_dir / "flamegraph.sh"), egg_file, str(nightly_dir / "output" / "flamegraphs")])
+  if shutil.which("perf") is not None:
+    # Generate flamegraphs
+    for egg_file in glob.glob("tests/*.egg") + glob.glob("tests/web-demo/*.egg"):
+      run_cmd([str(script_dir / "flamegraph.sh"), egg_file, str(nightly_dir / "output" / "flamegraphs")])
 
   # Clean up raw data (these files are quite large)
   shutil.rmtree(nightly_dir / "raw")
