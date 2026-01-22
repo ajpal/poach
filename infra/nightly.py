@@ -71,12 +71,11 @@ if __name__ == "__main__":
   # Flamegraphs for Knuth extraction
   flamegraph_dir = nightly_dir / "output" / "flamegraphs"
   flamegraph_dir.mkdir(parents=True, exist_ok=True)
-  for suite in timeline_suites:
-    egg_files = glob.glob(f"infra/nightly-resources/test-files/{suite}/*.egg")
-    for i in range(8):
-      if i >= len(egg_files):
-        break
-      run_cmd(["env", "EXTRACTION=KD", str(script_dir / "flamegraph.sh"), egg_files[i], str(flamegraph_dir)])
+  test_files_dir = "infra/nightly-resources/test-files/"
+  high_extract_files = ["herbie-hamming/142.egg"]
+  for f in high_extract_files:
+    path = f"{test_files_dir}{f}"
+    run_cmd(["env", "EXTRACTION=KD", str(script_dir / "flamegraph.sh"), path, str(flamegraph_dir)])
 
   # Update HTML index page
   shutil.copytree(resource_dir / "web", nightly_dir / "output", dirs_exist_ok = True)
