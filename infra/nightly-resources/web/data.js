@@ -31,12 +31,13 @@ const BENCH_SUITES = [
   },
 ];
 
+// See detailed explanation for each run mode in poach.rs
 const RUN_MODES = [
+  "timeline",
   "sequential",
   "interleaved",
   "old-serialize",
   "idempotent",
-  "timeline",
   "no-io",
   "extract",
 ];
@@ -48,7 +49,7 @@ function initializeGlobalData() {
     BENCH_SUITES.map((suite) => [
       suite.dir,
       { ...suite, ...Object.fromEntries(RUN_MODES.map((mode) => [mode, {}])) },
-    ])
+    ]),
   );
   GLOBAL_DATA.runExtractChart = null;
   GLOBAL_DATA.serializeChart = null;

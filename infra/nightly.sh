@@ -26,3 +26,6 @@ ls nightly/output/flamegraphs > nightly/output/flamegraphs.txt
 cp infra/nightly-resources/web/* nightly/output
 
 rm -rf FlameGraph
+
+# Uncomment for local development
+# cd nightly/output && python3 -m http.server 8002
