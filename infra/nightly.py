@@ -72,7 +72,7 @@ if __name__ == "__main__":
   flamegraph_dir = nightly_dir / "output" / "flamegraphs"
   flamegraph_dir.mkdir(parents=True, exist_ok=True)
   test_files_dir = "infra/nightly-resources/test-files/"
-  high_extract_files = ["herbie-hamming/142.egg"]
+  high_extract_files = ["herbie-hamming/142.egg", "herbie-math-taylor/taylor7.egg"]
   for f in high_extract_files:
     path = f"{test_files_dir}{f}"
     run_cmd(["env", "EXTRACTION=KD", str(script_dir / "flamegraph.sh"), path, str(flamegraph_dir)])
