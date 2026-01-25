@@ -2,11 +2,13 @@ pub mod check_shadowing;
 pub mod desugar;
 mod expr;
 mod parse;
+pub mod proof_global_remover;
 pub mod remove_globals;
 
 use crate::core::{
     GenericAtom, GenericAtomTerm, GenericExprExt, HeadOrEq, Query, ResolvedCall, ResolvedCoreRule,
 };
+use crate::util::sanitize_internal_name;
 use crate::*;
 pub use egglog_ast::generic_ast::{
     Change, GenericAction, GenericActions, GenericExpr, GenericFact, GenericRule, Literal,
@@ -63,7 +65,7 @@ where
     Extract(Span, GenericExpr<Head, Leaf>, GenericExpr<Head, Leaf>),
     MultiExtract(Span, GenericExpr<Head, Leaf>, Vec<GenericExpr<Head, Leaf>>),
     RunSchedule(GenericSchedule<Head, Leaf>),
-    PrintOverallStatistics,
+    PrintOverallStatistics(Span, Option<String>),
     Check(Span, Vec<GenericFact<Head, Leaf>>),
     PrintFunction(
         Span,
@@ -127,7 +129,9 @@ where
             }
             GenericNCommand::NormRule { rule } => GenericCommand::Rule { rule: rule.clone() },
             GenericNCommand::RunSchedule(schedule) => GenericCommand::RunSchedule(schedule.clone()),
-            GenericNCommand::PrintOverallStatistics => GenericCommand::PrintOverallStatistics,
+            GenericNCommand::PrintOverallStatistics(span, file) => {
+                GenericCommand::PrintOverallStatistics(span.clone(), file.clone())
+            }
             GenericNCommand::CoreAction(action) => GenericCommand::Action(action.clone()),
             GenericNCommand::Extract(span, expr, variants) => {
                 GenericCommand::Extract(span.clone(), expr.clone(), variants.clone())
@@ -182,7 +186,9 @@ where
             GenericNCommand::RunSchedule(schedule) => {
                 GenericNCommand::RunSchedule(schedule.visit_exprs(f))
             }
-            GenericNCommand::PrintOverallStatistics => GenericNCommand::PrintOverallStatistics,
+            GenericNCommand::PrintOverallStatistics(span, file) => {
+                GenericNCommand::PrintOverallStatistics(span, file)
+            }
             GenericNCommand::CoreAction(action) => {
                 GenericNCommand::CoreAction(action.visit_exprs(f))
             }
@@ -257,6 +263,28 @@ where
             ),
         }
     }
+
+    /// Converts all heads and leaves to strings.
+    pub fn make_unresolved(self) -> GenericSchedule<String, String> {
+        match self {
+            GenericSchedule::Saturate(span, sched) => {
+                GenericSchedule::Saturate(span, Box::new(sched.make_unresolved()))
+            }
+            GenericSchedule::Repeat(span, size, sched) => {
+                GenericSchedule::Repeat(span, size, Box::new(sched.make_unresolved()))
+            }
+            GenericSchedule::Run(span, config) => {
+                GenericSchedule::Run(span, config.make_unresolved())
+            }
+            GenericSchedule::Sequence(span, scheds) => GenericSchedule::Sequence(
+                span,
+                scheds
+                    .into_iter()
+                    .map(|sched| sched.make_unresolved())
+                    .collect(),
+            ),
+        }
+    }
 }
 
 impl<Head: Display, Leaf: Display> Display for GenericSchedule<Head, Leaf> {
@@ -273,6 +301,7 @@ impl<Head: Display, Leaf: Display> Display for GenericSchedule<Head, Leaf> {
 }
 
 pub type Command = GenericCommand<String, String>;
+pub type ResolvedCommand = GenericCommand<ResolvedCall, ResolvedVar>;
 
 pub type Subsume = bool;
 
@@ -303,6 +332,14 @@ impl Display for PrintFunctionMode {
 /// A [`Command`] is the top-level construct in egglog.
 /// It includes defining rules, declaring functions,
 /// adding to tables, and running rules (via a [`Schedule`]).
+///
+/// # Binding naming convention
+/// Bindings introduced by commands fall into two categories:
+/// - **Global bindings** must start with [`$`](crate::GLOBAL_NAME_PREFIX).
+/// - **Non-global bindings** must *not* start with [`$`](crate::GLOBAL_NAME_PREFIX).
+///
+/// When `--strict-mode` is enabled, violating these conventions is a type error;
+/// otherwise, egglog emits a single warning per program.
 #[derive(Debug, Clone)]
 pub enum GenericCommand<Head, Leaf>
 where
@@ -592,7 +629,7 @@ where
     RunSchedule(GenericSchedule<Head, Leaf>),
     /// Print runtime statistics about rules
     /// and rulesets so far.
-    PrintOverallStatistics,
+    PrintOverallStatistics(Span, Option<String>),
     /// The `check` command checks that the given facts
     /// match at least once in the current database.
     /// The list of facts is matched in the same way a [`Command::Rule`] is matched.
@@ -683,7 +720,10 @@ where
                 span: _,
                 name,
                 variants,
-            } => write!(f, "(datatype {name} {})", ListDisplay(variants, " ")),
+            } => {
+                let name = sanitize_internal_name(name);
+                write!(f, "(datatype {name} {})", ListDisplay(variants, " "))
+            }
             GenericCommand::Action(a) => write!(f, "{a}"),
             GenericCommand::Extract(_span, expr, variants) => {
                 write!(f, "(extract {expr} {variants})")
@@ -691,8 +731,12 @@ where
             GenericCommand::MultiExtract(_span, variants, exprs) => {
                 write!(f, "(multi-extract {variants} {}", ListDisplay(exprs, " "))
             }
-            GenericCommand::Sort(_span, name, None) => write!(f, "(sort {name})"),
+            GenericCommand::Sort(_span, name, None) => {
+                let name = sanitize_internal_name(name);
+                write!(f, "(sort {name})")
+            }
             GenericCommand::Sort(_span, name, Some((name2, args))) => {
+                let name = sanitize_internal_name(name);
                 write!(f, "(sort {name} ({name2} {}))", ListDisplay(args, " "))
             }
             GenericCommand::Function {
@@ -701,6 +745,7 @@ where
                 schema,
                 merge,
             } => {
+                let name = sanitize_internal_name(name);
                 write!(f, "(function {name} {schema}")?;
                 if let Some(merge) = &merge {
                     write!(f, " :merge {merge}")?;
@@ -716,6 +761,7 @@ where
                 cost,
                 unextractable,
             } => {
+                let name = sanitize_internal_name(name);
                 write!(f, "(constructor {name} {schema}")?;
                 if let Some(cost) = cost {
                     write!(f, " :cost {cost}")?;
@@ -730,25 +776,38 @@ where
                 name,
                 inputs,
             } => {
+                let name = sanitize_internal_name(name);
                 write!(f, "(relation {name} ({}))", ListDisplay(inputs, " "))
             }
-            GenericCommand::AddRuleset(_span, name) => write!(f, "(ruleset {name})"),
+            GenericCommand::AddRuleset(_span, name) => {
+                let name = sanitize_internal_name(name);
+                write!(f, "(ruleset {name})")
+            }
             GenericCommand::UnstableCombinedRuleset(_span, name, others) => {
+                let name = sanitize_internal_name(name);
+                let others: Vec<_> = others
+                    .iter()
+                    .map(|other| sanitize_internal_name(other).into_owned())
+                    .collect();
                 write!(
                     f,
                     "(unstable-combined-ruleset {name} {})",
-                    ListDisplay(others, " ")
+                    ListDisplay(&others, " ")
                 )
             }
             GenericCommand::Rule { rule } => rule.fmt(f),
             GenericCommand::RunSchedule(sched) => write!(f, "(run-schedule {sched})"),
-            GenericCommand::PrintOverallStatistics => write!(f, "(print-stats)"),
+            GenericCommand::PrintOverallStatistics(_span, file) => match file {
+                Some(file) => write!(f, "(print-stats :file {file})"),
+                None => write!(f, "(print-stats)"),
+            },
             GenericCommand::Check(_ann, facts) => {
                 write!(f, "(check {})", ListDisplay(facts, "\n"))
             }
             GenericCommand::Push(n) => write!(f, "(push {n})"),
             GenericCommand::Pop(_span, n) => write!(f, "(pop {n})"),
             GenericCommand::PrintFunction(_span, name, n, file, mode) => {
+                let name = sanitize_internal_name(name);
                 write!(f, "(print-function {name}")?;
                 if let Some(n) = n {
                     write!(f, " {n}")?;
@@ -763,13 +822,19 @@ where
                 write!(f, ")")
             }
             GenericCommand::PrintSize(_span, name) => {
+                let name: Option<_> = name
+                    .as_ref()
+                    .map(|value| sanitize_internal_name(value).into_owned());
                 write!(f, "(print-size {})", ListDisplay(name, " "))
             }
             GenericCommand::Input {
                 span: _,
                 name,
                 file,
-            } => write!(f, "(input {name} {file:?})"),
+            } => {
+                let name = sanitize_internal_name(name);
+                write!(f, "(input {name} {file:?})")
+            }
             GenericCommand::Output {
                 span: _,
                 file,
@@ -780,18 +845,22 @@ where
             GenericCommand::Datatypes { span: _, datatypes } => {
                 let datatypes: Vec<_> = datatypes
                     .iter()
-                    .map(|(_, name, variants)| match variants {
-                        Subdatatypes::Variants(variants) => {
-                            format!("({name} {})", ListDisplay(variants, " "))
-                        }
-                        Subdatatypes::NewSort(head, args) => {
-                            format!("(sort {name} ({head} {}))", ListDisplay(args, " "))
+                    .map(|(_, name, variants)| {
+                        let name = sanitize_internal_name(name);
+                        match variants {
+                            Subdatatypes::Variants(variants) => {
+                                format!("({name} {})", ListDisplay(variants, " "))
+                            }
+                            Subdatatypes::NewSort(head, args) => {
+                                format!("(sort {name} ({head} {}))", ListDisplay(args, " "))
+                            }
                         }
                     })
                     .collect();
                 write!(f, "(datatype* {})", ListDisplay(datatypes, " "))
             }
             GenericCommand::UserDefined(_span, name, exprs) => {
+                let name = sanitize_internal_name(name);
                 write!(f, "({name} {})", ListDisplay(exprs, " "))
             }
         }
@@ -835,6 +904,18 @@ where
                 .map(|until| until.into_iter().map(|fact| fact.visit_exprs(f)).collect()),
         }
     }
+
+    pub fn make_unresolved(self) -> GenericRunConfig<String, String> {
+        GenericRunConfig {
+            ruleset: self.ruleset,
+            until: self.until.map(|facts| {
+                facts
+                    .into_iter()
+                    .map(|fact| fact.make_unresolved())
+                    .collect()
+            }),
+        }
+    }
 }
 
 impl<Head: Display, Leaf: Display> Display for GenericRunConfig<Head, Leaf>
@@ -844,8 +925,9 @@ where
 {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         write!(f, "(run")?;
-        if !self.ruleset.is_empty() {
-            write!(f, " {}", self.ruleset)?;
+        let ruleset = sanitize_internal_name(&self.ruleset);
+        if !ruleset.is_empty() {
+            write!(f, " {ruleset}")?;
         }
         if let Some(until) = &self.until {
             write!(f, " :until {}", ListDisplay(until, " "))?;
@@ -884,13 +966,16 @@ where
 {
     pub name: String,
     pub subtype: FunctionSubtype,
+    /// Untyped schema
     pub schema: Schema,
+    /// Resolved schema after typechecking is stored here, otherwise "".
+    pub resolved_schema: Head,
     pub merge: Option<GenericExpr<Head, Leaf>>,
     pub cost: Option<DefaultCost>,
     pub unextractable: bool,
     /// Globals are desugared to functions, with this flag set to true.
     /// This is used by visualization to handle globals differently.
-    pub ignore_viz: bool,
+    pub let_binding: bool,
     pub span: Span,
 }
 
@@ -905,7 +990,8 @@ pub struct Variant {
 
 impl Display for Variant {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        write!(f, "({}", self.name)?;
+        let name = sanitize_internal_name(&self.name);
+        write!(f, "({name}")?;
         if !self.types.is_empty() {
             write!(f, " {}", ListDisplay(&self.types, " "))?;
         }
@@ -946,10 +1032,11 @@ impl FunctionDecl {
             name,
             subtype: FunctionSubtype::Custom,
             schema,
+            resolved_schema: String::new(),
             merge,
             cost: None,
             unextractable: true,
-            ignore_viz: false,
+            let_binding: false,
             span,
         }
     }
@@ -965,11 +1052,12 @@ impl FunctionDecl {
         Self {
             name,
             subtype: FunctionSubtype::Constructor,
+            resolved_schema: String::new(),
             schema,
             merge: None,
             cost,
             unextractable,
-            ignore_viz: false,
+            let_binding: false,
             span,
         }
     }
@@ -983,10 +1071,11 @@ impl FunctionDecl {
                 input,
                 output: String::from("Unit"),
             },
+            resolved_schema: String::new(),
             merge: None,
             cost: None,
             unextractable: true,
-            ignore_viz: false,
+            let_binding: false,
             span,
         }
     }
@@ -1005,17 +1094,18 @@ where
             name: self.name,
             subtype: self.subtype,
             schema: self.schema,
+            resolved_schema: self.resolved_schema,
             merge: self.merge.map(|expr| expr.visit_exprs(f)),
             cost: self.cost,
             unextractable: self.unextractable,
-            ignore_viz: self.ignore_viz,
+            let_binding: self.let_binding,
             span: self.span,
         }
     }
 }
 
 pub type Fact = GenericFact<String, String>;
-pub(crate) type ResolvedFact = GenericFact<ResolvedCall, ResolvedVar>;
+pub type ResolvedFact = GenericFact<ResolvedCall, ResolvedVar>;
 pub(crate) type MappedFact<Head, Leaf> = GenericFact<CorrespondingVar<Head, Leaf>, Leaf>;
 
 pub struct Facts<Head, Leaf>(pub Vec<GenericFact<Head, Leaf>>);
@@ -1120,6 +1210,25 @@ pub struct GenericRewrite<Head, Leaf> {
     pub conditions: Vec<GenericFact<Head, Leaf>>,
 }
 
+impl<Head, Leaf> GenericRewrite<Head, Leaf>
+where
+    Head: Clone + Display,
+    Leaf: Clone + PartialEq + Eq + Display + Hash,
+{
+    pub fn make_unresolved(self) -> GenericRewrite<String, String> {
+        GenericRewrite {
+            span: self.span,
+            lhs: self.lhs.make_unresolved(),
+            rhs: self.rhs.make_unresolved(),
+            conditions: self
+                .conditions
+                .into_iter()
+                .map(|fact| fact.make_unresolved())
+                .collect(),
+        }
+    }
+}
+
 impl<Head: Display, Leaf: Display> GenericRewrite<Head, Leaf> {
     /// Converts the rewrite into an s-expression.
     pub fn fmt_with_ruleset(
@@ -1142,6 +1251,7 @@ impl<Head: Display, Leaf: Display> GenericRewrite<Head, Leaf> {
             write!(f, " :when ({})", ListDisplay(&self.conditions, " "))?;
         }
         if !ruleset.is_empty() {
+            let ruleset = sanitize_internal_name(ruleset);
             write!(f, " :ruleset {ruleset}")?;
         }
         write!(f, ")")
@@ -1175,6 +1285,135 @@ where
             }
             GenericExpr::Lit(span, lit) => GenericAtomTerm::Literal(span.clone(), lit.clone()),
             GenericExpr::Call(span, head, _) => GenericAtomTerm::Var(span.clone(), head.to.clone()),
+        }
+    }
+}
+
+impl<Head, Leaf> GenericCommand<Head, Leaf>
+where
+    Head: Clone + Display,
+    Leaf: Clone + PartialEq + Eq + Display + Hash,
+{
+    pub fn make_unresolved(self) -> GenericCommand<String, String> {
+        match self {
+            GenericCommand::Sort(span, name, params) => GenericCommand::Sort(span, name, params),
+            GenericCommand::Datatype {
+                span,
+                name,
+                variants,
+            } => GenericCommand::Datatype {
+                span,
+                name,
+                variants,
+            },
+            GenericCommand::Datatypes { span, datatypes } => {
+                GenericCommand::Datatypes { span, datatypes }
+            }
+            GenericCommand::Constructor {
+                span,
+                name,
+                schema,
+                cost,
+                unextractable,
+            } => GenericCommand::Constructor {
+                span,
+                name,
+                schema,
+                cost,
+                unextractable,
+            },
+            GenericCommand::Relation { span, name, inputs } => {
+                GenericCommand::Relation { span, name, inputs }
+            }
+            GenericCommand::Function {
+                span,
+                name,
+                schema,
+                merge,
+            } => GenericCommand::Function {
+                span,
+                name,
+                schema,
+                merge: merge.map(|expr| expr.make_unresolved()),
+            },
+            GenericCommand::AddRuleset(span, name) => GenericCommand::AddRuleset(span, name),
+            GenericCommand::UnstableCombinedRuleset(span, name, others) => {
+                GenericCommand::UnstableCombinedRuleset(span, name, others)
+            }
+            GenericCommand::Rule { rule } => GenericCommand::Rule {
+                rule: rule.make_unresolved(),
+            },
+            GenericCommand::Rewrite(name, rewrite, subsume) => {
+                GenericCommand::Rewrite(name, rewrite.make_unresolved(), subsume)
+            }
+            GenericCommand::BiRewrite(name, rewrite) => {
+                GenericCommand::BiRewrite(name, rewrite.make_unresolved())
+            }
+            GenericCommand::Action(action) => GenericCommand::Action(action.make_unresolved()),
+            GenericCommand::Extract(span, expr, variants) => {
+                GenericCommand::Extract(span, expr.make_unresolved(), variants.make_unresolved())
+            }
+            GenericCommand::MultiExtract(span, variants, exprs) => GenericCommand::MultiExtract(
+                span,
+                variants.make_unresolved(),
+                exprs
+                    .into_iter()
+                    .map(|expr| expr.make_unresolved())
+                    .collect(),
+            ),
+            GenericCommand::RunSchedule(schedule) => {
+                GenericCommand::RunSchedule(schedule.make_unresolved())
+            }
+            GenericCommand::PrintOverallStatistics(span, file) => {
+                GenericCommand::PrintOverallStatistics(span, file)
+            }
+            GenericCommand::Check(span, facts) => GenericCommand::Check(
+                span,
+                facts
+                    .into_iter()
+                    .map(|fact| fact.make_unresolved())
+                    .collect(),
+            ),
+            GenericCommand::PrintFunction(span, name, n, file, mode) => {
+                GenericCommand::PrintFunction(span, name, n, file, mode)
+            }
+            GenericCommand::PrintSize(span, name) => GenericCommand::PrintSize(span, name),
+            GenericCommand::Input { span, name, file } => {
+                GenericCommand::Input { span, name, file }
+            }
+            GenericCommand::Output { span, file, exprs } => GenericCommand::Output {
+                span,
+                file,
+                exprs: exprs
+                    .into_iter()
+                    .map(|expr| expr.make_unresolved())
+                    .collect(),
+            },
+            GenericCommand::Push(n) => GenericCommand::Push(n),
+            GenericCommand::Pop(span, n) => GenericCommand::Pop(span, n),
+            GenericCommand::Fail(span, cmd) => {
+                GenericCommand::Fail(span, Box::new(cmd.make_unresolved()))
+            }
+            GenericCommand::Include(span, file) => GenericCommand::Include(span, file),
+            GenericCommand::UserDefined(span, name, exprs) => {
+                GenericCommand::UserDefined(span, name, exprs)
+            }
+        }
+    }
+
+    pub fn visit_actions(
+        self,
+        f: &mut impl FnMut(GenericAction<Head, Leaf>) -> GenericAction<Head, Leaf>,
+    ) -> Self {
+        match self {
+            GenericCommand::Rule { rule } => GenericCommand::Rule {
+                rule: rule.visit_actions(f),
+            },
+            GenericCommand::Action(action) => GenericCommand::Action(f(action)),
+            GenericCommand::Fail(span, cmd) => {
+                GenericCommand::Fail(span, Box::new(cmd.visit_actions(f)))
+            }
+            other => other,
         }
     }
 }

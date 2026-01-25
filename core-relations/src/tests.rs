@@ -4,6 +4,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use egglog_reports::ReportLevel;
+
 use crate::numeric_id::NumericId;
 
 use crate::{
@@ -35,18 +37,18 @@ fn basic_query() {
     } = basic_math_egraph();
 
     db.base_values_mut().register_type::<i64>();
-    let add_int = db.add_external_function(make_external_func(|exec_state, args| {
+    let add_int = db.add_external_function(Box::new(make_external_func(|exec_state, args| {
         let [x, y] = args else { panic!() };
         let x: i64 = exec_state.base_values().unwrap(*x);
         let y: i64 = exec_state.base_values().unwrap(*y);
         let z: i64 = x + y;
         Some(exec_state.base_values().get(z))
-    }));
+    })));
 
     // Add the numbers 1 through 10 to the num table at timestamp 0.
     let mut ids = Vec::new();
     {
-        let mut num_buf = db.get_table(num).new_buffer();
+        let mut num_buf = db.new_buffer(num);
         for i in 0..10 {
             let id = db.inc_counter(id_counter);
             let i = db.base_values().get::<i64>(i as i64);
@@ -59,7 +61,7 @@ fn basic_query() {
 
     let mut add_ids = Vec::new();
     {
-        let mut add_buf = db.get_table(add).new_buffer();
+        let mut add_buf = db.new_buffer(add);
         for i in ids.chunks(2) {
             let &[x, y] = i else { unreachable!() };
             // Insert (add x y) into the database with a fresh id at timestamp 0
@@ -78,14 +80,14 @@ fn basic_query() {
     // Num(b, y, t3),
     // =>
     // Num(+ a b, z, 1)
-    let x = add_query.new_var();
-    let y = add_query.new_var();
-    let z = add_query.new_var();
-    let t1 = add_query.new_var();
-    let t2 = add_query.new_var();
-    let t3 = add_query.new_var();
-    let a = add_query.new_var();
-    let b = add_query.new_var();
+    let x = add_query.new_var_named("x");
+    let y = add_query.new_var_named("y");
+    let z = add_query.new_var_named("z");
+    let t1 = add_query.new_var_named("t1");
+    let t2 = add_query.new_var_named("t2");
+    let t3 = add_query.new_var_named("t3");
+    let a = add_query.new_var_named("a");
+    let b = add_query.new_var_named("b");
 
     add_query
         .add_atom(add, &[x.into(), y.into(), z.into(), t1.into()], &[])
@@ -104,14 +106,10 @@ fn basic_query() {
     rules.build_with_description("add");
     let rule_set = rsb.build();
 
-    let report = db.run_rule_set(&rule_set);
+    let report = db.run_rule_set(&rule_set, ReportLevel::TimeOnly);
 
     assert!(report.changed, "{report:?}");
-    assert_eq!(
-        report.rule_reports.get("add").unwrap().num_matches,
-        5,
-        "{report:?}"
-    );
+    assert_eq!(report.num_matches("add"), 5, "{report:?}");
     let num_table = db.get_table(num);
     let all_num = num_table.all();
     let items = num_table.scan(all_num.as_ref());
@@ -157,7 +155,7 @@ fn line_graph_1_test(strat: PlanStrategy) {
     let edges = db.add_table(edge_impl, iter::empty(), iter::empty());
     let nodes = Vec::from_iter((0..10).map(Value::new));
     {
-        let mut edge_buf = db.get_table(edges).new_buffer();
+        let mut edge_buf = db.new_buffer(edges);
         for edge in nodes.windows(2) {
             edge_buf.stage_insert(edge);
         }
@@ -168,9 +166,9 @@ fn line_graph_1_test(strat: PlanStrategy) {
     let mut query = rsb.new_rule();
     query.set_plan_strategy(strat);
     // edge(x, y), edge(y, z) => edge(x, z)
-    let x = query.new_var();
-    let y = query.new_var();
-    let z = query.new_var();
+    let x = query.new_var_named("x");
+    let y = query.new_var_named("y");
+    let z = query.new_var_named("z");
     query.add_atom(edges, &[x.into(), y.into()], &[]).unwrap();
     query.add_atom(edges, &[y.into(), z.into()], &[]).unwrap();
     let mut rule = query.build();
@@ -178,7 +176,7 @@ fn line_graph_1_test(strat: PlanStrategy) {
     rule.build();
     let rule_set = rsb.build();
 
-    assert!(db.run_rule_set(&rule_set).changed);
+    assert!(db.run_rule_set(&rule_set, ReportLevel::TimeOnly).changed);
 
     let mut expected = Vec::from_iter(
         nodes
@@ -229,7 +227,7 @@ fn line_graph_2_test(strat: PlanStrategy) {
     let edges = db.add_table(edge_impl, iter::empty(), iter::empty());
     let nodes = Vec::from_iter((0..10).map(Value::new));
     {
-        let mut edge_buf = db.get_table_mut(edges).new_buffer();
+        let mut edge_buf = db.new_buffer(edges);
         for edge in nodes.windows(2) {
             edge_buf.stage_insert(edge);
         }
@@ -240,9 +238,9 @@ fn line_graph_2_test(strat: PlanStrategy) {
     let mut query = rsb.new_rule();
     query.set_plan_strategy(strat);
     // edge(x, y), edge(y, z) => edge(x, z) :where y > 1
-    let x = query.new_var();
-    let y = query.new_var();
-    let z = query.new_var();
+    let x = query.new_var_named("x");
+    let y = query.new_var_named("y");
+    let z = query.new_var_named("z");
     query
         .add_atom(
             edges,
@@ -259,7 +257,7 @@ fn line_graph_2_test(strat: PlanStrategy) {
     rule.build();
     let rule_set = rsb.build();
 
-    assert!(db.run_rule_set(&rule_set).changed);
+    assert!(db.run_rule_set(&rule_set, ReportLevel::TimeOnly).changed);
 
     let mut expected = Vec::from_iter(
         nodes.windows(2).map(|x| vec![x[0], x[1]]).chain(
@@ -289,14 +287,14 @@ fn minimal_ac() {
     } = basic_math_egraph();
     {
         {
-            let mut add_buf = db.get_table(add).new_buffer();
+            let mut add_buf = db.new_buffer(add);
             add_buf.stage_insert(&[v(0), v(0), v(1), v(0)]);
             add_buf.stage_insert(&[v(0), v(1), v(2), v(0)]);
             add_buf.stage_insert(&[v(0), v(2), v(3), v(0)]);
         }
         db.merge_all();
         {
-            let mut add_buf = db.get_table(add).new_buffer();
+            let mut add_buf = db.new_buffer(add);
             add_buf.stage_insert(&[v(1), v(0), v(2), v(1)]);
             add_buf.stage_insert(&[v(1), v(1), v(3), v(1)]);
         }
@@ -312,13 +310,13 @@ fn minimal_ac() {
     // Add(x, y, <res>, cur)
     // Add(<res>, z, i2, cur)
 
-    let x = add_assoc.new_var();
-    let y = add_assoc.new_var();
-    let z = add_assoc.new_var();
-    let i1 = add_assoc.new_var();
-    let i2 = add_assoc.new_var();
-    let t1 = add_assoc.new_var();
-    let t2 = add_assoc.new_var();
+    let x = add_assoc.new_var_named("x");
+    let y = add_assoc.new_var_named("y");
+    let z = add_assoc.new_var_named("z");
+    let i1 = add_assoc.new_var_named("i1");
+    let i2 = add_assoc.new_var_named("i2");
+    let t1 = add_assoc.new_var_named("t1");
+    let t2 = add_assoc.new_var_named("t2");
     add_assoc
         .add_atom(
             add,
@@ -369,7 +367,7 @@ fn minimal_ac() {
     rules.build();
     let rule_set = rsb.build();
 
-    db.run_rule_set(&rule_set);
+    db.run_rule_set(&rule_set, ReportLevel::TimeOnly);
     let add_table = db.get_table(add);
     let all_add = add_table.all();
     let items = add_table.scan(all_add.as_ref());
@@ -425,8 +423,7 @@ fn ac_test(strat: PlanStrategy) {
         let id = db.inc_counter(id_counter);
         let i = db.base_values().get::<i64>(i as i64);
         ids.push(i);
-        db.get_table(num)
-            .new_buffer()
+        db.new_buffer(num)
             .stage_insert(&[i, Value::from_usize(id), Value::new(0)]);
     }
 
@@ -440,8 +437,7 @@ fn ac_test(strat: PlanStrategy) {
         let mut prev = ids[0];
         for num in &ids[1..] {
             let id = Value::from_usize(db.inc_counter(id_counter));
-            db.get_table(add)
-                .new_buffer()
+            db.new_buffer(add)
                 .stage_insert(&[*num, prev, id, Value::new(0)]);
             prev = id;
             add_ids.push(id);
@@ -451,8 +447,7 @@ fn ac_test(strat: PlanStrategy) {
         prev = *ids.last().unwrap();
         for num in ids[0..(N - 1)].iter().rev() {
             let id = Value::from_usize(db.inc_counter(id_counter));
-            db.get_table(add)
-                .new_buffer()
+            db.new_buffer(add)
                 .stage_insert(&[prev, *num, id, Value::new(0)]);
             prev = id;
             add_ids.push(id);
@@ -483,13 +478,13 @@ fn ac_test(strat: PlanStrategy) {
             // Add(x, y, <res>, cur)
             // Add(<res>, z, i2, cur)
 
-            let x = add_assoc.new_var();
-            let y = add_assoc.new_var();
-            let z = add_assoc.new_var();
-            let i1 = add_assoc.new_var();
-            let i2 = add_assoc.new_var();
-            let t1 = add_assoc.new_var();
-            let t2 = add_assoc.new_var();
+            let x = add_assoc.new_var_named("x");
+            let y = add_assoc.new_var_named("y");
+            let z = add_assoc.new_var_named("z");
+            let i1 = add_assoc.new_var_named("i1");
+            let i2 = add_assoc.new_var_named("i2");
+            let t1 = add_assoc.new_var_named("t1");
+            let t2 = add_assoc.new_var_named("t2");
             add_assoc
                 .add_atom(
                     add,
@@ -545,10 +540,10 @@ fn ac_test(strat: PlanStrategy) {
 
         let mut add_comm = rsb.new_rule();
         add_comm.set_plan_strategy(strat);
-        let x = add_comm.new_var();
-        let y = add_comm.new_var();
-        let z = add_comm.new_var();
-        let t1 = add_comm.new_var();
+        let x = add_comm.new_var_named("x");
+        let y = add_comm.new_var_named("y");
+        let z = add_comm.new_var_named("z");
+        let t1 = add_comm.new_var_named("t1");
         // Just look for the current timestamp
         add_comm
             .add_atom(
@@ -567,7 +562,7 @@ fn ac_test(strat: PlanStrategy) {
             .unwrap();
         rules.build();
         let rule_set = rsb.build();
-        db.run_rule_set(&rule_set)
+        db.run_rule_set(&rule_set, ReportLevel::TimeOnly)
     };
 
     let rebuild = |db: &mut Database, cur_ts: Value| -> (Value, bool) {
@@ -592,9 +587,9 @@ fn ac_test(strat: PlanStrategy) {
                 // nonincremental:
                 //  num(x, id, t1) =>
                 //  num(x, id', t1) where id' is canonical
-                let x = num_rebuild.new_var();
-                let id = num_rebuild.new_var();
-                let t1 = num_rebuild.new_var();
+                let x = num_rebuild.new_var_named("x");
+                let id = num_rebuild.new_var_named("id");
+                let t1 = num_rebuild.new_var_named("t1");
                 num_rebuild
                     .add_atom(num, &[x.into(), id.into(), t1.into()], &[])
                     .unwrap();
@@ -608,11 +603,11 @@ fn ac_test(strat: PlanStrategy) {
                     .unwrap();
                 rules.build();
             } else {
-                let x = num_rebuild.new_var();
-                let id = num_rebuild.new_var();
-                let t1 = num_rebuild.new_var();
-                let id_new = num_rebuild.new_var();
-                let t2 = num_rebuild.new_var();
+                let x = num_rebuild.new_var_named("x");
+                let id = num_rebuild.new_var_named("id");
+                let t1 = num_rebuild.new_var_named("t1");
+                let id_new = num_rebuild.new_var_named("id_new");
+                let t2 = num_rebuild.new_var_named("t2");
                 num_rebuild
                     .add_atom(num, &[x.into(), id.into(), t1.into()], &[])
                     .unwrap();
@@ -646,12 +641,12 @@ fn ac_test(strat: PlanStrategy) {
         if incremental_rebuild(uf_size, add_size) {
             let mut add_rebuild_id = rsb.new_rule();
             add_rebuild_id.set_plan_strategy(strat);
-            let x = add_rebuild_id.new_var();
-            let y = add_rebuild_id.new_var();
-            let id = add_rebuild_id.new_var();
-            let t1 = add_rebuild_id.new_var();
-            let id_new = add_rebuild_id.new_var();
-            let t2 = add_rebuild_id.new_var();
+            let x = add_rebuild_id.new_var_named("x");
+            let y = add_rebuild_id.new_var_named("y");
+            let id = add_rebuild_id.new_var_named("id");
+            let t1 = add_rebuild_id.new_var_named("t1");
+            let id_new = add_rebuild_id.new_var_named("id_new");
+            let t2 = add_rebuild_id.new_var_named("t2");
             add_rebuild_id
                 .add_atom(add, &[x.into(), y.into(), id.into(), t1.into()], &[])
                 .unwrap();
@@ -681,17 +676,17 @@ fn ac_test(strat: PlanStrategy) {
                 .unwrap();
             rules.build();
             let rs = rsb.build();
-            changed |= db.run_rule_set(&rs).changed;
+            changed |= db.run_rule_set(&rs, ReportLevel::TimeOnly).changed;
             let mut rsb = db.new_rule_set();
             num_rebuild(&mut rsb, cur_ts, next_ts);
             let mut add_rebuild_l = rsb.new_rule();
             add_rebuild_l.set_plan_strategy(strat);
-            let x = add_rebuild_l.new_var();
-            let y = add_rebuild_l.new_var();
-            let id = add_rebuild_l.new_var();
-            let t1 = add_rebuild_l.new_var();
-            let x_new = add_rebuild_l.new_var();
-            let t2 = add_rebuild_l.new_var();
+            let x = add_rebuild_l.new_var_named("x");
+            let y = add_rebuild_l.new_var_named("y");
+            let id = add_rebuild_l.new_var_named("id");
+            let t1 = add_rebuild_l.new_var_named("t1");
+            let x_new = add_rebuild_l.new_var_named("x_new");
+            let t2 = add_rebuild_l.new_var_named("t2");
             add_rebuild_l
                 .add_atom(add, &[x.into(), y.into(), id.into(), t1.into()], &[])
                 .unwrap();
@@ -722,17 +717,17 @@ fn ac_test(strat: PlanStrategy) {
             rules.build();
 
             let rs = rsb.build();
-            changed |= db.run_rule_set(&rs).changed;
+            changed |= db.run_rule_set(&rs, ReportLevel::TimeOnly).changed;
             let mut rsb = db.new_rule_set();
             num_rebuild(&mut rsb, cur_ts, next_ts);
             let mut add_rebuild_r = rsb.new_rule();
             add_rebuild_r.set_plan_strategy(strat);
-            let x = add_rebuild_r.new_var();
-            let y = add_rebuild_r.new_var();
-            let id = add_rebuild_r.new_var();
-            let t1 = add_rebuild_r.new_var();
-            let y_new = add_rebuild_r.new_var();
-            let t2 = add_rebuild_r.new_var();
+            let x = add_rebuild_r.new_var_named("x");
+            let y = add_rebuild_r.new_var_named("y");
+            let id = add_rebuild_r.new_var_named("id");
+            let t1 = add_rebuild_r.new_var_named("t1");
+            let y_new = add_rebuild_r.new_var_named("y_new");
+            let t2 = add_rebuild_r.new_var_named("t2");
             add_rebuild_r
                 .add_atom(add, &[x.into(), y.into(), id.into(), t1.into()], &[])
                 .unwrap();
@@ -762,7 +757,7 @@ fn ac_test(strat: PlanStrategy) {
                 .unwrap();
             rules.build();
             let rs = rsb.build();
-            changed |= db.run_rule_set(&rs).changed;
+            changed |= db.run_rule_set(&rs, ReportLevel::TimeOnly).changed;
         } else {
             // nonincremental. Just run one rule and recanonicalize everything.
             // add(x, y, id, t1) =>
@@ -774,10 +769,10 @@ fn ac_test(strat: PlanStrategy) {
             //   insert add(x', y', id', cur)
             let mut rebuild = rsb.new_rule();
             rebuild.set_plan_strategy(strat);
-            let x = rebuild.new_var();
-            let y = rebuild.new_var();
-            let id = rebuild.new_var();
-            let t1 = rebuild.new_var();
+            let x = rebuild.new_var_named("x");
+            let y = rebuild.new_var_named("y");
+            let id = rebuild.new_var_named("id");
+            let t1 = rebuild.new_var_named("t1");
             rebuild
                 .add_atom(add, &[x.into(), y.into(), id.into(), t1.into()], &[])
                 .unwrap();
@@ -811,7 +806,7 @@ fn ac_test(strat: PlanStrategy) {
                 .unwrap();
             rules.build();
             let rs = rsb.build();
-            changed |= db.run_rule_set(&rs).changed;
+            changed |= db.run_rule_set(&rs, ReportLevel::TimeOnly).changed;
         }
         (next_ts, changed)
     };
@@ -940,12 +935,12 @@ fn lookup_with_fallback_partial_success() {
     };
 
     {
-        let mut buf = db.get_table(f).new_buffer();
+        let mut buf = db.new_buffer(f);
         buf.stage_insert(&[v(1), v(0)]);
         buf.stage_insert(&[v(2), v(0)]);
     }
     {
-        let mut buf = db.get_table(g).new_buffer();
+        let mut buf = db.new_buffer(g);
         buf.stage_insert(&[v(1), v(0)]);
         buf.stage_insert(&[v(3), v(0)]);
         buf.stage_insert(&[v(4), v(0)]);
@@ -956,25 +951,25 @@ fn lookup_with_fallback_partial_success() {
     let log = Arc::new(Mutex::new(Vec::new()));
     let log_vals = {
         let inner = log.clone();
-        db.add_external_function(make_external_func(move |_, args| {
+        db.add_external_function(Box::new(make_external_func(move |_, args| {
             let [x] = args else { panic!() };
             inner.lock().unwrap().push(*x);
             Some(*x)
-        }))
+        })))
     };
-    let assert_even = db.add_external_function(make_external_func(|_, args| {
+    let assert_even = db.add_external_function(Box::new(make_external_func(|_, args| {
         let [x] = args else { panic!() };
         if x.rep().is_multiple_of(2) {
             Some(*x)
         } else {
             None
         }
-    }));
+    })));
 
     let mut rsb = RuleSetBuilder::new(&mut db);
     let mut query = rsb.new_rule();
-    let x = query.new_var();
-    let y = query.new_var();
+    let x = query.new_var_named("x");
+    let y = query.new_var_named("y");
     query.add_atom(g, &[x.into(), y.into()], &[]).unwrap();
     let mut rb = query.build();
     let res = rb
@@ -984,7 +979,7 @@ fn lookup_with_fallback_partial_success() {
     rb.insert(h, &[res.into(), y.into()]).unwrap();
     rb.build();
     let rs = rsb.build();
-    assert!(db.run_rule_set(&rs).changed);
+    assert!(db.run_rule_set(&rs, ReportLevel::TimeOnly).changed);
 
     let h = db.get_table(h);
     let all = h.all();
@@ -1039,31 +1034,31 @@ fn call_external_with_fallback() {
     };
 
     {
-        let mut buf = db.get_table(f).new_buffer();
+        let mut buf = db.new_buffer(f);
         buf.stage_insert(&[v(1), v(0)]);
         buf.stage_insert(&[v(2), v(0)]);
         buf.stage_insert(&[v(3), v(0)]);
         buf.stage_insert(&[v(5), v(0)]);
     }
     db.merge_all();
-    let assert_even = db.add_external_function(make_external_func(|_, args| {
+    let assert_even = db.add_external_function(Box::new(make_external_func(|_, args| {
         let [x] = args else { panic!() };
         if x.rep().is_multiple_of(2) {
             Some(*x)
         } else {
             None
         }
-    }));
+    })));
 
-    let inc = db.add_external_function(make_external_func(|_, args| {
+    let inc = db.add_external_function(Box::new(make_external_func(|_, args| {
         let [x] = args else { panic!() };
         if x.rep() == 5 { None } else { Some(x.inc()) }
-    }));
+    })));
 
     let mut rsb = RuleSetBuilder::new(&mut db);
     let mut query = rsb.new_rule();
-    let x = query.new_var();
-    let y = query.new_var();
+    let x = query.new_var_named("x");
+    let y = query.new_var_named("y");
     query.add_atom(f, &[x.into(), y.into()], &[]).unwrap();
     let mut rb = query.build();
     let res = rb
@@ -1072,7 +1067,7 @@ fn call_external_with_fallback() {
     rb.insert(h, &[res.into(), y.into()]).unwrap();
     rb.build();
     let rs = rsb.build();
-    assert!(db.run_rule_set(&rs).changed);
+    assert!(db.run_rule_set(&rs, ReportLevel::TimeOnly).changed);
 
     let h = db.get_table(h);
     let all = h.all();
@@ -1083,4 +1078,87 @@ fn call_external_with_fallback() {
         .collect::<Vec<_>>();
     h_contents.sort();
     assert_eq!(h_contents, vec![vec![v(2), v(0)], vec![v(4), v(0)],]);
+}
+
+#[test]
+fn early_stop() {
+    let mut db = Database::default();
+
+    // Create a table with 1M rows.
+    let data_table = db.add_table(
+        SortedWritesTable::new(1, 2, None, vec![], Box::new(|_, _, _, _| false)),
+        iter::empty(),
+        iter::empty(),
+    );
+
+    {
+        // Populate with 0.5M rows.
+        let mut buf = db.new_buffer(data_table);
+        for i in 0..500_000 {
+            buf.stage_insert(&[Value::from_usize(i), Value::from_usize(i)]);
+        }
+    }
+    db.merge_all();
+
+    // External function that triggers early stop after 1000 calls.
+    let call_count = Arc::new(Mutex::new(0usize));
+    let call_count_clone = call_count.clone();
+    let stop_trigger = db.add_external_function(Box::new(make_external_func(
+        move |exec_state, args| {
+            let mut count = call_count_clone.lock().unwrap();
+            *count += 1;
+
+            if *count >= 1000 {
+                exec_state.trigger_early_stop();
+            }
+
+            let [x] = args else { panic!() };
+            Some(*x)
+        },
+    )));
+
+    // Build a rule that scans the table and calls the external function.
+    let mut rsb = RuleSetBuilder::new(&mut db);
+    let mut query = rsb.new_rule();
+    let x = query.new_var_named("x");
+    let y = query.new_var_named("y");
+    query
+        .add_atom(data_table, &[x.into(), y.into()], &[])
+        .unwrap();
+    let mut rb = query.build();
+    let _ = rb.call_external(stop_trigger, &[x.into()]).unwrap();
+    rb.build_with_description("early_stop_test");
+    let rs = rsb.build();
+
+    let report = db.run_rule_set(&rs, ReportLevel::TimeOnly);
+
+    let matches = report.num_matches("early_stop_test");
+
+    // NB: 100K is very loose: this test doesn't appear to flake even with 10K as the upper limit.
+    // This is mostly just there to avoid truly unlikely race conditions where there are a huge
+    // number of matches in flight at once.
+    assert!(
+        matches < 100_000,
+        "Expected much fewer than 10k matches due to early stopping, got {}, (call_count={})",
+        matches,
+        call_count.lock().unwrap(),
+    );
+    assert!(
+        matches >= 1000,
+        "Expected at least 1000 matches before stopping, got {} (call_count={})",
+        matches,
+        call_count.lock().unwrap(),
+    );
+
+    let final_count = *call_count.lock().unwrap();
+    assert!(
+        final_count >= 1000,
+        "External function called {} times, should be at least 1000",
+        final_count
+    );
+    assert!(
+        final_count < 100_000,
+        "External function called {} times, should be much less than 10k",
+        final_count
+    );
 }

@@ -5,17 +5,21 @@ use std::{
     sync::{Arc, OnceLock, atomic::AtomicUsize},
 };
 
-use crate::numeric_id::{DenseIdMap, IdVec, NumericId};
+use crate::{
+    common::HashMap,
+    numeric_id::{DenseIdMap, IdVec, NumericId},
+};
+use crossbeam::utils::CachePadded;
 use dashmap::mapref::one::RefMut;
+use egglog_reports::{ReportLevel, RuleReport, RuleSetReport};
 use smallvec::SmallVec;
 use web_time::Instant;
 
 use crate::{
     Constraint, OffsetRange, Pool, SubsetRef,
-    action::{Bindings, ExecutionState, PredictedVals},
+    action::{Bindings, ExecutionState},
     common::{DashMap, Value},
     free_join::{
-        RuleReport, RuleSetReport,
         frame_update::{FrameUpdates, UpdateInstr},
         get_index_from_tableinfo,
     },
@@ -148,20 +152,30 @@ impl Prober {
 }
 
 impl Database {
-    pub fn run_rule_set(&mut self, rule_set: &RuleSet) -> RuleSetReport {
+    pub fn run_rule_set(&mut self, rule_set: &RuleSet, report_level: ReportLevel) -> RuleSetReport {
         if rule_set.plans.is_empty() {
             return RuleSetReport::default();
         }
-        let preds = with_pool_set(|ps| ps.get::<PredictedVals>());
         let match_counter = MatchCounter::new(rule_set.actions.n_ids());
 
         let search_and_apply_timer = Instant::now();
-        let rule_reports = DashMap::default();
+        // let mut rule_reports: HashMap<String, Vec<RuleReport>>;
+        let mut rule_reports: HashMap<Arc<str>, Vec<RuleReport>>;
+        let exec_state = ExecutionState::new(self.read_only_view(), Default::default());
         if parallelize_db_level_op(self.total_size_estimate) {
+            // let dash_rule_reports: DashMap<String, Vec<RuleReport>> = DashMap::default();
+            let dash_rule_reports: DashMap<Arc<str>, Vec<RuleReport>> = DashMap::default();
             rayon::in_place_scope(|scope| {
-                for (plan, desc, _action) in rule_set.plans.values() {
+                for (plan, desc, symbol_map, _action) in rule_set.plans.values() {
+                    // TODO: add stats
+                    let report_plan = match report_level {
+                        ReportLevel::TimeOnly => None,
+                        ReportLevel::WithPlan | ReportLevel::StageInfo => {
+                            Some(plan.to_report(symbol_map))
+                        }
+                    };
                     scope.spawn(|scope| {
-                        let join_state = JoinState::new(self, &preds);
+                        let join_state = JoinState::new(self, exec_state.clone());
                         let mut action_buf =
                             ScopedActionBuffer::new(scope, rule_set, &match_counter);
                         let mut binding_info = BindingInfo::default();
@@ -171,27 +185,26 @@ impl Database {
                         }
 
                         let search_and_apply_timer = Instant::now();
-                        join_state.run_header(plan, &mut binding_info, &mut action_buf);
+                        join_state.run_header_and_plan(plan, &mut binding_info, &mut action_buf);
                         let search_and_apply_time = search_and_apply_timer.elapsed();
 
                         if action_buf.needs_flush {
-                            action_buf.flush(&mut ExecutionState::new(
-                                &preds,
-                                self.read_only_view(),
-                                Default::default(),
-                            ));
+                            action_buf.flush(&mut exec_state.clone());
                         }
-                        let mut rule_report: RefMut<'_, String, RuleReport> =
-                            rule_reports.entry(desc.clone()).or_default();
-                        *rule_report = rule_report.union(&RuleReport {
+                        let mut rule_report: RefMut<'_, Arc<str>, Vec<RuleReport>> =
+                            dash_rule_reports.entry(desc.clone()).or_default();
+                        rule_report.value_mut().push(RuleReport {
+                            plan: report_plan,
                             search_and_apply_time,
-                            num_matches: 0,
+                            num_matches: usize::MAX,
                         });
                     });
                 }
             });
+            rule_reports = dash_rule_reports.into_iter().collect();
         } else {
-            let join_state = JoinState::new(self, &preds);
+            rule_reports = HashMap::default();
+            let join_state = JoinState::new(self, exec_state.clone());
             // Just run all of the plans in order with a single in-place action
             // buffer.
             let mut action_buf = InPlaceActionBuffer {
@@ -199,7 +212,13 @@ impl Database {
                 match_counter: &match_counter,
                 batches: Default::default(),
             };
-            for (plan, desc, _action) in rule_set.plans.values() {
+            for (plan, desc, symbol_map, _action) in rule_set.plans.values() {
+                let report_plan = match report_level {
+                    ReportLevel::TimeOnly => None,
+                    ReportLevel::WithPlan | ReportLevel::StageInfo => {
+                        Some(plan.to_report(symbol_map))
+                    }
+                };
                 let mut binding_info = BindingInfo::default();
                 for (id, info) in plan.atoms.iter() {
                     let table = join_state.db.get_table(info.table);
@@ -207,25 +226,32 @@ impl Database {
                 }
 
                 let search_and_apply_timer = Instant::now();
-                join_state.run_header(plan, &mut binding_info, &mut action_buf);
+                join_state.run_header_and_plan(plan, &mut binding_info, &mut action_buf);
                 let search_and_apply_time = search_and_apply_timer.elapsed();
 
-                let mut rule_report = rule_reports.entry(desc.clone()).or_default();
-                *rule_report = rule_report.union(&RuleReport {
+                // TODO: unnecessary cloning in many cases
+                let rule_report = rule_reports.entry(desc.clone()).or_default();
+                rule_report.push(RuleReport {
+                    plan: report_plan,
                     search_and_apply_time,
-                    num_matches: 0,
+                    num_matches: usize::MAX,
                 });
             }
-            action_buf.flush(&mut ExecutionState::new(
-                &preds,
-                self.read_only_view(),
-                Default::default(),
-            ));
+            action_buf.flush(&mut exec_state.clone());
         }
-        for (_plan, desc, action) in rule_set.plans.values() {
-            let mut reservation = rule_reports.get_mut(desc).unwrap();
-            let RuleReport { num_matches, .. } = reservation.value_mut();
-            *num_matches += match_counter.read_matches(*action);
+        for (_plan, desc, _symbol_map, action) in rule_set.plans.values() {
+            let reports = rule_reports.get_mut(desc).unwrap();
+            let i = reports
+                .iter()
+                // HACK: Since the order of visiting queries is fixed and # matches need to be obtained
+                // seperately from rule execution, we first set all # matches to be usize::MAX and then fill
+                // them in one by one.
+                .position(|r| r.num_matches == usize::MAX)
+                .unwrap();
+            // NB: This requires each action ID correspond to only one query.
+            // If an action is used by multiple queries, then we can't tell how many matches are
+            // caused by individual queries.
+            reports[i].num_matches = match_counter.read_matches(*action);
         }
         let search_and_apply_time = search_and_apply_timer.elapsed();
 
@@ -260,7 +286,7 @@ impl Default for ActionState {
 
 struct JoinState<'a> {
     db: &'a Database,
-    preds: &'a PredictedVals,
+    exec_state: ExecutionState<'a>,
 }
 
 type ColumnIndexes = IdVec<ColumnId, OnceLock<Arc<ColumnIndex>>>;
@@ -347,8 +373,8 @@ impl BindingInfo {
 }
 
 impl<'a> JoinState<'a> {
-    fn new(db: &'a Database, preds: &'a PredictedVals) -> Self {
-        Self { db, preds }
+    fn new(db: &'a Database, exec_state: ExecutionState<'a>) -> Self {
+        Self { db, exec_state }
     }
 
     fn get_index(
@@ -424,7 +450,7 @@ impl<'a> JoinState<'a> {
     /// `plan.stages.instrs[instr_order[i]]` at stage `i`.
     ///
     /// This is also a stepping stone towards supporting fully dynamic variable ordering.
-    fn run_header<'buf, BUF: ActionBuffer<'buf>>(
+    fn run_header_and_plan<'buf, BUF: ActionBuffer<'buf>>(
         &self,
         plan: &'a Plan,
         binding_info: &mut BindingInfo,
@@ -470,9 +496,13 @@ impl<'a> JoinState<'a> {
     ) where
         'a: 'buf,
     {
+        if self.exec_state.should_stop() {
+            return;
+        }
+
         if cur >= instr_order.len() {
             action_buf.push_bindings(plan.stages.actions, &binding_info.bindings, || {
-                ExecutionState::new(self.preds, self.db.read_only_view(), Default::default())
+                self.exec_state.clone()
             });
             return;
         }
@@ -488,6 +518,9 @@ impl<'a> JoinState<'a> {
         // Helper macro (not its own method to appease the borrow checker).
         macro_rules! drain_updates {
             ($updates:expr) => {
+                if self.exec_state.should_stop() {
+                    return;
+                }
                 if cur == 0 || cur == 1 {
                     drain_updates_parallel!($updates)
                 } else {
@@ -507,15 +540,19 @@ impl<'a> JoinState<'a> {
         }
         macro_rules! drain_updates_parallel {
             ($updates:expr) => {{
-                let predicted = self.preds;
+                if self.exec_state.should_stop() {
+                    return;
+                }
                 let db = self.db;
+                let exec_state_for_factory = self.exec_state.clone();
+                let exec_state_for_work = self.exec_state.clone();
                 action_buf.recur(
                     BorrowedLocalState {
                         binding_info,
                         instr_order,
                         updates: &mut $updates,
                     },
-                    move || ExecutionState::new(predicted, db.read_only_view(), Default::default()),
+                    move || exec_state_for_factory.clone(),
                     move |BorrowedLocalState {
                               binding_info,
                               instr_order,
@@ -532,15 +569,9 @@ impl<'a> JoinState<'a> {
                             UpdateInstr::EndFrame => {
                                 JoinState {
                                     db,
-                                    preds: predicted,
+                                    exec_state: exec_state_for_work.clone(),
                                 }
-                                .run_plan(
-                                    plan,
-                                    instr_order,
-                                    cur + 1,
-                                    binding_info,
-                                    buf,
-                                );
+                                .run_plan(plan, instr_order, cur + 1, binding_info, buf);
                             }
                         })
                     },
@@ -1041,8 +1072,10 @@ impl<'scope> ActionBuffer<'scope> for ScopedActionBuffer<'_, 'scope> {
             let mut bindings =
                 mem::replace(&mut action_state.bindings, Bindings::new(VAR_BATCH_SIZE));
             action_state.len = 0;
+            let match_counter = self.match_counter;
             self.scope.spawn(move |_| {
-                state.run_instrs(&action_info.instrs, &mut bindings);
+                let succeeded = state.run_instrs(&action_info.instrs, &mut bindings);
+                match_counter.inc_matches(action, succeeded);
             });
         }
     }
@@ -1112,13 +1145,13 @@ fn flush_action_states(
     }
 }
 struct MatchCounter {
-    matches: IdVec<ActionId, AtomicUsize>,
+    matches: IdVec<ActionId, CachePadded<AtomicUsize>>,
 }
 
 impl MatchCounter {
     fn new(n_ids: usize) -> Self {
         let mut matches = IdVec::with_capacity(n_ids);
-        matches.resize_with(n_ids, || AtomicUsize::new(0));
+        matches.resize_with(n_ids, || CachePadded::new(AtomicUsize::new(0)));
         Self { matches }
     }
 

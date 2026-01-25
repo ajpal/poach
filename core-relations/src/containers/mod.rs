@@ -9,12 +9,15 @@
 //! functions than base values.
 
 use std::{
-    any::{Any, type_name},
+    any::{type_name, Any, TypeId},
     hash::{Hash, Hasher},
     ops::Deref,
 };
 
-use crate::numeric_id::{DenseIdMap, IdVec, NumericId, define_id};
+use crate::{
+    common::InternTable,
+    numeric_id::{define_id, DenseIdMap, IdVec, NumericId},
+};
 use crossbeam_queue::SegQueue;
 use dashmap::SharedValue;
 use rayon::{
@@ -25,11 +28,11 @@ use rustc_hash::FxHasher;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    ColumnId, CounterId, ExecutionState, Offset, SubsetRef, TableId, TaggedRowBuffer, Value,
-    WrappedTable,
-    common::{DashMap, IndexSet, InternTable, SubsetTracker},
+    common::{DashMap, IndexSet, SubsetTracker},
     parallel_heuristics::{parallelize_inter_container_op, parallelize_intra_container_op},
     table_spec::Rebuilder,
+    ColumnId, CounterId, ExecutionState, Offset, SubsetRef, TableId, TaggedRowBuffer, Value,
+    WrappedTable,
 };
 
 #[cfg(test)]
@@ -48,6 +51,27 @@ dyn_clone::clone_trait_object!(MergeFn);
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Debug)]
 struct SerializableTypeId(String);
+
+#[derive(Clone, Default)]
+struct ContainerIds {
+    ids: IndexSet<TypeId>,
+}
+
+impl ContainerIds {
+    fn insert(&mut self, ty: TypeId) -> ContainerValueId {
+        if let Some(idx) = self.ids.get_index_of(&ty) {
+            ContainerValueId::from_usize(idx)
+        } else {
+            let idx = self.ids.len();
+            self.ids.insert(ty);
+            ContainerValueId::from_usize(idx)
+        }
+    }
+
+    fn get(&self, ty: &TypeId) -> Option<ContainerValueId> {
+        self.ids.get_index_of(ty).map(ContainerValueId::from_usize)
+    }
+}
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct ContainerValues {
@@ -145,7 +169,7 @@ impl ContainerValues {
         }
     }
 
-    /// Add a new container type to the given [`Containers`] instance.
+    /// Add a new container type to the given [`ContainerValue`] instance.
     ///
     /// Container types need a meaans of generating fresh ids (`id_counter`) along with a means of
     /// merging conflicting ids (`merge_fn`).
@@ -183,7 +207,7 @@ pub trait ContainerValue: Hash + Eq + Clone + Send + Sync + 'static {
     /// Note that containers can be more structured than just a sequence of values. This iterator
     /// is used to populate an index that in turn is used to speed up rebuilds. If a value in the
     /// container is eligible for a rebuild and it is not mentioned by this iterator, the outer
-    /// [`Containers`] registry may skip rebuilding this container.
+    /// container registry may skip rebuilding this container.
     fn iter(&self) -> impl Iterator<Item = Value> + '_;
 }
 

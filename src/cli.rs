@@ -45,6 +45,17 @@ struct Args {
     /// Number of threads to use for parallel execution. Passing `0` will use the maximum
     /// inferred parallelism available on the current system.
     threads: usize,
+    #[arg(value_enum)]
+    #[clap(long, default_value_t = ReportLevel::TimeOnly)]
+    report_level: ReportLevel,
+    #[clap(long)]
+    save_report: Option<PathBuf>,
+    /// Treat missing `$` prefixes on globals as errors instead of warnings
+    #[clap(long = "strict-mode")]
+    strict_mode: bool,
+    /// Run the terms encoding of equality saturation
+    #[clap(long)]
+    term_encoding: bool,
 }
 
 /// Start a command-line interface for the E-graph.
@@ -60,6 +71,11 @@ pub fn cli(mut egraph: EGraph) {
         .init();
 
     let args = Args::parse();
+
+    if args.term_encoding {
+        egraph = egraph.with_term_encoding_enabled();
+    }
+
     rayon::ThreadPoolBuilder::new()
         .num_threads(args.threads)
         .build_global()
@@ -70,6 +86,10 @@ pub fn cli(mut egraph: EGraph) {
     );
     egraph.fact_directory.clone_from(&args.fact_directory);
     egraph.seminaive = !args.naive;
+    egraph.set_report_level(args.report_level);
+    if args.strict_mode {
+        egraph.set_strict_mode(true);
+    }
     if args.inputs.is_empty() {
         match egraph.repl(args.mode) {
             Ok(()) => std::process::exit(0),
@@ -144,6 +164,17 @@ pub fn cli(mut egraph: EGraph) {
         }
     }
 
+    if let Some(report_path) = args.save_report {
+        let report = egraph.get_overall_run_report();
+        serde_json::to_writer(
+            std::fs::File::create(&report_path)
+                .unwrap_or_else(|_| panic!("Failed to create report file at {report_path:?}")),
+            &report,
+        )
+        .expect("Failed to serialize report");
+        log::info!("Saved report to {report_path:?}");
+    }
+
     // no need to drop the egraph if we are going to exit
     std::mem::forget(egraph)
 }
@@ -216,7 +247,7 @@ where
     W: Write,
 {
     if mode == RunMode::ShowDesugaredEgglog {
-        return Ok(match egraph.resugar_program(filename, command) {
+        return Ok(match egraph.desugar_program(filename, command) {
             Ok(desugared) => {
                 for line in desugared {
                     writeln!(output, "{line}")?;
@@ -232,13 +263,13 @@ where
 
     Ok(match egraph.parse_and_run_program(filename, command) {
         Ok(msgs) => {
-            if mode == RunMode::Interactive {
-                writeln!(output, "(done)")?;
-            }
             if mode != RunMode::NoMessages {
                 for msg in msgs {
                     write!(output, "{msg}")?;
                 }
+            }
+            if mode == RunMode::Interactive {
+                writeln!(output, "(done)")?;
             }
             None
         }
@@ -264,7 +295,7 @@ impl Display for RunMode {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             RunMode::Normal => write!(f, "normal"),
-            RunMode::ShowDesugaredEgglog => write!(f, "resugar"),
+            RunMode::ShowDesugaredEgglog => write!(f, "desugar"),
             RunMode::Interactive => write!(f, "interactive"),
             RunMode::NoMessages => write!(f, "no-messages"),
         }
@@ -277,7 +308,7 @@ impl FromStr for RunMode {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "normal" => Ok(RunMode::Normal),
-            "resugar" => Ok(RunMode::ShowDesugaredEgglog),
+            "desugar" => Ok(RunMode::ShowDesugaredEgglog),
             "interactive" => Ok(RunMode::Interactive),
             "no-messages" => Ok(RunMode::NoMessages),
             _ => Err(format!("Unknown run mode: {s}")),
@@ -344,7 +375,7 @@ mod tests {
         egraph
             .repl_with(input.as_bytes(), &mut output, RunMode::Interactive, false)
             .unwrap();
-        assert_eq!(String::from_utf8(output).unwrap(), "(done)\n1\n");
+        assert_eq!(String::from_utf8(output).unwrap(), "1\n(done)\n");
 
         let input = "xyz";
         let mut output: Vec<u8> = Vec::new();
