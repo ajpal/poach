@@ -2511,7 +2511,6 @@ impl TimedEgraph {
         program: Vec<Command>,
         program_timeline: &mut ProgramTimeline,
     ) -> Result<Vec<CommandOutput>, Error> {
-        let egraph: &mut EGraph = self.egraphs.last_mut().expect("there are no egraphs");
         let mut outputs = Vec::new();
         let mut i: i32 = 0;
         for command in program {
@@ -2521,10 +2520,23 @@ impl TimedEgraph {
                 time_micros: self.timer.elapsed().as_micros(),
             });
 
-            for processed in egraph.resolve_command(command)? {
-                let result = egraph.run_command(processed)?;
-                if let Some(output) = result {
-                    outputs.push(output);
+            // Handle Include commands specially - expand before resolving
+            if let Command::Include(span, file) = &command {
+                let s = std::fs::read_to_string(file)
+                    .unwrap_or_else(|_| panic!("{span} Failed to read file {file}"));
+                let egraph = self.egraphs.last_mut().expect("there are no egraphs");
+                let included_program = egraph
+                    .parser
+                    .get_program_from_string(Some(file.clone()), &s)?;
+                let included_outputs = self.run_program(included_program, program_timeline)?;
+                outputs.extend(included_outputs);
+            } else {
+                let egraph = self.egraphs.last_mut().expect("there are no egraphs");
+                for processed in egraph.resolve_command(command)? {
+                    let result = egraph.run_command(processed)?;
+                    if let Some(output) = result {
+                        outputs.push(output);
+                    }
                 }
             }
 
