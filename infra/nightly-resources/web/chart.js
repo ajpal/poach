@@ -2,70 +2,172 @@
 // Seems important for Chart.js to change the data but not
 // create a new chart object to avoid some weird rendering flicekrs.
 function initializeCharts() {
-  console.assert(GLOBAL_DATA.runExtractChart === null);
-
-  GLOBAL_DATA.runExtractChart = new Chart(
-    document.getElementById("run-extract-chart").getContext("2d"),
-    {
-      type: "scatter",
-      data: { datasets: [] },
-      options: {
-        title: {
-          display: false,
-        },
-        scales: {
-          x: {
-            type: "linear",
-            title: {
-              display: true,
-              text: "Run Time (ms)",
-            },
-          },
-          y: {
-            title: {
-              display: true,
-              text: "Extract Time (ms)",
-            },
-          },
-        },
-      },
-    }
-  );
-
-  console.assert(GLOBAL_DATA.serializeChart === null);
-
-  GLOBAL_DATA.serializeChart = new Chart(
-    document.getElementById("serialize-chart"),
-    {
-      type: "bar",
-      data: {},
-      options: {
-        plugins: {
+  if (!!document.getElementById("run-extract-chart")) {
+    console.assert(GLOBAL_DATA.runExtractChart === null);
+    GLOBAL_DATA.runExtractChart = new Chart(
+      document.getElementById("run-extract-chart").getContext("2d"),
+      {
+        type: "scatter",
+        data: { datasets: [] },
+        options: {
           title: {
-            display: true,
-            text: "Placeholder Title",
-            font: {
-              size: 20,
+            display: false,
+          },
+          scales: {
+            x: {
+              type: "linear",
+              title: {
+                display: true,
+                text: "Run Time (ms)",
+              },
+            },
+            y: {
+              title: {
+                display: true,
+                text: "Extract Time (ms)",
+              },
             },
           },
         },
-        indexAxis: "y",
-        scales: {
-          x: {
-            type: "linear",
+      }
+    );
+  }
+
+  if (!!document.getElementById("serialize-chart")) {
+    console.assert(GLOBAL_DATA.serializeChart === null);
+
+    GLOBAL_DATA.serializeChart = new Chart(
+      document.getElementById("serialize-chart"),
+      {
+        type: "bar",
+        data: {},
+        options: {
+          plugins: {
+            legend: {
+              onClick: (e) => {}, // no-op (disable toggling series)
+            },
             title: {
               display: true,
-              text: "",
+              text: "Placeholder Title",
+              font: {
+                size: 20,
+              },
             },
-            stacked: true,
           },
-          y: {
-            stacked: true,
+          indexAxis: "y",
+          scales: {
+            x: {
+              type: "linear",
+              title: {
+                display: true,
+                text: "",
+              },
+              stacked: true,
+            },
+            y: {
+              stacked: true,
+            },
           },
         },
-      },
-    }
-  );
+      }
+    );
+  }
+
+  if (!!document.getElementById("extract-chart")) {
+    console.assert(GLOBAL_DATA.extractChart === null);
+
+    GLOBAL_DATA.extractChart = new Chart(
+      document.getElementById("extract-chart"),
+      {
+        type: "bar",
+        data: {},
+        options: {
+          responsive: true,
+          plugins: {
+            title: {
+              display: true,
+              text: "Benchmark: Vanilla Egglog vs POACH",
+            },
+            tooltip: {
+              mode: "index",
+              intersect: false,
+            },
+            legend: {
+              position: "top",
+            },
+          },
+
+          interaction: {
+            mode: "nearest",
+            axis: "x",
+            intersect: false,
+          },
+
+          scales: {
+            x: {
+              stacked: false, // side-by-side stacks
+              ticks: {
+                maxRotation: 90,
+                minRotation: 45,
+              },
+            },
+            y: {
+              stacked: true, // stack within each group
+              title: {
+                display: true,
+                text: "Time (ms)",
+              },
+            },
+          },
+        },
+      }
+    );
+  }
+
+  if (!!document.getElementById("difference-chart")) {
+    console.assert(GLOBAL_DATA.differenceChart === null);
+
+    GLOBAL_DATA.differenceChart = new Chart(
+      document.getElementById("difference-chart"),
+      {
+        type: "bar",
+        data: {},
+        options: {
+          responsive: true,
+          plugins: {
+            legend: {
+              display: false,
+            },
+            title: {
+              display: true,
+              text: "Per-benchmark Runtime Difference",
+            },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => `${ctx.raw.toFixed(2)} ms`,
+              },
+            },
+          },
+          scales: {
+            x: {
+              ticks: {
+                maxRotation: 90,
+                minRotation: 45,
+              },
+            },
+            y: {
+              min: -25,
+              max: 25,
+              title: {
+                display: true,
+                text: "time (ms)",
+              },
+            },
+          },
+        },
+      }
+    );
+  }
 }
 
 /**

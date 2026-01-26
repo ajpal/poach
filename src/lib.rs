@@ -2394,7 +2394,7 @@ impl ProgramTimeline {
 
 #[derive(Clone)]
 pub struct TimedEgraph {
-    egraphs: Vec<EGraph>,
+    pub egraphs: Vec<EGraph>,
     timeline: Vec<ProgramTimeline>,
     timer: std::time::Instant,
 }
@@ -2413,38 +2413,20 @@ impl TimedEgraph {
         self.egraphs.iter().map(|x| x).collect()
     }
 
-    pub fn parse_and_run_program(
-        &mut self,
-        filename: &str,
-        input: &str,
-    ) -> Result<Vec<CommandOutput>, Error> {
-        let mut program_timeline = ProgramTimeline::new(input);
-
-        let parsed = self
-            .egraphs
-            .last_mut()
-            .expect("there are no egraphs")
-            .parser
-            .get_program_from_string(Some(filename.to_string()), input)?;
-        let output = self.run_program(parsed, &mut program_timeline);
-
-        self.timeline.push(program_timeline);
-
-        output
-    }
-
     pub fn write_timeline(&self, dir: &PathBuf) -> Result<(), serde_json::Error> {
         fs::create_dir_all(dir).expect("Failed to create out dir");
         let path = dir.join("timeline.json");
         let file = File::create(&path).expect("Failed to create timeline.json");
-        serde_json::to_writer(BufWriter::new(file), &self.timeline)
+        serde_json::to_writer_pretty(BufWriter::new(file), &self.timeline)
     }
 
-    fn run_program(
+    pub fn run_program_with_timeline(
         &mut self,
         program: Vec<Command>,
-        program_timeline: &mut ProgramTimeline,
+        timeline_description: &str,
     ) -> Result<Vec<CommandOutput>, Error> {
+        let mut program_timeline = ProgramTimeline::new(timeline_description);
+
         let egraph: &mut EGraph = self.egraphs.last_mut().expect("there are no egraphs");
         let mut outputs = Vec::new();
         let mut i: i32 = 0;
@@ -2470,6 +2452,8 @@ impl TimedEgraph {
 
             i = i + 1;
         }
+
+        self.timeline.push(program_timeline);
 
         Ok(outputs)
     }
@@ -2608,8 +2592,7 @@ impl TimedEgraph {
             time_micros: self.timer.elapsed().as_micros(),
         });
 
-        let egraph: EGraph =
-            serde_json::from_value(value).context("Failed to decode value as egraph")?;
+        let egraph: EGraph = serde_json::from_value(value)?;
 
         timeline.evts.push(EgraphEvent {
             sexp_idx: 1,

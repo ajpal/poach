@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
+use egglog::ast::{all_sexps, Sexp, SexpParser};
 use egglog::TimedEgraph;
 use env_logger::Env;
 use hashbrown::HashMap;
@@ -54,6 +55,15 @@ enum RunMode {
     //      Assert the deserialized egraph has hthe same size as the initial egraph.
     //      Save the completed timeline, for consumption by the nightly frontend
     NoIO,
+
+    // For each egg file under the input path,
+    //      Run the egglog program, recording timing information
+    //      Round trip to JSON Value, no File I/O
+    //      Find all extract commands from the egglog program and perform
+    //      the same extractions on the deserialized egraph
+    //      Ensure the results are the same
+    //      Save the completed timeline, for consumption by the nighly frontend
+    Extract,
 }
 
 impl Display for RunMode {
@@ -68,6 +78,7 @@ impl Display for RunMode {
                 RunMode::IdempotentRoundTrip => "idempotent",
                 RunMode::OldSerialize => "old-serialize",
                 RunMode::NoIO => "no-io",
+                RunMode::Extract => "extract",
             }
         )
     }
@@ -121,21 +132,25 @@ fn check_idempotent(p1: &PathBuf, p2: &PathBuf, name: &str, out_dir: &PathBuf) {
     }
 }
 
-fn run_egg_file(egg_file: &PathBuf) -> TimedEgraph {
+fn run_egg_file(egg_file: &PathBuf) -> Result<TimedEgraph> {
     let mut egraph = TimedEgraph::new();
     let filename = egg_file
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("unknown");
 
-    egraph
-        .parse_and_run_program(
-            filename,
-            &read_to_string(egg_file).expect(&format!("Failed to open {}", egg_file.display())),
-        )
-        .expect("fail");
+    let program_text = read_to_string(egg_file)?;
 
-    egraph
+    let parsed_commands = egraph
+        .egraphs
+        .last_mut()
+        .expect("There are no egraphs")
+        .parser
+        .get_program_from_string(Some(filename.to_string()), &program_text)?;
+
+    egraph.run_program_with_timeline(parsed_commands, &program_text)?;
+
+    Ok(egraph)
 }
 
 fn process_files<F>(
@@ -186,7 +201,7 @@ fn poach(
 ) -> (Vec<String>, Vec<(String, String)>) {
     match run_mode {
         RunMode::TimelineOnly => process_files(&files, out_dir, |egg_file, out_dir| {
-            let egraph = run_egg_file(egg_file);
+            let egraph = run_egg_file(egg_file)?;
             egraph.write_timeline(out_dir)?;
 
             Ok(())
@@ -194,7 +209,7 @@ fn poach(
 
         RunMode::SequentialRoundTrip => {
             process_files(&files, out_dir, |egg_file, out_dir: &PathBuf| {
-                let mut egraph = run_egg_file(egg_file);
+                let mut egraph = run_egg_file(egg_file)?;
                 let s1 = out_dir.join("serialize1.json");
 
                 egraph.to_file(&s1).context("Failed to write s1.json")?;
@@ -213,7 +228,7 @@ fn poach(
         RunMode::InterleavedRoundTrip => {
             let mut tmp = HashMap::new();
             process_files(&files, out_dir, |egg_file, out_dir| {
-                let mut egraph = run_egg_file(egg_file);
+                let mut egraph = run_egg_file(egg_file)?;
                 let s1 = out_dir.join("serialize1.json");
                 egraph.to_file(&s1).context("Failed to write s1.json")?;
                 tmp.insert(egg_file.clone(), (out_dir.clone(), egraph));
@@ -238,7 +253,7 @@ fn poach(
                 .file_name()
                 .and_then(|s| s.to_str())
                 .unwrap_or("unknown");
-            let mut egraph = run_egg_file(&egg_file);
+            let mut egraph = run_egg_file(&egg_file)?;
             let s1 = out_dir.join("serialize1.json");
             let s2 = out_dir.join("serialize2.json");
             let s3 = out_dir.join("serialize3.json");
@@ -264,7 +279,7 @@ fn poach(
         }),
 
         RunMode::OldSerialize => process_files(&files, out_dir, |egg_file, out_dir| {
-            let mut egraph = run_egg_file(egg_file);
+            let mut egraph = run_egg_file(egg_file)?;
 
             egraph
                 .to_file(&out_dir.join("serialize-poach.json"))
@@ -279,7 +294,7 @@ fn poach(
         }),
 
         RunMode::NoIO => process_files(&files, out_dir, |egg_file, out_dir| {
-            let mut egraph = run_egg_file(egg_file);
+            let mut egraph = run_egg_file(egg_file)?;
 
             let value = egraph
                 .to_value()
@@ -294,6 +309,58 @@ fn poach(
             check_egraph_size(&egraph)?;
 
             egraph.write_timeline(out_dir)?;
+
+            Ok(())
+        }),
+
+        RunMode::Extract => process_files(&files, out_dir, |egg_file, out_dir| {
+            let mut timed_egraph = run_egg_file(egg_file)?;
+
+            let program_string = &read_to_string(egg_file)?;
+
+            let is_extract = |sexp: &&Sexp| {
+                if let Sexp::List(xs, _) = sexp {
+                    if !xs.is_empty() {
+                        match &xs[0] {
+                            Sexp::Atom(s, _) => s == "extract",
+                            _ => false,
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            };
+
+            let all_sexps = all_sexps(SexpParser::new(None, program_string))?;
+            let extracts: String = all_sexps
+                .iter()
+                .filter(is_extract)
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            let extract_cmds = timed_egraph
+                .egraphs
+                .last_mut()
+                .expect("there are no egraphs")
+                .parser
+                .get_program_from_string(None, &extracts)?;
+
+            let value = timed_egraph
+                .to_value()
+                .context("Failed to encode egraph as JSON")?;
+
+            timed_egraph
+                .from_value(value)
+                .context("failed to decode egraph from json")?;
+
+            check_egraph_number(&timed_egraph, 2)?;
+
+            timed_egraph.run_program_with_timeline(extract_cmds, &extracts)?;
+
+            timed_egraph.write_timeline(out_dir)?;
 
             Ok(())
         }),

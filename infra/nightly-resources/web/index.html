@@ -6,14 +6,16 @@
   <script src="index.js"></script>
   <script src="data.js"></script>
   <script src="chart.js"></script>
+  <script src="handlers.js"></script>
   <script src="util.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 
 <title>Poach</title>
 
-<body onload="initializePage()">
+<body onload="initializeIndex()">
   <h2><a href="flamegraphs.html">Flamegraphs</a></h2>
+  <h2><a href="extract.html">Extract Experiment</a></h2>
   <h2>Plots</h2>
   <form onchange="plotTimeline()">
     <label>
@@ -52,6 +54,74 @@
   </form>
 
   <form id="runModeToggle" onchange="plotSerialization()"></form>
+  
+  <button
+    type="button"
+    class="collapsible"
+    id="warnings-toggle"
+    onclick="toggle(this, `\u25B6 Show Run Mode Details`, `\u25BC Hide Run Mode Details`)">
+    Show Run Mode Details
+  </button>
+  <div class="collapsed">
+    <p>
+      <span style="font-weight: bold;">timeline</span>:
+      For each egg file under the input path,
+            run the egglog program and record timing information. Do not serialize.
+            Save the complete timeline, for consumption by the nightly frontend.
+    </p>
+    <p>
+      <span style="font-weight: bold;">sequential</span>:
+      For each egg file under the input path,
+            Run the egglog program, recording timing information.
+            Serialize the resulting egraph, recording timing information.
+            Deserialize the serialized egraph, recording timing information.
+            Assert the deserialized egraph has the same size as the initial egraph
+            Save the complete timeline, for consumption by the nightly frontend.
+    </p>
+    <p>
+      <span style="font-weight: bold;">interleaved</span>:
+      For each egg file under the input path,
+            Run the egglog program, recording timing information.
+            Serialize the resulting egraph
+      For each egg file under the input path,
+            Deserialize the deserialized egraph
+            Assert the deserialized egraph has the same size as the initial egraph
+            Save the complete timeline, for consumption by the nightly frontend.
+    </p>
+    <p>
+      <span style="font-weight: bold;">idempotent</span>:
+      For each egg file under the input path,
+            Run the egglog program.
+            Round trip to file twice.
+            Assert that the second round trip is idempotent (though the first may not be), crash if not.
+    </p>
+    <p>
+      <span style="font-weight: bold;">old-serialize</span>:
+      For each egg file under the input path,
+            Run the egglog program, recording timing information.
+            Serialize the resulting egraph using both the poach serialization code and
+            the visualizer serialization code, which serializes only the parent-child relationships
+            Save the complete timeline, for consumption by the nightly frontend.
+    </p>
+    <p>
+      <span style="font-weight: bold;">no-io</span>:
+      For each egg file under the input path,
+            Run the egglog program, recording timing information.
+            Round trip to JSON Value, but do not read/write from file
+            Assert the deserialized egraph has hthe same size as the initial egraph.
+            Save the completed timeline, for consumption by the nightly frontend
+    </p>
+    <p>
+      <span style="font-weight: bold;">extract</span>:
+      For each egg file under the input path,
+            Run the egglog program, recording timing information
+            Round trip to JSON Value, no File I/O
+            Find all extract commands from the egglog program and perform
+            the same extractions on the deserialized egraph
+            Ensure the results are the same
+            Save the completed timeline, for consumption by the nighly frontend
+    </p>
+  </div>
 
   <canvas class="content" id="serialize-chart" height="500px"></canvas>
 
