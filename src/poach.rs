@@ -64,6 +64,12 @@ enum RunMode {
     //      Ensure the results are the same
     //      Save the completed timeline, for consumption by the nighly frontend
     Extract,
+
+    // Baseline
+    // For each egg file,
+    //      Run the eggglog program, recording timing information
+    //      NO POACH
+    Baseline,
 }
 
 impl Display for RunMode {
@@ -79,6 +85,7 @@ impl Display for RunMode {
                 RunMode::OldSerialize => "old-serialize",
                 RunMode::NoIO => "no-io",
                 RunMode::Extract => "extract",
+                RunMode::Baseline => "baseline",
             }
         )
     }
@@ -361,6 +368,14 @@ fn poach(
             timed_egraph.run_program_with_timeline(extract_cmds, &extracts)?;
 
             timed_egraph.write_timeline(out_dir)?;
+
+            Ok(())
+        }),
+
+        RunMode::Baseline => process_files(&files, out_dir, |egg_file, out_dir| {
+            let egraph = run_egg_file(egg_file)?;
+
+            egraph.write_timeline(out_dir)?;
 
             Ok(())
         }),
