@@ -68,9 +68,3 @@ if __name__ == "__main__":
     # Generate flamegraphs
     for egg_file in glob.glob("tests/*.egg") + glob.glob("tests/web-demo/*.egg"):
       run_cmd([str(script_dir / "flamegraph.sh"), egg_file, str(nightly_dir / "output" / "flamegraphs")])
-
-  # Clean up raw data (these files are quite large)
-  shutil.rmtree(nightly_dir / "raw")
-
-  # Update HTML index page
-  shutil.copytree(resource_dir / "web", nightly_dir / "output", dirs_exist_ok = True)
