@@ -24,8 +24,10 @@ def run_cmd(cmd, msg = "", dry_run = False):
 
 def run_poach(in_dir, out_dir, run_mode, max_benchmarks = None):
   poach_exe = top_dir / "target" / "release" / "poach"
-  run_cmd([str(poach_exe), str(in_dir), str(out_dir), run_mode,
-    "" if max_benchmarks == None else "--max-benchmarks=" + str(max_benchmarks)])
+  cmd = [str(poach_exe), str(in_dir), str(out_dir), run_mode]
+  if max_benchmarks is not None:
+    cmd.append(f"--max-benchmarks={max_benchmarks}")
+  run_cmd(cmd)
 
 if __name__ == "__main__":
   print("Beginning poach nightly")
