@@ -9,7 +9,7 @@ use serde::Serialize;
 use std::fmt::{Debug, Display};
 use std::fs::{self, create_dir_all, read_to_string, File};
 use std::io::BufWriter;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ValueEnum, Debug)]
@@ -18,6 +18,12 @@ enum RunMode {
     //      run the egglog program and record timing information. Do not serialize.
     //      Save the complete timeline, for consumption by the nightly frontend.
     TimelineOnly,
+
+    // For each egg file under the input path,
+    //      run the egglog program and record timing information.
+    //      Serialize to disk.
+    //      Save the complete timeline, for consumption by the nightly frontend.
+    Serialize,
 
     // For each egg file under the input path,
     //      Run the egglog program, recording timing information.
@@ -80,6 +86,7 @@ impl Display for RunMode {
             match self {
                 RunMode::TimelineOnly => "timeline",
                 RunMode::SequentialRoundTrip => "sequential",
+                RunMode::Serialize => "serialize",
                 RunMode::InterleavedRoundTrip => "interleaved",
                 RunMode::IdempotentRoundTrip => "idempotent",
                 RunMode::OldSerialize => "old-serialize",
@@ -97,6 +104,9 @@ struct Args {
     input_path: PathBuf,
     output_dir: PathBuf,
     run_mode: RunMode,
+
+    #[arg(long)]
+    initial_egraph: Option<PathBuf>,
 }
 
 fn check_egraph_number(egraph: &TimedEgraph, expected: usize) -> Result<()> {
@@ -139,8 +149,14 @@ fn check_idempotent(p1: &PathBuf, p2: &PathBuf, name: &str, out_dir: &PathBuf) {
     }
 }
 
-fn run_egg_file(egg_file: &PathBuf) -> Result<TimedEgraph> {
-    let mut egraph = TimedEgraph::new();
+fn run_egg_file(initial_egraph: Option<&Path>, egg_file: &PathBuf) -> Result<TimedEgraph> {
+    let mut egraph = if let Some(path) = initial_egraph {
+        println!("Starting from {}", path.display());
+        TimedEgraph::new_from_file(path)
+    } else {
+        TimedEgraph::new()
+    };
+
     let filename = egg_file
         .file_name()
         .and_then(|s| s.to_str())
@@ -205,18 +221,26 @@ fn poach(
     files: Vec<PathBuf>,
     out_dir: &PathBuf,
     run_mode: RunMode,
+    initial_egraph: Option<PathBuf>,
 ) -> (Vec<String>, Vec<(String, String)>) {
     match run_mode {
         RunMode::TimelineOnly => process_files(&files, out_dir, |egg_file, out_dir| {
-            let egraph = run_egg_file(egg_file)?;
+            let egraph = run_egg_file(initial_egraph.as_deref(), egg_file)?;
             egraph.write_timeline(out_dir)?;
 
             Ok(())
         }),
 
+        RunMode::Serialize => process_files(&files, out_dir, |egg_file, out_dir| {
+            let mut egraph = run_egg_file(initial_egraph.as_deref(), egg_file)?;
+            egraph.to_file(&out_dir.join("serialize.json"))?;
+            egraph.write_timeline(out_dir)?;
+            Ok(())
+        }),
+
         RunMode::SequentialRoundTrip => {
             process_files(&files, out_dir, |egg_file, out_dir: &PathBuf| {
-                let mut egraph = run_egg_file(egg_file)?;
+                let mut egraph = run_egg_file(initial_egraph.as_deref(), egg_file)?;
                 let s1 = out_dir.join("serialize1.json");
 
                 egraph.to_file(&s1).context("Failed to write s1.json")?;
@@ -235,7 +259,7 @@ fn poach(
         RunMode::InterleavedRoundTrip => {
             let mut tmp = HashMap::new();
             process_files(&files, out_dir, |egg_file, out_dir| {
-                let mut egraph = run_egg_file(egg_file)?;
+                let mut egraph = run_egg_file(initial_egraph.as_deref(), egg_file)?;
                 let s1 = out_dir.join("serialize1.json");
                 egraph.to_file(&s1).context("Failed to write s1.json")?;
                 tmp.insert(egg_file.clone(), (out_dir.clone(), egraph));
@@ -260,7 +284,7 @@ fn poach(
                 .file_name()
                 .and_then(|s| s.to_str())
                 .unwrap_or("unknown");
-            let mut egraph = run_egg_file(&egg_file)?;
+            let mut egraph = run_egg_file(initial_egraph.as_deref(), &egg_file)?;
             let s1 = out_dir.join("serialize1.json");
             let s2 = out_dir.join("serialize2.json");
             let s3 = out_dir.join("serialize3.json");
@@ -286,7 +310,7 @@ fn poach(
         }),
 
         RunMode::OldSerialize => process_files(&files, out_dir, |egg_file, out_dir| {
-            let mut egraph = run_egg_file(egg_file)?;
+            let mut egraph = run_egg_file(initial_egraph.as_deref(), egg_file)?;
 
             egraph
                 .to_file(&out_dir.join("serialize-poach.json"))
@@ -301,7 +325,7 @@ fn poach(
         }),
 
         RunMode::NoIO => process_files(&files, out_dir, |egg_file, out_dir| {
-            let mut egraph = run_egg_file(egg_file)?;
+            let mut egraph = run_egg_file(initial_egraph.as_deref(), egg_file)?;
 
             let value = egraph
                 .to_value()
@@ -321,7 +345,7 @@ fn poach(
         }),
 
         RunMode::Extract => process_files(&files, out_dir, |egg_file, out_dir| {
-            let mut timed_egraph = run_egg_file(egg_file)?;
+            let mut timed_egraph = run_egg_file(initial_egraph.as_deref(), egg_file)?;
 
             let program_string = &read_to_string(egg_file)?;
 
@@ -373,7 +397,7 @@ fn poach(
         }),
 
         RunMode::Baseline => process_files(&files, out_dir, |egg_file, out_dir| {
-            let egraph = run_egg_file(egg_file)?;
+            let egraph = run_egg_file(initial_egraph.as_deref(), egg_file)?;
 
             egraph.write_timeline(out_dir)?;
 
@@ -391,6 +415,8 @@ fn main() {
         .init();
     let input_path = args.input_path.clone();
     let output_dir = args.output_dir.join(args.run_mode.to_string());
+
+    create_dir_all(&output_dir).expect("Failed to create output directory");
 
     let entries = if input_path.is_file() {
         if input_path.extension().and_then(|s| s.to_str()) == Some("egg") {
@@ -411,7 +437,7 @@ fn main() {
         panic!("Input path is neither file nor directory: {:?}", input_path);
     };
 
-    let (success, failure) = poach(entries, &output_dir, args.run_mode);
+    let (success, failure) = poach(entries, &output_dir, args.run_mode, args.initial_egraph);
     #[derive(Serialize)]
     struct Output {
         success: Vec<String>,
