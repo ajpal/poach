@@ -48,8 +48,8 @@ cargo build --release
 python3 infra/nightly.py
 
 # Abort if nightly.py failed to produce data.json
-if [ ! -f nightly/output/data.json ]; then
-  echo "ERROR: nightly/output/data.json was not generated."
+if [ ! -f nightly/output/data/data.json ]; then
+  echo "ERROR: nightly/output/data/data.json was not generated."
   exit 1
 fi
 

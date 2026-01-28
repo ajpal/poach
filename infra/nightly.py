@@ -23,8 +23,17 @@ def run_cmd(cmd, msg = "", dry_run = False):
     subprocess.run(cmd, check = True)
 
 def run_poach(in_dir, out_dir, run_mode):
-  poach_exe = top_dir / "target" / "release" / "poach"
-  run_cmd([str(poach_exe), str(in_dir), str(out_dir), run_mode])
+  run_cmd([
+    "cargo",
+    "run",
+    "--release",
+    "--bin",
+    "poach",
+    "--",
+    str(in_dir),
+    str(out_dir),
+    run_mode
+  ])
 
 if __name__ == "__main__":
   print("Beginning poach nightly")
