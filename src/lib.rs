@@ -2511,44 +2511,68 @@ impl TimedEgraph {
         program: Vec<Command>,
         program_timeline: &mut ProgramTimeline,
     ) -> Result<Vec<CommandOutput>, Error> {
+        // Expand all Include commands, rebuilding program_text inline
+        program_timeline.program_text.clear();
+        let expanded_commands =
+            self.expand_includes_with_text(program, &mut program_timeline.program_text)?;
+
         let mut outputs = Vec::new();
         let mut i: i32 = 0;
-        for command in program {
-            if let Command::Include(span, file) = &command {
-                let s = std::fs::read_to_string(file)
-                    .unwrap_or_else(|_| panic!("{span} Failed to read file {file}"));
-                let egraph = self.egraphs.last_mut().expect("there are no egraphs");
-                let included_program = egraph
-                    .parser
-                    .get_program_from_string(Some(file.clone()), &s)?;
-                let included_outputs = self.run_program(included_program, program_timeline)?;
-                outputs.extend(included_outputs);
-            } else {
-                program_timeline.evts.push(EgraphEvent {
-                    sexp_idx: i,
-                    evt: START,
-                    time_micros: self.timer.elapsed().as_micros(),
-                });
+        for command in expanded_commands {
+            program_timeline.evts.push(EgraphEvent {
+                sexp_idx: i,
+                evt: START,
+                time_micros: self.timer.elapsed().as_micros(),
+            });
 
-                let egraph = self.egraphs.last_mut().expect("there are no egraphs");
-                for processed in egraph.resolve_command(command)? {
-                    let result = egraph.run_command(processed)?;
-                    if let Some(output) = result {
-                        outputs.push(output);
-                    }
+            let egraph = self.egraphs.last_mut().expect("there are no egraphs");
+            for processed in egraph.resolve_command(command)? {
+                let result = egraph.run_command(processed)?;
+                if let Some(output) = result {
+                    outputs.push(output);
                 }
-
-                program_timeline.evts.push(EgraphEvent {
-                    sexp_idx: i,
-                    evt: END,
-                    time_micros: self.timer.elapsed().as_micros(),
-                });
-
-                i = i + 1;
             }
+
+            program_timeline.evts.push(EgraphEvent {
+                sexp_idx: i,
+                evt: END,
+                time_micros: self.timer.elapsed().as_micros(),
+            });
+
+            i = i + 1;
         }
 
         Ok(outputs)
+    }
+
+    /// Recursively expand Include commands, building program_text inline.
+    /// Returns the expanded list of commands with includes replaced by their contents.
+    fn expand_includes_with_text(
+        &mut self,
+        commands: Vec<Command>,
+        text: &mut String,
+    ) -> Result<Vec<Command>, Error> {
+        let mut expanded = Vec::new();
+
+        for command in commands {
+            if let Command::Include(span, file) = command {
+                let s = std::fs::read_to_string(&file)
+                    .unwrap_or_else(|_| panic!("{span} Failed to read file {file}"));
+                let included_program = {
+                    let egraph = self.egraphs.last_mut().expect("there are no egraphs");
+                    egraph
+                        .parser
+                        .get_program_from_string(Some(file.clone()), &s)?
+                };
+                let nested = self.expand_includes_with_text(included_program, text)?;
+                expanded.extend(nested);
+            } else {
+                text.push_str(&format!("{}\n", command));
+                expanded.push(command);
+            }
+        }
+
+        Ok(expanded)
     }
 
     pub fn old_serialize_egraph(&mut self, path: &Path) -> Result<()> {
