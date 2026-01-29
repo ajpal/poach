@@ -23,8 +23,17 @@ def run_cmd(cmd, msg = "", dry_run = False):
     subprocess.run(cmd, check = True)
 
 def run_poach(in_dir, out_dir, run_mode):
-  poach_exe = top_dir / "target" / "release" / "poach"
-  run_cmd([str(poach_exe), str(in_dir), str(out_dir), run_mode])
+  run_cmd([
+    "cargo",
+    "run",
+    "--release",
+    "--bin",
+    "poach",
+    "--",
+    str(in_dir),
+    str(out_dir),
+    run_mode
+  ])
 
 if __name__ == "__main__":
   print("Beginning poach nightly")
@@ -61,9 +70,6 @@ if __name__ == "__main__":
   # Post-process timeline data
   transform.transform((nightly_dir / "raw"), (nightly_dir / "output" / "data"))
 
-  # Generate flamegraphs
-  for egg_file in glob.glob("tests/*.egg") + glob.glob("tests/web-demo/*.egg"):
-    run_cmd([str(script_dir / "flamegraph.sh"), egg_file, str(nightly_dir / "output" / "flamegraphs")])
   if shutil.which("perf") is not None:
     # Generate flamegraphs
     for egg_file in glob.glob("tests/*.egg") + glob.glob("tests/web-demo/*.egg"):
