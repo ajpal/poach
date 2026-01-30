@@ -2460,7 +2460,7 @@ impl ProgramTimeline {
 
 #[derive(Clone)]
 pub struct TimedEgraph {
-    egraphs: Vec<EGraph>,
+    pub egraphs: Vec<EGraph>,
     timeline: Vec<ProgramTimeline>,
     timer: std::time::Instant,
 }
@@ -2479,42 +2479,26 @@ impl TimedEgraph {
         self.egraphs.iter().map(|x| x).collect()
     }
 
-    pub fn parse_and_run_program(
-        &mut self,
-        filename: &str,
-        input: &str,
-    ) -> Result<Vec<CommandOutput>, Error> {
-        let mut program_timeline = ProgramTimeline::new(input);
-
-        let parsed = self
-            .egraphs
-            .last_mut()
-            .expect("there are no egraphs")
-            .parser
-            .get_program_from_string(Some(filename.to_string()), input)?;
-        let output = self.run_program(parsed, &mut program_timeline);
-
-        self.timeline.push(program_timeline);
-
-        output
-    }
-
     pub fn write_timeline(&self, dir: &PathBuf) -> Result<(), serde_json::Error> {
         fs::create_dir_all(dir).expect("Failed to create out dir");
         let path = dir.join("timeline.json");
         let file = File::create(&path).expect("Failed to create timeline.json");
-        serde_json::to_writer(BufWriter::new(file), &self.timeline)
+        serde_json::to_writer_pretty(BufWriter::new(file), &self.timeline)
     }
 
-    fn run_program(
+    pub fn run_program_with_timeline(
         &mut self,
         program: Vec<Command>,
-        program_timeline: &mut ProgramTimeline,
+        timeline_description: &str,
     ) -> Result<Vec<CommandOutput>, Error> {
         // Expand all Include commands, rebuilding program_text inline
+        let mut program_timeline = ProgramTimeline::new(timeline_description);
+
+        let egraph: &mut EGraph = self.egraphs.last_mut().expect("there are no egraphs");
+
         program_timeline.program_text.clear();
         let expanded_commands =
-            self.expand_includes_with_text(program, &mut program_timeline.program_text)?;
+            Self::expand_includes_with_text(egraph, program, &mut program_timeline.program_text)?;
 
         let mut outputs = Vec::new();
         let mut i: i32 = 0;
@@ -2525,7 +2509,6 @@ impl TimedEgraph {
                 time_micros: self.timer.elapsed().as_micros(),
             });
 
-            let egraph = self.egraphs.last_mut().expect("there are no egraphs");
             for processed in egraph.resolve_command(command)? {
                 let result = egraph.run_command(processed)?;
                 if let Some(output) = result {
@@ -2542,13 +2525,15 @@ impl TimedEgraph {
             i = i + 1;
         }
 
+        self.timeline.push(program_timeline);
+
         Ok(outputs)
     }
 
     /// Recursively expand Include commands, building program_text inline.
     /// Returns the expanded list of commands with includes replaced by their contents.
     fn expand_includes_with_text(
-        &mut self,
+        egraph: &mut EGraph,
         commands: Vec<Command>,
         text: &mut String,
     ) -> Result<Vec<Command>, Error> {
@@ -2559,12 +2544,11 @@ impl TimedEgraph {
                 let s = std::fs::read_to_string(&file)
                     .unwrap_or_else(|_| panic!("{span} Failed to read file {file}"));
                 let included_program = {
-                    let egraph = self.egraphs.last_mut().expect("there are no egraphs");
                     egraph
                         .parser
                         .get_program_from_string(Some(file.clone()), &s)?
                 };
-                let nested = self.expand_includes_with_text(included_program, text)?;
+                let nested = Self::expand_includes_with_text(egraph, included_program, text)?;
                 expanded.extend(nested);
             } else {
                 text.push_str(&format!("{}\n", command));
@@ -2709,8 +2693,7 @@ impl TimedEgraph {
             time_micros: self.timer.elapsed().as_micros(),
         });
 
-        let egraph: EGraph =
-            serde_json::from_value(value).context("Failed to decode value as egraph")?;
+        let egraph: EGraph = serde_json::from_value(value)?;
 
         timeline.evts.push(EgraphEvent {
             sexp_idx: 1,

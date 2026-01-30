@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<link rel="stylesheet" href="stylesheet.css" type="text/css" charset="utf-8" />
+<html>
+
+<head>
+  <script src="extract.js"></script>
+  <script src="data.js"></script>
+  <script src="chart.js"></script>
+  <script src="util.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<title>Extract</title>
+
+<body onload="initializeExtract()">
+  <h2>POACH vs Vanilla Egglog</h2>
+  <p>
+    Baseline: Start from an empty e-graph, run rules, extract
+    <br>
+    POACH: Deserialize e-graph, extract
+    <br>
+    Serialization time is not counted
+  </p>
+
+  <div style="max-height: 800px;">
+    <canvas class="content" id="difference-chart"></canvas>
+  </div>
+  <div style="max-height: 800px;">
+    <canvas class="content" id="extract-chart"></canvas>
+  </div>
+</body>
+
+</html>

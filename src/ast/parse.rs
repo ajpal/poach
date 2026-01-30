@@ -97,6 +97,21 @@ impl Sexp {
         }
         error!(self.span(), "expected {e}")
     }
+
+    pub fn to_string(&self) -> String {
+        match self {
+            Sexp::Literal(literal, _) => literal.to_string(),
+            Sexp::Atom(s, _) => s.to_string(),
+            Sexp::List(sexps, _) => format!(
+                "({})",
+                sexps
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            ),
+        }
+    }
 }
 
 // helper for mapping a function that returns `Result`
@@ -904,13 +919,13 @@ impl Parser {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct SexpParser {
+pub struct SexpParser {
     source: Arc<SrcFile>,
     index: usize,
 }
 
 impl SexpParser {
-    pub(crate) fn new(name: Option<String>, contents: &str) -> SexpParser {
+    pub fn new(name: Option<String>, contents: &str) -> SexpParser {
         SexpParser {
             source: Arc::new(SrcFile {
                 name,
@@ -1086,7 +1101,7 @@ fn sexp(ctx: &mut SexpParser) -> Result<Sexp, ParseError> {
     }
 }
 
-pub(crate) fn all_sexps(mut ctx: SexpParser) -> Result<Vec<Sexp>, ParseError> {
+pub fn all_sexps(mut ctx: SexpParser) -> Result<Vec<Sexp>, ParseError> {
     let mut sexps = Vec::new();
     ctx.advance_past_whitespace();
     while !ctx.is_at_end() {

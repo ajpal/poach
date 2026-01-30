@@ -11,23 +11,23 @@ use std::{
 };
 
 use crate::{
+    numeric_id::{define_id, DenseIdMap, NumericId},
     SortedWritesTable,
-    numeric_id::{DenseIdMap, NumericId, define_id},
 };
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
 use crate::{
-    QueryEntry, TableId, Variable,
     action::{
-        Bindings, ExecutionState,
         mask::{Mask, MaskIter, ValueSource},
+        Bindings, ExecutionState,
     },
     common::Value,
     hash_index::{ColumnIndex, IndexBase, TupleIndex},
     offsets::{RowId, Subset, SubsetRef},
-    pool::{PoolSet, Pooled, with_pool_set},
+    pool::{with_pool_set, PoolSet, Pooled},
     row_buffer::{RowBuffer, TaggedRowBuffer},
+    QueryEntry, TableId, Variable,
 };
 
 define_id!(pub ColumnId, u32, "a particular column in a table");
@@ -521,16 +521,32 @@ impl<T: Table> TableWrapper for WrapperImpl<T> {
 /// object-safe extension methods to call methods that require `Self: Sized`.
 /// The implementations here downcast manually to the type used when
 /// constructing the WrappedTable.
-#[derive(Serialize, Deserialize)]
 pub struct WrappedTable {
     inner: Box<dyn Table>,
-    #[serde(skip, default = "default_wrapper")]
     wrapper: Box<dyn TableWrapper>,
 }
 
-fn default_wrapper() -> Box<dyn TableWrapper> {
-    // Replace this with whatever default makes sense for your system
-    Box::new(WrapperImpl::<SortedWritesTable>::default())
+impl Serialize for WrappedTable {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // serialize table only, wrapper can be recomputed
+        self.inner.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for WrappedTable {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let inner: Box<dyn Table> = Deserialize::deserialize(deserializer)?;
+
+        let wrapper = wrapper::<SortedWritesTable>(); // todo: different kind of wrapper?
+
+        Ok(WrappedTable { inner, wrapper })
+    }
 }
 
 impl WrappedTable {
@@ -676,10 +692,9 @@ pub(crate) trait TableWrapper: Send + Sync {
     fn scan(&self, table: &dyn Table, subset: SubsetRef) -> TaggedRowBuffer {
         let arity = table.spec().arity();
         let mut buf = TaggedRowBuffer::new(arity);
-        assert!(
-            self.scan_bounded(table, subset, Offset::new(0), usize::MAX, &mut buf)
-                .is_none()
-        );
+        assert!(self
+            .scan_bounded(table, subset, Offset::new(0), usize::MAX, &mut buf)
+            .is_none());
         buf
     }
 
