@@ -2404,7 +2404,20 @@ impl TimedEgraph {
     pub fn new() -> Self {
         Self {
             egraphs: vec![EGraph::default()],
-            timeline: Vec::new(),
+            timeline: vec![],
+            timer: std::time::Instant::now(),
+        }
+    }
+
+    pub fn new_from_file(path: &Path) -> Self {
+        let file = File::open(path).expect("failed to open egraph file");
+        let reader = BufReader::new(file);
+
+        let egraph: EGraph = serde_json::from_reader(reader).expect("failed to parse egraph JSON");
+
+        Self {
+            egraphs: vec![egraph],
+            timeline: vec![],
             timer: std::time::Instant::now(),
         }
     }
