@@ -729,7 +729,7 @@ where
                 write!(f, "(extract {expr} {variants})")
             }
             GenericCommand::MultiExtract(_span, variants, exprs) => {
-                write!(f, "(multi-extract {variants} {}", ListDisplay(exprs, " "))
+                write!(f, "(multi-extract {variants} {})", ListDisplay(exprs, " "))
             }
             GenericCommand::Sort(_span, name, None) => {
                 let name = sanitize_internal_name(name);
