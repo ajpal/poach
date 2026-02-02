@@ -40,7 +40,6 @@ const RUN_MODES = [
   "idempotent",
   "no-io",
   "extract",
-  "baseline",
 ];
 
 const CMDS = ["run", "extract", "serialize", "deserialize", "read", "write"];
