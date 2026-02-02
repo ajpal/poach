@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
 use egglog::ast::{all_sexps, Sexp, SexpParser};
-use egglog::TimedEgraph;
+use egglog::{CommandOutput, TimedEgraph};
 use env_logger::Env;
 use hashbrown::HashMap;
 use serde::Serialize;
@@ -142,7 +142,10 @@ fn check_idempotent(p1: &PathBuf, p2: &PathBuf, name: &str, out_dir: &PathBuf) {
     }
 }
 
-fn run_egg_file(initial_egraph: Option<&Path>, egg_file: &PathBuf) -> Result<TimedEgraph> {
+fn run_egg_file(
+    initial_egraph: Option<&Path>,
+    egg_file: &PathBuf,
+) -> Result<(TimedEgraph, Vec<CommandOutput>)> {
     let mut egraph = if let Some(path) = initial_egraph {
         println!("Starting from {}", path.display());
         TimedEgraph::new_from_file(path)
@@ -164,9 +167,9 @@ fn run_egg_file(initial_egraph: Option<&Path>, egg_file: &PathBuf) -> Result<Tim
         .parser
         .get_program_from_string(Some(filename.to_string()), &program_text)?;
 
-    egraph.run_program_with_timeline(parsed_commands, &program_text)?;
+    let outputs = egraph.run_program_with_timeline(parsed_commands, &program_text)?;
 
-    Ok(egraph)
+    Ok((egraph, outputs))
 }
 
 fn process_files<F>(
@@ -210,6 +213,44 @@ where
     (successes, failures)
 }
 
+fn compare_extracts(
+    initial_extracts: &[CommandOutput],
+    final_extracts: &[CommandOutput],
+) -> Result<()> {
+    if initial_extracts.len() != final_extracts.len() {
+        anyhow::bail!("extract lengths mismatch")
+    }
+
+    for (x, y) in initial_extracts.iter().zip(final_extracts) {
+        match (x, y) {
+            (CommandOutput::ExtractBest(_, _, term1), CommandOutput::ExtractBest(_, _, term2)) => {
+                if term1 != term2 {
+                    anyhow::bail!("No match : {:?} {:?}", x, y)
+                }
+            }
+            (
+                CommandOutput::ExtractVariants(_, terms1),
+                CommandOutput::ExtractVariants(_, terms2),
+            ) => {
+                if terms1 != terms2 {
+                    anyhow::bail!("No match : {:?} {:?}", x, y)
+                }
+            }
+            (
+                CommandOutput::MultiExtractVariants(_, items1),
+                CommandOutput::MultiExtractVariants(_, items2),
+            ) => {
+                if items1 != items2 {
+                    anyhow::bail!("No match : {:?} {:?}", x, y)
+                }
+            }
+            _ => anyhow::bail!("No match : {:?} {:?}", x, y),
+        }
+    }
+
+    Ok(())
+}
+
 fn poach(
     files: Vec<PathBuf>,
     out_dir: &PathBuf,
@@ -218,14 +259,14 @@ fn poach(
 ) -> (Vec<String>, Vec<(String, String)>) {
     match run_mode {
         RunMode::TimelineOnly => process_files(&files, out_dir, |egg_file, out_dir| {
-            let egraph = run_egg_file(initial_egraph.as_deref(), egg_file)?;
+            let (egraph, _) = run_egg_file(initial_egraph.as_deref(), egg_file)?;
             egraph.write_timeline(out_dir)?;
 
             Ok(())
         }),
 
         RunMode::Serialize => process_files(&files, out_dir, |egg_file, out_dir| {
-            let mut egraph = run_egg_file(initial_egraph.as_deref(), egg_file)?;
+            let (mut egraph, _) = run_egg_file(initial_egraph.as_deref(), egg_file)?;
             egraph.to_file(&out_dir.join("serialize.json"))?;
             egraph.write_timeline(out_dir)?;
             Ok(())
@@ -233,7 +274,7 @@ fn poach(
 
         RunMode::SequentialRoundTrip => {
             process_files(&files, out_dir, |egg_file, out_dir: &PathBuf| {
-                let mut egraph = run_egg_file(initial_egraph.as_deref(), egg_file)?;
+                let (mut egraph, _) = run_egg_file(initial_egraph.as_deref(), egg_file)?;
                 let s1 = out_dir.join("serialize1.json");
 
                 egraph.to_file(&s1).context("Failed to write s1.json")?;
@@ -252,7 +293,7 @@ fn poach(
         RunMode::InterleavedRoundTrip => {
             let mut tmp = HashMap::new();
             process_files(&files, out_dir, |egg_file, out_dir| {
-                let mut egraph = run_egg_file(initial_egraph.as_deref(), egg_file)?;
+                let (mut egraph, _) = run_egg_file(initial_egraph.as_deref(), egg_file)?;
                 let s1 = out_dir.join("serialize1.json");
                 egraph.to_file(&s1).context("Failed to write s1.json")?;
                 tmp.insert(egg_file.clone(), (out_dir.clone(), egraph));
@@ -277,7 +318,7 @@ fn poach(
                 .file_name()
                 .and_then(|s| s.to_str())
                 .unwrap_or("unknown");
-            let mut egraph = run_egg_file(initial_egraph.as_deref(), &egg_file)?;
+            let (mut egraph, _) = run_egg_file(initial_egraph.as_deref(), &egg_file)?;
             let s1 = out_dir.join("serialize1.json");
             let s2 = out_dir.join("serialize2.json");
             let s3 = out_dir.join("serialize3.json");
@@ -303,7 +344,7 @@ fn poach(
         }),
 
         RunMode::OldSerialize => process_files(&files, out_dir, |egg_file, out_dir| {
-            let mut egraph = run_egg_file(initial_egraph.as_deref(), egg_file)?;
+            let (mut egraph, _) = run_egg_file(initial_egraph.as_deref(), egg_file)?;
 
             egraph
                 .to_file(&out_dir.join("serialize-poach.json"))
@@ -318,7 +359,7 @@ fn poach(
         }),
 
         RunMode::NoIO => process_files(&files, out_dir, |egg_file, out_dir| {
-            let mut egraph = run_egg_file(initial_egraph.as_deref(), egg_file)?;
+            let (mut egraph, _) = run_egg_file(initial_egraph.as_deref(), egg_file)?;
 
             let value = egraph
                 .to_value()
@@ -338,7 +379,20 @@ fn poach(
         }),
 
         RunMode::Extract => process_files(&files, out_dir, |egg_file, out_dir| {
-            let mut timed_egraph = run_egg_file(initial_egraph.as_deref(), egg_file)?;
+            let (mut timed_egraph, initial_outputs) =
+                run_egg_file(initial_egraph.as_deref(), egg_file)?;
+
+            let initial_extracts: Vec<CommandOutput> = initial_outputs
+                .into_iter()
+                .filter(|x| {
+                    matches!(
+                        x,
+                        CommandOutput::ExtractBest(_, _, _)
+                            | CommandOutput::ExtractVariants(_, _)
+                            | CommandOutput::MultiExtractVariants(_, _)
+                    )
+                })
+                .collect();
 
             let program_string = &read_to_string(egg_file)?;
 
@@ -382,7 +436,9 @@ fn poach(
 
             check_egraph_number(&timed_egraph, 2)?;
 
-            timed_egraph.run_program_with_timeline(extract_cmds, &extracts)?;
+            let final_extracts = timed_egraph.run_program_with_timeline(extract_cmds, &extracts)?;
+
+            compare_extracts(&initial_extracts, &final_extracts)?;
 
             timed_egraph.write_timeline(out_dir)?;
 
