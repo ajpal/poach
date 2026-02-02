@@ -41,7 +41,7 @@ impl<Head> HeadOrEq<Head> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct SpecializedPrimitive {
+pub struct SpecializedPrimitive {
     pub(crate) primitive: PrimitiveWithId,
     #[serde(with = "arc_sort_vec_serde")]
     pub(crate) input: Vec<ArcSort>,

@@ -9,7 +9,7 @@
 //! functions than base values.
 
 use std::{
-    any::{type_name, Any, TypeId},
+    any::{type_name, Any},
     hash::{Hash, Hasher},
     ops::Deref,
 };
@@ -51,27 +51,6 @@ dyn_clone::clone_trait_object!(MergeFn);
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Debug)]
 struct SerializableTypeId(String);
-
-#[derive(Clone, Default)]
-struct ContainerIds {
-    ids: IndexSet<TypeId>,
-}
-
-impl ContainerIds {
-    fn insert(&mut self, ty: TypeId) -> ContainerValueId {
-        if let Some(idx) = self.ids.get_index_of(&ty) {
-            ContainerValueId::from_usize(idx)
-        } else {
-            let idx = self.ids.len();
-            self.ids.insert(ty);
-            ContainerValueId::from_usize(idx)
-        }
-    }
-
-    fn get(&self, ty: &TypeId) -> Option<ContainerValueId> {
-        self.ids.get_index_of(ty).map(ContainerValueId::from_usize)
-    }
-}
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct ContainerValues {
