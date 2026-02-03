@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
 use egglog::ast::{all_sexps, Sexp, SexpParser};
-use egglog::{CommandOutput, TimedEgraph};
+use egglog::{CommandOutput, EGraph, TimedEgraph};
 use env_logger::Env;
 use hashbrown::HashMap;
 use serde::Serialize;
@@ -70,6 +70,13 @@ enum RunMode {
     //      Ensure the results are the same
     //      Save the completed timeline, for consumption by the nighly frontend
     Extract,
+
+    // Requires initial-egraph to be provided via Args
+    // For each egg file under the input path,
+    //      Deserialize the initial egraph
+    //      Run the egglog program, skipping declarations of Sorts and Rules
+    //      Save the completed timeline, for consumption by the nightly frontend
+    Mine,
 }
 
 impl Display for RunMode {
@@ -86,6 +93,7 @@ impl Display for RunMode {
                 RunMode::OldSerialize => "old-serialize",
                 RunMode::NoIO => "no-io",
                 RunMode::Extract => "extract",
+                RunMode::Mine => "mine",
             }
         )
     }
@@ -444,6 +452,55 @@ fn poach(
 
             Ok(())
         }),
+
+        RunMode::Mine => {
+            assert!(initial_egraph.is_some());
+            process_files(&files, out_dir, |egg_file, out_dir| {
+                let mut timed_egraph =
+                    TimedEgraph::new_from_file(&initial_egraph.as_ref().unwrap());
+
+                let program_string = &read_to_string(egg_file)?;
+
+                let all_sexps = all_sexps(SexpParser::new(None, program_string))?;
+
+                let all_cmds = EGraph::default()
+                    .parser
+                    .get_program_from_string(None, &program_string)?;
+
+                assert!(all_cmds.len() == all_sexps.len());
+
+                let (filtered_cmds, filtered_sexps): (Vec<_>, Vec<_>) = all_cmds
+                    .into_iter()
+                    .zip(all_sexps)
+                    .filter(|(c, _)| {
+                        matches!(
+                            c,
+                            egglog::ast::GenericCommand::Action(_)
+                                | egglog::ast::GenericCommand::Extract(_, _, _)
+                                | egglog::ast::GenericCommand::MultiExtract(_, _, _)
+                                | egglog::ast::GenericCommand::RunSchedule(_)
+                                | egglog::ast::GenericCommand::PrintOverallStatistics
+                                | egglog::ast::GenericCommand::Check(_, _)
+                                | egglog::ast::GenericCommand::PrintFunction(_, _, _, _, _)
+                                | egglog::ast::GenericCommand::PrintSize(_, _)
+                        )
+                    })
+                    .unzip();
+
+                timed_egraph.run_program_with_timeline(
+                    filtered_cmds,
+                    &filtered_sexps
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                )?;
+
+                timed_egraph.write_timeline(out_dir)?;
+
+                Ok(())
+            })
+        }
     }
 }
 
