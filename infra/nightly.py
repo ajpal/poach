@@ -15,15 +15,9 @@ import glob
 # 4. rustfilt is installed
 ###############################################################################
 
-def run_cmd(cmd, msg = "", dry_run = False):
+def run_poach(in_dir, out_dir, run_mode, extra_args = [], dry_run = False):
   prefix = "[DRY_RUN]" if dry_run else "[RUN]"
-  cmd_str = " ".join(cmd)
-  print(f"{prefix} {msg} {cmd_str}")
-  if not dry_run:
-    subprocess.run(cmd, check = True)
-
-def run_poach(in_dir, out_dir, run_mode):
-  run_cmd([
+  cmd = [
     "cargo",
     "run",
     "--release",
@@ -33,7 +27,11 @@ def run_poach(in_dir, out_dir, run_mode):
     str(in_dir),
     str(out_dir),
     run_mode
-  ])
+  ] + extra_args
+
+  print(f"{prefix} {' '.join(cmd)}")
+  if not dry_run:
+    subprocess.run(cmd, check = True)
 
 if __name__ == "__main__":
   print("Beginning poach nightly")
