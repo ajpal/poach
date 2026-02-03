@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<link rel="stylesheet" href="stylesheet.css" type="text/css" charset="utf-8" />
+<html>
+
+<head>
+  <script src="mined.js"></script>
+  <script src="data.js"></script>
+  <script src="chart.js"></script>
+  <script src="util.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<title>Extract</title>
+
+<body onload="initialize()">
+  <h2>POACH vs Vanilla Egglog</h2>
+  <p>
+    Baseline: Start from an empty e-graph, run rules, extract
+    <br>
+    POACH: Start from a mined e-graph, extract
+    <br>
+    The mined e-graph is the result of running the benchmark and serializing. Time to construct the mined e-graph is not counted.
+  </p>
+
+  <div style="max-height: 800px;">
+    <canvas class="content" id="mined-chart"></canvas>
+  </div>
+</body>
+
+</html>

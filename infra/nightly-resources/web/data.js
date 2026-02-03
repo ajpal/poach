@@ -39,6 +39,8 @@ const RUN_MODES = [
   "idempotent",
   "no-io",
   "extract",
+  "serialize",
+  "mine",
 ];
 
 const CMDS = ["run", "extract", "serialize", "deserialize", "read", "write"];
@@ -50,10 +52,13 @@ function initializeGlobalData() {
       { ...suite, ...Object.fromEntries(RUN_MODES.map((mode) => [mode, {}])) },
     ]),
   );
+
   GLOBAL_DATA.runExtractChart = null;
   GLOBAL_DATA.serializeChart = null;
   GLOBAL_DATA.extractChart = null;
   GLOBAL_DATA.differenceChart = null;
+  GLOBAL_DATA.minedChart = null;
+
   return fetch("data/data.json")
     .then((response) => response.json())
     .then(processRawData);
