@@ -75,10 +75,5 @@ if __name__ == "__main__":
 
   if shutil.which("perf") is not None:
     # Generate flamegraphs
-    flamegraph_dir = nightly_dir / "output" / "flamegraphs"
-    flamegraph_dir.mkdir(parents=True, exist_ok=True)
-    test_files_dir = "infra/nightly-resources/test-files/"
-    high_extract_files = ["herbie-hamming/142.egg", "herbie-math-taylor/taylor7.egg"]
-    for f in high_extract_files:
-      path = f"{test_files_dir}{f}"
-      run_cmd([str(script_dir / "flamegraph.sh"), path, str(flamegraph_dir)])
+    for egg_file in glob.glob("tests/*.egg") + glob.glob("tests/web-demo/*.egg"):
+      run_cmd([str(script_dir / "flamegraph.sh"), egg_file, str(nightly_dir / "output" / "flamegraphs")])
