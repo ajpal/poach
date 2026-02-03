@@ -34,15 +34,6 @@ enum RunMode {
     SequentialRoundTrip,
 
     // For each egg file under the input path,
-    //      Run the egglog program, recording timing information.
-    //      Serialize the resulting egraph
-    // For each egg file under the input path,
-    //      Deserialize the deserialized egraph
-    //      Assert the deserialized egraph has the same size as the initial egraph
-    //      Save the complete timeline, for consumption by the nightly frontend.
-    InterleavedRoundTrip,
-
-    // For each egg file under the input path,
     //      Run the egglog program.
     //      Round trip to file twice.
     //      Assert that the second round trip is idempotent (though the first may not be), crash if not.
@@ -88,7 +79,6 @@ impl Display for RunMode {
                 RunMode::TimelineOnly => "timeline",
                 RunMode::SequentialRoundTrip => "sequential",
                 RunMode::Serialize => "serialize",
-                RunMode::InterleavedRoundTrip => "interleaved",
                 RunMode::IdempotentRoundTrip => "idempotent",
                 RunMode::OldSerialize => "old-serialize",
                 RunMode::NoIO => "no-io",
@@ -291,29 +281,6 @@ fn poach(
 
                 check_egraph_number(&egraph, 2)?;
 
-                check_egraph_size(&egraph)?;
-
-                egraph.write_timeline(out_dir)?;
-                Ok(())
-            })
-        }
-
-        RunMode::InterleavedRoundTrip => {
-            let mut tmp = HashMap::new();
-            process_files(&files, out_dir, |egg_file, out_dir| {
-                let (mut egraph, _) = run_egg_file(initial_egraph.as_deref(), egg_file)?;
-                let s1 = out_dir.join("serialize1.json");
-                egraph.to_file(&s1).context("Failed to write s1.json")?;
-                tmp.insert(egg_file.clone(), (out_dir.clone(), egraph));
-                Ok(())
-            });
-            process_files(&files, out_dir, |egg_file, _| {
-                let (out_dir, egraph) = tmp.get_mut(egg_file).unwrap();
-                egraph
-                    .from_file(&out_dir.join("serialize1.json"))
-                    .context("Failed to read s1.json")?;
-
-                check_egraph_number(&egraph, 2)?;
                 check_egraph_size(&egraph)?;
 
                 egraph.write_timeline(out_dir)?;

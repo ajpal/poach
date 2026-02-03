@@ -35,7 +35,6 @@ const BENCH_SUITES = [
 const RUN_MODES = [
   "timeline",
   "sequential",
-  "interleaved",
   "old-serialize",
   "idempotent",
   "no-io",

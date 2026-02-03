@@ -61,7 +61,6 @@ if __name__ == "__main__":
   # Run the egglog tests under each serialization experiemntal treatment:
   run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "timeline-only")
   run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "sequential-round-trip")
-  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "interleaved-round-trip")
   run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "idempotent-round-trip")
   run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "old-serialize")
   run_poach(top_dir / "tests", nightly_dir / "raw" / "tests", "no-io")
