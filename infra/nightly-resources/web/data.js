@@ -40,7 +40,8 @@ const RUN_MODES = [
   "no-io",
   "extract",
   "serialize",
-  "mine",
+  "mine-mega",
+  "mine-indiv",
 ];
 
 const CMDS = ["run", "extract", "serialize", "deserialize", "read", "write"];

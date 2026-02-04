@@ -4,14 +4,15 @@ function initialize() {
 }
 
 function plotMine() {
-  const mined = GLOBAL_DATA.data.easteregg.mine;
+  const mega_mined = GLOBAL_DATA.data.easteregg["mine-mega"];
+  const indiv_mined = GLOBAL_DATA.data.easteregg["mine-indiv"];
   const baseline = GLOBAL_DATA.data.easteregg.timeline;
 
   if (GLOBAL_DATA.minedChart === null) {
     return;
   }
 
-  const benchmarks = Object.keys(mined);
+  const benchmarks = Object.keys(baseline);
 
   const data = {};
 
@@ -19,7 +20,8 @@ function plotMine() {
     data[b] = {};
 
     data[b].baseline = benchmarkTotalTime(baseline[b]);
-    data[b].mined = benchmarkTotalTime(mined[b]);
+    data[b].mega_mined = benchmarkTotalTime(mega_mined[b]);
+    data[b].indiv_mined = benchmarkTotalTime(indiv_mined[b]);
   });
 
   GLOBAL_DATA.minedChart.data = {
@@ -30,8 +32,12 @@ function plotMine() {
         data: Object.values(data).map((d) => d.baseline),
       },
       {
-        label: "mined",
-        data: Object.values(data).map((d) => d.mined),
+        label: "mined (mega)",
+        data: Object.values(data).map((d) => d.mega_mined),
+      },
+      {
+        label: "mined (indiv)",
+        data: Object.values(data).map((d) => d.indiv_mined),
       },
     ],
   };

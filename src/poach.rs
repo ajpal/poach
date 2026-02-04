@@ -101,6 +101,9 @@ struct Args {
     // file in the input_path directory
     #[arg(long)]
     initial_egraph: Option<PathBuf>,
+
+    #[arg(long)]
+    allow_let: bool,
 }
 
 fn check_egraph_number(egraph: &TimedEgraph, expected: usize) -> Result<()> {
@@ -238,6 +241,7 @@ fn poach(
     out_dir: &PathBuf,
     run_mode: RunMode,
     initial_egraph: Option<PathBuf>,
+    allow_let: bool,
 ) -> (Vec<String>, Vec<(String, String)>) {
     match run_mode {
         RunMode::TimelineOnly => process_files(
@@ -477,19 +481,19 @@ fn poach(
                         .into_iter()
                         .zip(all_sexps)
                         .filter(|(c, _)| {
-                            matches!(
-                                c,
-                                // TODO: Let expressions that shadow don't work
-                                // egglog::ast::GenericCommand::Action(_)
-                                egglog::ast::GenericCommand::Extract(_, _, _)
-                                | egglog::ast::GenericCommand::MultiExtract(_, _, _)
+                            match c {
+                                // hack: mega mine requires lets to be run, individual mine doesn't work if lets run
+                                egglog::ast::GenericCommand::Action(_) => allow_let,
+                                egglog::ast::GenericCommand::Extract(_, _, _) => true,
+                                egglog::ast::GenericCommand::MultiExtract(_, _, _) => true,
                                 // TODO: Running rules on a deserialized egraph currently does not work
                                 // | egglog::ast::GenericCommand::RunSchedule(_)
-                                | egglog::ast::GenericCommand::PrintOverallStatistics
-                                | egglog::ast::GenericCommand::Check(_, _)
-                                | egglog::ast::GenericCommand::PrintFunction(_, _, _, _, _)
-                                | egglog::ast::GenericCommand::PrintSize(_, _)
-                            )
+                                egglog::ast::GenericCommand::PrintOverallStatistics => true,
+                                egglog::ast::GenericCommand::Check(_, _) => true,
+                                egglog::ast::GenericCommand::PrintFunction(_, _, _, _, _) => true,
+                                egglog::ast::GenericCommand::PrintSize(_, _) => true,
+                                _ => false,
+                            }
                         })
                         .unzip();
 
@@ -519,7 +523,7 @@ fn main() {
         .parse_default_env()
         .init();
     let input_path = args.input_path.clone();
-    let output_dir = args.output_dir.join(args.run_mode.to_string());
+    let output_dir = args.output_dir;
 
     create_dir_all(&output_dir).expect("Failed to create output directory");
 
@@ -542,7 +546,13 @@ fn main() {
         panic!("Input path is neither file nor directory: {:?}", input_path);
     };
 
-    let (success, failure) = poach(entries, &output_dir, args.run_mode, args.initial_egraph);
+    let (success, failure) = poach(
+        entries,
+        &output_dir,
+        args.run_mode,
+        args.initial_egraph,
+        args.allow_let,
+    );
     #[derive(Serialize)]
     struct Output {
         success: Vec<String>,
