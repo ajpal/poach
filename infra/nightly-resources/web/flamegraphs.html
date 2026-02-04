@@ -9,10 +9,13 @@
 <title>Poach</title>
 
 <body onload="loadFlamegraphs()">
-  <h2>Flame Graphs!</h2>
+  <h1 id="before-load">Loading report data...</h1>
+  <h1 id="on-error">Something went wrong while loading the data. Check logs/console for error messages.</h1>
+  <div id="after-load">
+    <h2>Flame Graphs!</h2>
 
-  <ol id="fileList"></ol>
-
+    <ol id="fileList"></ol>
+  </div>
 
 </body>
 
