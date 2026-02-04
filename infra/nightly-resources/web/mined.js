@@ -1,5 +1,4 @@
 function initialize() {
-  console.log("here");
   initializeGlobalData().then(initializeCharts).then(plotMine);
 }
 
