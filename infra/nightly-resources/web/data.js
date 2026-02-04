@@ -62,7 +62,16 @@ function initializeGlobalData() {
 
   return fetch("data/data.json")
     .then((response) => response.json())
-    .then(processRawData);
+
+    .then(processRawData)
+    .catch(onError)
+    .finally(
+      () => (document.getElementById("before-load").style.display = "none"),
+    );
+}
+
+function onError() {
+  document.getElementById("on-error").style.display = "block";
 }
 
 /**
@@ -71,6 +80,7 @@ function initializeGlobalData() {
  * value is the array of timelines where each timeline contains an array of events
  */
 function processRawData(blob) {
+  document.getElementById("after-load").style.display = "block";
   Object.entries(blob).forEach(([name, timelines]) => {
     const [suite, runMode, benchmark, _] = name.split("/");
     if (!GLOBAL_DATA.data[suite]) {
