@@ -22,11 +22,11 @@ use crate::core_relations::{
     ExternalFunction, ExternalFunctionId, MergeVal, Offset, PlanStrategy, RuleSetReport,
     SortedWritesTable, TableId, TaggedRowBuffer, Value, WrappedTable,
 };
-use crate::numeric_id::{DenseIdMap, DenseIdMapWithReuse, IdVec, NumericId, define_id};
+use crate::numeric_id::{define_id, DenseIdMap, DenseIdMapWithReuse, IdVec, NumericId};
 use egglog_core_relations as core_relations;
 use egglog_numeric_id as numeric_id;
 use hashbrown::HashMap;
-use indexmap::{IndexMap, IndexSet, map::Entry};
+use indexmap::{map::Entry, IndexMap, IndexSet};
 use log::info;
 use once_cell::sync::Lazy;
 pub use proof_format::{EqProofId, ProofStore, TermProofId};
@@ -1021,11 +1021,13 @@ impl EGraph {
 struct RuleInfo {
     last_run_at: Timestamp,
     query: rule::Query,
+
+    #[serde(skip)]
     cached_plan: Option<CachedPlanInfo>,
     desc: Arc<str>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone)]
 struct CachedPlanInfo {
     plan: Arc<core_relations::CachedPlan>,
     /// A mapping from index into a [`rule::Query`]'s atoms to the atoms in the underlying cached

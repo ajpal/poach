@@ -2,28 +2,27 @@
 
 use std::{iter::once, sync::Arc};
 
-use crate::numeric_id::{DenseIdMap, IdVec, NumericId, define_id};
+use crate::numeric_id::{define_id, DenseIdMap, IdVec, NumericId};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use thiserror::Error;
 
 use crate::{
-    BaseValueId, CounterId, ExternalFunctionId, PoolSet,
     action::{Instr, QueryEntry, WriteVal},
     common::HashMap,
     free_join::{
+        plan::{JoinHeader, JoinStages, Plan, PlanStrategy},
         ActionId, AtomId, Database, ProcessedConstraints, SubAtom, TableId, TableInfo, VarInfo,
         Variable,
-        plan::{JoinHeader, JoinStages, Plan, PlanStrategy},
     },
-    pool::{Pooled, with_pool_set},
+    pool::{with_pool_set, Pooled},
     table_spec::{ColumnId, Constraint},
+    BaseValueId, CounterId, ExternalFunctionId, PoolSet,
 };
 
 define_id!(pub RuleId, u32, "An identifier for a rule in a rule set");
 
 /// A cached plan for a given rule.
-#[derive(Serialize, Deserialize)]
 pub struct CachedPlan {
     plan: Plan,
     desc: String,
