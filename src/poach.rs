@@ -578,7 +578,7 @@ fn poach(
                                 GenericCommand::Extract(_, _, _) => true,
                                 GenericCommand::MultiExtract(_, _, _) => true,
                                 // TODO: Running rules on a deserialized egraph currently does not work
-                                // | GenericCommand::RunSchedule(_)
+                                GenericCommand::RunSchedule(_) => true,
                                 GenericCommand::PrintOverallStatistics => true,
                                 GenericCommand::Check(_, _) => true,
                                 GenericCommand::PrintFunction(_, _, _, _, _) => true,
