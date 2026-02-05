@@ -1,8 +1,10 @@
+use std::hash::Hasher;
+
 use crate::{
-    core::{CoreRule, GenericActionsExt},
+    core::{CoreActionContext, CoreRule, GenericActionsExt},
     *,
 };
-use ast::Rule;
+use ast::{ResolvedAction, ResolvedExpr, ResolvedFact, ResolvedRule, ResolvedVar, Rule};
 use core_relations::ExternalFunction;
 use egglog_ast::generic_ast::GenericAction;
 use hashbrown::HashMap;
@@ -56,6 +58,39 @@ impl<'de> Deserialize<'de> for PrimitiveWithId {
         })
     }
 }
+impl PartialEq for FuncType {
+    fn eq(&self, other: &Self) -> bool {
+        if self.name == other.name
+            && self.subtype == other.subtype
+            && self.output.name() == other.output.name()
+        {
+            if self.input.len() != other.input.len() {
+                return false;
+            }
+            for (a, b) in self.input.iter().zip(other.input.iter()) {
+                if a.name() != b.name() {
+                    return false;
+                }
+            }
+            true
+        } else {
+            false
+        }
+    }
+}
+
+impl Eq for FuncType {}
+
+impl Hash for FuncType {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+        self.subtype.hash(state);
+        self.output.name().hash(state);
+        for inp in &self.input {
+            inp.name().hash(state);
+        }
+    }
+}
 
 impl PrimitiveWithId {
     /// Takes the full signature of a primitive (both input and output types).
@@ -100,7 +135,7 @@ pub struct TypeInfo {
     primitives: HashMap<String, Vec<PrimitiveWithId>>,
     func_types: HashMap<String, FuncType>,
     #[serde(with = "arc_sort_map_serde")]
-    global_sorts: HashMap<String, ArcSort>,
+    pub(crate) global_sorts: HashMap<String, ArcSort>,
 }
 
 impl<'de> Deserialize<'de> for TypeInfo {
@@ -207,7 +242,7 @@ impl EGraph {
         }
 
         let prim = Arc::new(x.clone());
-        let ext = self.backend.register_external_func(Wrapper(x));
+        let ext = self.backend.register_external_func(Box::new(Wrapper(x)));
         self.type_info
             .primitives
             .entry(prim.name().to_owned())
@@ -247,6 +282,7 @@ impl EGraph {
                     .type_info
                     .typecheck_expr(symbol_gen, expr, &Default::default())?;
                 let output_type = expr.output_type();
+                self.ensure_global_name_prefix(span, var)?;
                 self.type_info
                     .global_sorts
                     .insert(var.clone(), output_type.clone());
@@ -324,7 +360,9 @@ impl EGraph {
                     sub_rulesets.clone(),
                 )
             }
-            NCommand::PrintOverallStatistics => ResolvedNCommand::PrintOverallStatistics,
+            NCommand::PrintOverallStatistics(span, file) => {
+                ResolvedNCommand::PrintOverallStatistics(span.clone(), file.clone())
+            }
             NCommand::PrintFunction(span, table, size, file, mode) => {
                 ResolvedNCommand::PrintFunction(
                     span.clone(),
@@ -361,7 +399,46 @@ impl EGraph {
                 ResolvedNCommand::UserDefined(span.clone(), name.clone(), exprs.clone())
             }
         };
+        if let ResolvedNCommand::NormRule { rule } = &command {
+            self.warn_for_prefixed_non_globals_in_rule(rule)?;
+        }
         Ok(command)
+    }
+
+    fn warn_for_prefixed_non_globals_in_var(
+        &mut self,
+        span: &Span,
+        var: &ResolvedVar,
+    ) -> Result<(), TypeError> {
+        if var.is_global_ref {
+            return Ok(());
+        }
+        if let Some(stripped) = var.name.strip_prefix(crate::GLOBAL_NAME_PREFIX) {
+            self.warn_missing_global_prefix(span, stripped)?;
+        }
+        Ok(())
+    }
+
+    fn warn_for_prefixed_non_globals_in_rule(
+        &mut self,
+        rule: &ResolvedRule,
+    ) -> Result<(), TypeError> {
+        let mut res: Result<(), TypeError> = Ok(());
+
+        for fact in &rule.body {
+            fact.visit_vars(&mut |span, var| {
+                if res.is_ok() {
+                    res = self.warn_for_prefixed_non_globals_in_var(span, var);
+                }
+            });
+        }
+
+        rule.head.visit_vars(&mut |span, var| {
+            if res.is_ok() {
+                res = self.warn_for_prefixed_non_globals_in_var(span, var);
+            }
+        });
+        res
     }
 }
 
@@ -503,13 +580,14 @@ impl TypeInfo {
             name: fdecl.name.clone(),
             subtype: fdecl.subtype,
             schema: fdecl.schema.clone(),
+            resolved_schema: ResolvedCall::Func(self.func_types.get(&fdecl.name).unwrap().clone()),
             merge: match &fdecl.merge {
                 Some(merge) => Some(self.typecheck_expr(symbol_gen, merge, &bound_vars)?),
                 None => None,
             },
             cost: fdecl.cost,
             unextractable: fdecl.unextractable,
-            ignore_viz: fdecl.ignore_viz,
+            let_binding: fdecl.let_binding,
             span: fdecl.span.clone(),
         })
     }
@@ -572,7 +650,10 @@ impl TypeInfo {
         constraints.extend(query.get_constraints(self)?);
 
         let mut binding = query.get_vars();
-        let (actions, mapped_action) = head.to_core_actions(self, &mut binding, symbol_gen)?;
+        // We lower to core actions with `union_to_set_optimization`
+        // later in the pipeline. For typechecking we do not need it.
+        let mut ctx = CoreActionContext::new(self, &mut binding, symbol_gen, false);
+        let (actions, mapped_action) = head.to_core_actions(&mut ctx)?;
 
         let mut problem = Problem::default();
         problem.add_rule(
@@ -658,7 +739,7 @@ impl TypeInfo {
         Ok(())
     }
 
-    fn typecheck_facts(
+    pub fn typecheck_facts(
         &self,
         symbol_gen: &mut SymbolGen,
         facts: &[Fact],
@@ -681,8 +762,10 @@ impl TypeInfo {
     ) -> Result<ResolvedActions, TypeError> {
         let mut binding_set: IndexSet<String> =
             binding.keys().copied().map(str::to_string).collect();
-        let (actions, mapped_action) =
-            actions.to_core_actions(self, &mut binding_set, symbol_gen)?;
+        // We lower to core actions with `union_to_set_optimization`
+        // later in the pipeline. For typechecking we do not need it.
+        let mut ctx = CoreActionContext::new(self, &mut binding_set, symbol_gen, false);
+        let (actions, mapped_action) = actions.to_core_actions(&mut ctx)?;
         let mut problem = Problem::default();
 
         // add actions to problem
@@ -744,7 +827,7 @@ impl TypeInfo {
         self.func_types.get(sym)
     }
 
-    pub(crate) fn is_constructor(&self, sym: &str) -> bool {
+    pub fn is_constructor(&self, sym: &str) -> bool {
         self.func_types
             .get(sym)
             .is_some_and(|f| f.subtype == FunctionSubtype::Constructor)
@@ -804,6 +887,16 @@ pub enum TypeError {
     AllAlternativeFailed(Vec<TypeError>),
     #[error("{}\nCannot union values of sort {}", .1, .0.name())]
     NonEqsortUnion(ArcSort, Span),
+    #[error(
+        "{span}\nNon-global variable `{name}` must not start with `{}`.",
+        crate::GLOBAL_NAME_PREFIX
+    )]
+    NonGlobalPrefixed { name: String, span: Span },
+    #[error(
+        "{span}\nGlobal `{name}` must start with `{}`.",
+        crate::GLOBAL_NAME_PREFIX
+    )]
+    GlobalMissingPrefix { name: String, span: Span },
 }
 
 #[cfg(test)]

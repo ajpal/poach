@@ -2,38 +2,40 @@
 use std::{
     mem,
     sync::{
-        Arc,
         atomic::{AtomicUsize, Ordering},
+        Arc,
     },
 };
 
-use crate::numeric_id::{DenseIdMap, DenseIdMapWithReuse, NumericId, define_id};
-use egglog_concurrency::ResettableOnceLock;
+use crate::{
+    common::IndexSet,
+    hash_index::IndexCatalog,
+    numeric_id::{define_id, DenseIdMap, DenseIdMapWithReuse, NumericId},
+};
+use egglog_concurrency::{NotificationList, ResettableOnceLock};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
-use web_time::Duration;
 
 use crate::{
-    BaseValues, ContainerValues, PoolSet, QueryEntry, TupleIndex, Value,
     action::{
-        Bindings, DbView,
         mask::{Mask, MaskIter, ValueSource},
+        Bindings, DbView,
     },
-    common::{DashMap, iter_dashmap_bulk},
     dependency_graph::DependencyGraph,
     hash_index::{ColumnIndex, Index, IndexBase},
     offsets::Subset,
     parallel_heuristics::parallelize_db_level_op,
-    pool::{Pool, Pooled, with_pool_set},
+    pool::{with_pool_set, Pool, Pooled},
     query::{Query, RuleSetBuilder},
     table_spec::{
         ColumnId, Constraint, MutationBuffer, Table, TableSpec, WrappedTable, WrappedTableRef,
     },
+    BaseValues, ContainerValues, PoolSet, QueryEntry, TupleIndex, Value,
 };
 
 use self::plan::Plan;
-use crate::action::{ExecutionState, PredictedVals};
+use crate::action::ExecutionState;
 
 pub(crate) mod execute;
 pub(crate) mod frame_update;
@@ -106,6 +108,7 @@ pub(crate) struct VarInfo {
     /// rule.
     pub(crate) used_in_rhs: bool,
     pub(crate) defined_in_rhs: bool,
+    pub(crate) name: Option<Arc<str>>,
 }
 
 pub(crate) type HashIndex = Arc<ResettableOnceLock<Index<TupleIndex>>>;
@@ -113,33 +116,47 @@ pub(crate) type HashColumnIndex = Arc<ResettableOnceLock<Index<ColumnIndex>>>;
 
 #[derive(Serialize, Deserialize)]
 pub struct TableInfo {
+    pub(crate) name: Option<Arc<str>>,
     pub(crate) spec: TableSpec,
     pub(crate) table: WrappedTable,
     #[serde(skip)]
-    pub(crate) indexes: DashMap<SmallVec<[ColumnId; 4]>, HashIndex>,
+    pub(crate) indexes: IndexCatalog<SmallVec<[ColumnId; 4]>, HashIndex>,
     #[serde(skip)]
-    pub(crate) column_indexes: DashMap<ColumnId, HashColumnIndex>,
+    pub(crate) column_indexes: IndexCatalog<ColumnId, HashColumnIndex>,
+}
+
+impl TableInfo {
+    pub fn table(&self) -> &WrappedTable {
+        &self.table
+    }
+
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
+
+    pub fn spec(&self) -> &TableSpec {
+        &self.spec
+    }
 }
 
 impl Clone for TableInfo {
     fn clone(&self) -> Self {
         fn deep_clone_map<K: Clone + std::hash::Hash + Eq, TI: IndexBase + Clone>(
-            map: &DashMap<K, Arc<ResettableOnceLock<Index<TI>>>>,
+            map: &IndexCatalog<K, Arc<ResettableOnceLock<Index<TI>>>>,
             table: WrappedTableRef,
-        ) -> DashMap<K, Arc<ResettableOnceLock<Index<TI>>>> {
-            map.iter()
-                .map(|table_ref| {
-                    let (k, v) = table_ref.pair();
-                    let v: Index<TI> = v
-                        .get_or_update(|index| {
-                            index.refresh(table);
-                        })
-                        .clone();
-                    (k.clone(), Arc::new(ResettableOnceLock::new(v)))
-                })
-                .collect()
+        ) -> IndexCatalog<K, Arc<ResettableOnceLock<Index<TI>>>> {
+            map.map(|table_ref| {
+                let (k, v) = table_ref;
+                let v: Index<TI> = v
+                    .get_or_update(|index| {
+                        index.refresh(table);
+                    })
+                    .clone();
+                (k.clone(), Arc::new(ResettableOnceLock::new(v)))
+            })
         }
         TableInfo {
+            name: self.name.clone(),
             spec: self.spec.clone(),
             table: self.table.dyn_clone(),
             indexes: deep_clone_map(&self.indexes, self.table.as_ref()),
@@ -181,61 +198,51 @@ pub fn make_external_func<
     Wrapped(f)
 }
 
-pub(crate) trait ExternalFunctionExt: ExternalFunction {
-    /// A vectorized variant of `invoke` to avoid repeated dynamic dispatch.
-    ///
-    /// Implementors should not override this manually (in fact, they shouldn't
-    /// even be able to; some types are private); the default implementation
-    /// delegates core logic to `invoke`.
-    #[doc(hidden)]
-    fn invoke_batch(
-        &self,
-        state: &mut ExecutionState,
-        mask: &mut Mask,
-        bindings: &mut Bindings,
-        args: &[QueryEntry],
-        out_var: Variable,
-    ) {
-        let pool: Pool<Vec<Value>> = with_pool_set(|ps| ps.get_pool().clone());
-        let mut out = pool.get();
-        out.reserve(mask.len());
-        for_each_binding_with_mask!(mask, args, bindings, |iter| {
-            iter.fill_vec(&mut out, Value::stale, |_, args| {
-                self.invoke(state, args.as_slice())
-            });
+/// A vectorized variant of [`ExternalFunction::invoke`] to avoid repeated dynamic dispatch.
+pub(crate) fn invoke_batch(
+    this: &dyn ExternalFunction,
+    state: &mut ExecutionState,
+    mask: &mut Mask,
+    bindings: &mut Bindings,
+    args: &[QueryEntry],
+    out_var: Variable,
+) {
+    let pool: Pool<Vec<Value>> = with_pool_set(|ps| ps.get_pool().clone());
+    let mut out = pool.get();
+    out.reserve(mask.len());
+    for_each_binding_with_mask!(mask, args, bindings, |iter| {
+        iter.fill_vec(&mut out, Value::stale, |_, args| {
+            this.invoke(state, args.as_slice())
         });
-        bindings.insert(out_var, &out);
-    }
-
-    /// A variant of [`ExternalFunctionExt::invoke_batch`] that overwrites the output variable,
-    /// rather than assigning all new values.
-    ///
-    /// *Panics* This method will panic if `out_var` doesn't already have an appropriately-sized
-    /// vector bound in `bindings`.
-    #[doc(hidden)]
-    fn invoke_batch_assign(
-        &self,
-        state: &mut ExecutionState,
-        mask: &mut Mask,
-        bindings: &mut Bindings,
-        args: &[QueryEntry],
-        out_var: Variable,
-    ) {
-        let mut out = bindings.take(out_var).expect("out_var must be bound");
-        for_each_binding_with_mask!(mask, args, bindings, |iter| {
-            iter.assign_vec_and_retain(&mut out.vals, |_, args| self.invoke(state, &args))
-        });
-        bindings.replace(out);
-    }
+    });
+    bindings.insert(out_var, &out);
 }
 
-impl<T: ExternalFunction> ExternalFunctionExt for T {}
+/// A variant of [`invoke_batch`] that overwrites the output variable,
+/// rather than assigning all new values.
+///
+/// *Panics* This method will panic if `out_var` doesn't already have an appropriately-sized
+/// vector bound in `bindings`.
+pub(crate) fn invoke_batch_assign(
+    this: &dyn ExternalFunction,
+    state: &mut ExecutionState,
+    mask: &mut Mask,
+    bindings: &mut Bindings,
+    args: &[QueryEntry],
+    out_var: Variable,
+) {
+    let mut out = bindings.take(out_var).expect("out_var must be bound");
+    for_each_binding_with_mask!(mask, args, bindings, |iter| {
+        iter.assign_vec_and_retain(&mut out.vals, |_, args| this.invoke(state, &args))
+    });
+    bindings.replace(out);
+}
 
-// Implements `Clone` for `Box<dyn ExternalFunctionExt>`.
-dyn_clone::clone_trait_object!(ExternalFunctionExt);
+// Implements `Clone` for `Box<dyn ExternalFunction>`.
+dyn_clone::clone_trait_object!(ExternalFunction);
 
 pub(crate) type ExternalFunctions =
-    DenseIdMapWithReuse<ExternalFunctionId, Box<dyn ExternalFunctionExt>>;
+    DenseIdMapWithReuse<ExternalFunctionId, Box<dyn ExternalFunction>>;
 
 #[derive(Default, Serialize, Deserialize)]
 pub(crate) struct Counters(DenseIdMap<CounterId, AtomicUsize>);
@@ -262,29 +269,6 @@ impl Counters {
     }
 }
 
-#[derive(Debug, Default)]
-pub struct RuleSetReport {
-    pub changed: bool,
-    pub rule_reports: DashMap<String, RuleReport>,
-    pub search_and_apply_time: Duration,
-    pub merge_time: Duration,
-}
-
-#[derive(Debug, Default)]
-pub struct RuleReport {
-    pub search_and_apply_time: Duration,
-    pub num_matches: usize,
-}
-
-impl RuleReport {
-    pub fn union(&self, other: &RuleReport) -> RuleReport {
-        RuleReport {
-            search_and_apply_time: self.search_and_apply_time + other.search_and_apply_time,
-            num_matches: self.num_matches + other.num_matches,
-        }
-    }
-}
-
 /// A collection of tables and indexes over them.
 ///
 /// A database also owns the memory pools used by its tables.
@@ -301,6 +285,9 @@ pub struct Database {
     #[serde(skip)]
     pub(crate) external_functions: ExternalFunctions,
     container_values: ContainerValues,
+    /// `notification_list` contains the list of tables that have been modified since the last call
+    /// to [`Database::merge_all`].
+    notification_list: NotificationList<TableId>,
     // Tracks the relative dependencies between tables during merge operations.
     deps: DependencyGraph,
     base_values: BaseValues,
@@ -328,9 +315,9 @@ impl Database {
     /// Add a new external function to the database.
     pub fn add_external_function(
         &mut self,
-        f: impl ExternalFunction + 'static,
+        f: Box<dyn ExternalFunction + 'static>,
     ) -> ExternalFunctionId {
-        self.external_functions.push(Box::new(f))
+        self.external_functions.push(f)
     }
 
     /// Free an existing external function. Make sure not to use `id` afterwards.
@@ -375,19 +362,20 @@ impl Database {
         next_ts: Value,
     ) -> bool {
         let func = self.tables.take(func_id).unwrap();
-        let predicted = PredictedVals::default();
         if parallelize_db_level_op(self.total_size_estimate) {
             let mut tables = Vec::with_capacity(to_rebuild.len());
             for id in to_rebuild {
                 tables.push((*id, self.tables.take(*id).unwrap()));
             }
-            tables.par_iter_mut().for_each(|(_, info)| {
-                info.table.apply_rebuild(
+            tables.par_iter_mut().for_each(|(id, info)| {
+                if info.table.apply_rebuild(
                     func_id,
                     &func.table,
                     next_ts,
-                    &mut ExecutionState::new(&predicted, self.read_only_view(), Default::default()),
-                );
+                    &mut ExecutionState::new(self.read_only_view(), Default::default()),
+                ) {
+                    self.notification_list.notify(*id);
+                }
             });
             for (id, info) in tables {
                 self.tables.insert(id, info);
@@ -395,12 +383,14 @@ impl Database {
         } else {
             for id in to_rebuild {
                 let mut info = self.tables.take(*id).unwrap();
-                info.table.apply_rebuild(
+                if info.table.apply_rebuild(
                     func_id,
                     &func.table,
                     next_ts,
-                    &mut ExecutionState::new(&predicted, self.read_only_view(), Default::default()),
-                );
+                    &mut ExecutionState::new(self.read_only_view(), Default::default()),
+                ) {
+                    self.notification_list.notify(*id);
+                }
                 self.tables.insert(*id, info);
             }
         }
@@ -410,8 +400,7 @@ impl Database {
 
     /// Run `f` with access to an `ExecutionState` mapped to this database.
     pub fn with_execution_state<R>(&self, f: impl FnOnce(&mut ExecutionState) -> R) -> R {
-        let predicted = with_pool_set(|ps| ps.get::<PredictedVals>());
-        let mut state = ExecutionState::new(&predicted, self.read_only_view(), Default::default());
+        let mut state = ExecutionState::new(self.read_only_view(), Default::default());
         f(&mut state)
     }
 
@@ -422,6 +411,7 @@ impl Database {
             external_funcs: &self.external_functions,
             bases: &self.base_values,
             containers: &self.container_values,
+            notification_list: &self.notification_list,
         }
     }
 
@@ -472,9 +462,19 @@ impl Database {
     pub fn merge_all(&mut self) -> bool {
         let mut ever_changed = false;
         let do_parallel = parallelize_db_level_op(self.total_size_estimate);
+        let mut to_merge = IndexSet::default();
         loop {
+            to_merge.clear();
+            let to_merge_vec = self.notification_list.reset();
+            if to_merge_vec.len() < 4 {
+                ever_changed |= self.merge_simple(to_merge_vec);
+                break;
+            }
+            for table in to_merge_vec {
+                to_merge.insert(table);
+            }
+
             let mut changed = false;
-            let predicted = with_pool_set(|ps| ps.get::<PredictedVals>());
             let mut tables_merging = DenseIdMap::<
                 TableId,
                 (
@@ -487,7 +487,7 @@ impl Database {
             >::with_capacity(self.tables.n_ids());
             for stratum in self.deps.strata() {
                 // Initialize the write dependencies first.
-                for table in stratum.iter().copied() {
+                for table in stratum.intersection(&to_merge).copied() {
                     let mut bufs = DenseIdMap::default();
                     for dep in self.deps.write_deps(table) {
                         if let Some(info) = self.tables.get(dep) {
@@ -498,7 +498,7 @@ impl Database {
                 }
                 // Then initialize read dependencies (this two-phase structure is why we have an
                 // Option in the tables_merging map).
-                for table in stratum.iter().copied() {
+                for table in stratum.intersection(&to_merge).copied() {
                     tables_merging[table].0 = Some(self.tables.unwrap_val(table));
                 }
                 let db = self.read_only_view();
@@ -506,7 +506,7 @@ impl Database {
                     tables_merging
                         .par_iter_mut()
                         .map(|(_, (info, buffers))| {
-                            let mut es = ExecutionState::new(&predicted, db, mem::take(buffers));
+                            let mut es = ExecutionState::new(db, mem::take(buffers));
                             info.as_mut().unwrap().table.merge(&mut es).added || es.changed
                         })
                         .max()
@@ -515,7 +515,7 @@ impl Database {
                     tables_merging
                         .iter_mut()
                         .map(|(_, (info, buffers))| {
-                            let mut es = ExecutionState::new(&predicted, db, mem::take(buffers));
+                            let mut es = ExecutionState::new(db, mem::take(buffers));
                             info.as_mut().unwrap().table.merge(&mut es).added || es.changed
                         })
                         .max()
@@ -526,17 +526,14 @@ impl Database {
                 }
             }
             ever_changed |= changed;
-            if !changed {
-                break;
-            }
         }
         // Reset all indexes to force an update on the next access.
         let mut size_estimate = 0;
         for (_, info) in self.tables.iter_mut() {
-            iter_dashmap_bulk(&mut info.column_indexes, |_, ci| {
-                Arc::get_mut(ci).unwrap().reset();
+            info.column_indexes.update(|_, ti| {
+                Arc::get_mut(ti).unwrap().reset();
             });
-            iter_dashmap_bulk(&mut info.indexes, |_, ti| {
+            info.indexes.update(|_, ti| {
                 Arc::get_mut(ti).unwrap().reset();
             });
             size_estimate += info.table.len();
@@ -545,23 +542,39 @@ impl Database {
         ever_changed
     }
 
+    /// A "fast path" merge method that is not optimized for parallelism and does not respect read
+    /// and write dependencies. This ends up being faster than the full "strata-aware" option in
+    /// the body of `merge_all`.
+    fn merge_simple(&mut self, mut to_merge: SmallVec<[TableId; 4]>) -> bool {
+        let mut changed = false;
+        while !to_merge.is_empty() {
+            for table_id in to_merge.iter().copied() {
+                let mut info = self.tables.unwrap_val(table_id);
+                let mut es = ExecutionState::new(self.read_only_view(), Default::default());
+                changed |= info.table.merge(&mut es).added || es.changed;
+                self.tables.insert(table_id, info);
+            }
+            to_merge = self.notification_list.reset();
+        }
+        changed
+    }
+
     /// A low-level helper for merging pending updates to a particular function.
     ///
     /// Callers should prefer `merge_all`, as the process of merging the data
     /// for a particular table may cause other updates to be buffered
     /// elesewhere. The `merge_all` method runs merges to a fixed point to avoid
     /// surprises here.
-    pub fn merge_table(&mut self, table: TableId) {
+    pub fn merge_table(&mut self, table: TableId) -> bool {
         let mut info = self.tables.unwrap_val(table);
-        let predicted = with_pool_set(|ps| ps.get::<PredictedVals>());
         self.total_size_estimate = self.total_size_estimate.wrapping_sub(info.table.len());
-        let _table_changed = info.table.merge(&mut ExecutionState::new(
-            &predicted,
+        let table_changed = info.table.merge(&mut ExecutionState::new(
             self.read_only_view(),
             Default::default(),
         ));
         self.total_size_estimate = self.total_size_estimate.wrapping_add(info.table.len());
         self.tables.insert(table, info);
+        table_changed.added
     }
 
     /// Get id of the next table to be added to the database.
@@ -582,13 +595,34 @@ impl Database {
         read_deps: impl IntoIterator<Item = TableId>,
         write_deps: impl IntoIterator<Item = TableId>,
     ) -> TableId {
+        self.add_table_impl(table, None, read_deps, write_deps)
+    }
+
+    pub fn add_table_named<T: Table + Sized + 'static>(
+        &mut self,
+        table: T,
+        name: Arc<str>,
+        read_deps: impl IntoIterator<Item = TableId>,
+        write_deps: impl IntoIterator<Item = TableId>,
+    ) -> TableId {
+        self.add_table_impl(table, Some(name), read_deps, write_deps)
+    }
+
+    fn add_table_impl<T: Table + Sized + 'static>(
+        &mut self,
+        table: T,
+        name: Option<Arc<str>>,
+        read_deps: impl IntoIterator<Item = TableId>,
+        write_deps: impl IntoIterator<Item = TableId>,
+    ) -> TableId {
         let spec = table.spec();
         let table = WrappedTable::new(table);
         let res = self.tables.push(TableInfo {
+            name,
             spec,
             table,
-            indexes: Default::default(),
-            column_indexes: Default::default(),
+            indexes: IndexCatalog::new(),
+            column_indexes: IndexCatalog::new(),
         });
         self.deps.add_table(res, read_deps, write_deps);
         res
@@ -597,12 +631,43 @@ impl Database {
     /// Get direct mutable access to the table.
     ///
     /// This method is useful for out-of-band access to databse state.
-    pub fn get_table(&self, id: TableId) -> &WrappedTable {
+    ///
+    /// **NOTE:** It is legal to call [`Table::new_buffer`] on the returned table handle, and use
+    /// that to stage updates to the given table via [`MutationBuffer::stage_insert`] or
+    /// [`MutationBuffer::stage_remove`], however this is *likely to be a source of bugs*.
+    ///
+    /// Updates staged in this way will not cause `table` to be marked as having pending changes in
+    /// the next call to [`Database::merge_all`]. Instead, such users should use
+    /// [`Database::new_buffer`], which plumbs this signal through correctly, or better yet,
+    /// perform all updates through an [`ExecutionState`] or a [`crate::RuleBuilder`]. If these
+    /// options do not work, then calling [`Database::merge_table`] directly will force a merge
+    /// call on the table.
+    pub fn get_table(&self, table: TableId) -> &WrappedTable {
         &self
             .tables
-            .get(id)
+            .get(table)
             .expect("must access a table that has been declared in this database")
             .table
+    }
+
+    /// Get a handle on the given table along with metadata about it.
+    ///
+    ///
+    /// **NOTE:** See the note on [`Database::get_table`] around manually staging updates.
+    pub fn get_table_info(&self, table: TableId) -> &TableInfo {
+        self.tables
+            .get(table)
+            .expect("must access a table that has been declared in this database")
+    }
+
+    /// Create a new mutation buffer for the table with id `id`.
+    ///
+    /// This will marked the given table as potentially changed for the next round of merging.
+    /// Unlike calling [`Table::new_buffer`] on a table returned from a getter, this method also
+    /// triggers change notification metadata that is read by [`Database::merge_all`].
+    pub fn new_buffer(&self, id: TableId) -> Box<dyn MutationBuffer> {
+        self.notification_list.notify(id);
+        self.get_table(id).new_buffer()
     }
 
     pub(crate) fn process_constraints(
@@ -653,6 +718,9 @@ impl Database {
     /// Get direct mutable access to the table.
     ///
     /// This method is useful for out-of-band access to databse state.
+    ///
+    /// **NOTE:** See the warning around staging updates to handles returned through this method in
+    /// the documentation for [`Database::get_table`].
     pub fn get_table_mut(&mut self, id: TableId) -> &mut dyn Table {
         &mut *self
             .tables
@@ -681,25 +749,19 @@ impl Drop for Database {
 /// This is in a separate function to allow us to reuse it while already
 /// borrowing a `TableInfo`.
 fn get_index_from_tableinfo(table_info: &TableInfo, cols: &[ColumnId]) -> HashIndex {
-    let index: Arc<_> = table_info
-        .indexes
-        .entry(cols.into())
-        .or_insert_with(|| {
-            Arc::new(ResettableOnceLock::new(Index::new(
-                cols.to_vec(),
-                TupleIndex::new(cols.len()),
-            )))
-        })
-        .clone();
+    let index: Arc<_> = table_info.indexes.get_or_insert(cols.into(), || {
+        Arc::new(ResettableOnceLock::new(Index::new(
+            cols.to_vec(),
+            TupleIndex::new(cols.len()),
+        )))
+    });
     index.get_or_update(|index| {
         index.refresh(table_info.table.as_ref());
     });
-    debug_assert!(
-        !index
-            .get()
-            .unwrap()
-            .needs_refresh(table_info.table.as_ref())
-    );
+    debug_assert!(!index
+        .get()
+        .unwrap()
+        .needs_refresh(table_info.table.as_ref()));
     index
 }
 
@@ -707,24 +769,18 @@ fn get_index_from_tableinfo(table_info: &TableInfo, cols: &[ColumnId]) -> HashIn
 ///
 /// This is the single-column analog to [`get_index_from_tableinfo`].
 fn get_column_index_from_tableinfo(table_info: &TableInfo, col: ColumnId) -> HashColumnIndex {
-    let index: Arc<_> = table_info
-        .column_indexes
-        .entry(col)
-        .or_insert_with(|| {
-            Arc::new(ResettableOnceLock::new(Index::new(
-                vec![col],
-                ColumnIndex::new(),
-            )))
-        })
-        .clone();
+    let index: Arc<_> = table_info.column_indexes.get_or_insert(col, || {
+        Arc::new(ResettableOnceLock::new(Index::new(
+            vec![col],
+            ColumnIndex::new(),
+        )))
+    });
     index.get_or_update(|index| {
         index.refresh(table_info.table.as_ref());
     });
-    debug_assert!(
-        !index
-            .get()
-            .unwrap()
-            .needs_refresh(table_info.table.as_ref())
-    );
+    debug_assert!(!index
+        .get()
+        .unwrap()
+        .needs_refresh(table_info.table.as_ref()));
     index
 }

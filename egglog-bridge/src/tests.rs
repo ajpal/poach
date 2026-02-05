@@ -16,6 +16,7 @@ use crate::core_relations::{
 use crate::numeric_id::NumericId;
 use log::debug;
 use num_rational::Rational64;
+use once_cell::sync::Lazy;
 
 use crate::{
     ColumnTy, DefaultVal, EGraph, FunctionConfig, FunctionId, MergeFn, ProofStore, QueryEntry,
@@ -63,7 +64,7 @@ fn ac_test(tracing: bool, can_subsume: bool) {
     };
 
     // Running these rules on an empty database should change nothing.
-    assert!(!egraph.run_rules(&[add_comm, add_assoc]).unwrap().changed);
+    assert!(!egraph.run_rules(&[add_comm, add_assoc]).unwrap().changed());
 
     // Fill the database.
     let mut ids = Vec::new();
@@ -92,7 +93,7 @@ fn ac_test(tracing: bool, can_subsume: bool) {
         (left_root, right_root)
     };
     // Saturate
-    while egraph.run_rules(&[add_comm, add_assoc]).unwrap().changed {}
+    while egraph.run_rules(&[add_comm, add_assoc]).unwrap().changed() {}
     let canon_left = egraph.get_canon_in_uf(left_root);
     let canon_right = egraph.get_canon_in_uf(right_root);
     assert_eq!(canon_left, canon_right, "failed to reassociate!");
@@ -115,16 +116,6 @@ fn ac_test(tracing: bool, can_subsume: bool) {
         //     .print_eq_proof(_eq_explanation, &mut std::io::stderr())
         //     .unwrap();
     }
-}
-
-#[test]
-fn ac_tracing_subsume() {
-    ac_test(true, true);
-}
-
-#[test]
-fn ac_tracing() {
-    ac_test(true, false);
 }
 
 #[test]
@@ -170,7 +161,7 @@ fn ac_fail() {
     };
 
     // Running these rules on an empty database should change nothing.
-    assert!(!egraph.run_rules(&[add_comm, add_assoc]).unwrap().changed);
+    assert!(!egraph.run_rules(&[add_comm, add_assoc]).unwrap().changed());
 
     // Fill the database.
     let mut ids = Vec::new();
@@ -208,7 +199,7 @@ fn ac_fail() {
         (left_root, right_root)
     };
     // Saturate
-    while egraph.run_rules(&[add_comm, add_assoc]).unwrap().changed {}
+    while egraph.run_rules(&[add_comm, add_assoc]).unwrap().changed() {}
     let canon_left = egraph.get_canon_in_uf(left_root);
     let canon_right = egraph.get_canon_in_uf(right_root);
     assert_ne!(canon_left, canon_right);
@@ -226,15 +217,6 @@ fn math_subsume() {
     let handles =
         Vec::from_iter((0..2).map(|_| thread::spawn(|| math_test(EGraph::default(), true))));
     handles.into_iter().for_each(|h| h.join().unwrap());
-}
-
-#[test]
-fn math_tracing() {
-    math_test(EGraph::with_tracing(), false)
-}
-#[test]
-fn math_tracing_subsume() {
-    math_test(EGraph::with_tracing(), true)
 }
 
 /// Run a more complex benchmark from the egg and egglog test suite. The core of this test is to
@@ -452,7 +434,7 @@ fn math_test(mut egraph: EGraph, can_subsume: bool) {
     }
 
     for _ in 0..N {
-        if !egraph.run_rules(&rules).unwrap().changed {
+        if !egraph.run_rules(&rules).unwrap().changed() {
             break;
         }
     }
@@ -532,7 +514,7 @@ fn register_vec_push(egraph: &mut EGraph) -> ExternalFunctionId {
         vec.0.shrink_to_fit();
         Some(state.clone().container_values().register_val(vec, state))
     });
-    egraph.register_external_func(external_func)
+    egraph.register_external_func(Box::new(external_func))
 }
 
 fn register_vec_last(egraph: &mut EGraph) -> ExternalFunctionId {
@@ -548,7 +530,7 @@ fn register_vec_last(egraph: &mut EGraph) -> ExternalFunctionId {
             .last()
             .cloned()
     });
-    egraph.register_external_func(external_func)
+    egraph.register_external_func(Box::new(external_func))
 }
 
 fn dump_vecs(egraph: &EGraph) -> Vec<Vec<Value>> {
@@ -614,13 +596,14 @@ fn container_test() {
         name: "vec".into(),
         can_subsume: false,
     });
-    let int_add = egraph.register_external_func(make_external_func(|exec_state, args| {
-        let [x, y] = args else { panic!() };
-        let x: i64 = exec_state.base_values().unwrap(*x);
-        let y: i64 = exec_state.base_values().unwrap(*y);
-        let z: i64 = x + y;
-        Some(exec_state.base_values().get(z))
-    }));
+    let int_add =
+        egraph.register_external_func(Box::new(make_external_func(|exec_state, args| {
+            let [x, y] = args else { panic!() };
+            let x: i64 = exec_state.base_values().unwrap(*x);
+            let y: i64 = exec_state.base_values().unwrap(*y);
+            let z: i64 = x + y;
+            Some(exec_state.base_values().get(z))
+        })));
     let vec_last = register_vec_last(&mut egraph);
     let vec_push = register_vec_push(&mut egraph);
 
@@ -649,77 +632,81 @@ fn container_test() {
 
     let vec_expand = {
         let mut rb = egraph.new_rule("", true);
-        let vec = rb.new_var(ColumnTy::Id);
-        let vec_id = rb.new_var(ColumnTy::Id);
-        let last = rb.new_var(ColumnTy::Id);
-        rb.query_table(vec_table, &[vec.into(), vec_id.into()], Some(false))
+        let vec: QueryEntry = rb.new_var(ColumnTy::Id).into();
+        let vec_id: QueryEntry = rb.new_var(ColumnTy::Id).into();
+        let last: QueryEntry = rb.new_var(ColumnTy::Id).into();
+        rb.query_table(vec_table, &[vec.clone(), vec_id], Some(false))
             .unwrap();
-        rb.query_prim(vec_last, &[vec.into(), last.into()], ColumnTy::Id)
+        rb.query_prim(vec_last, &[vec.clone(), last.clone()], ColumnTy::Id)
             .unwrap();
-        let add_last_0 = rb.lookup(
-            add_table,
-            &[
-                last.into(),
-                QueryEntry::Const {
-                    val: ids[0],
-                    ty: ColumnTy::Base(int_base),
-                },
-            ],
-            || "add_last_0".to_string(),
-        );
-        let add_0_last = rb.lookup(
-            add_table,
-            &[
-                QueryEntry::Const {
-                    val: ids[0],
-                    ty: ColumnTy::Base(int_base),
-                },
-                last.into(),
-            ],
-            || "add_0_last".to_string(),
-        );
-        let new_vec_1 = rb.call_external_func(
-            vec_push,
-            &[vec.into(), add_last_0.into()],
-            ColumnTy::Id,
-            || "".to_string(),
-        );
-        let new_vec_2 = rb.call_external_func(
-            vec_push,
-            &[vec.into(), add_0_last.into()],
-            ColumnTy::Id,
-            || "".to_string(),
-        );
-        rb.lookup(vec_table, &[new_vec_1.into()], String::new);
-        rb.lookup(vec_table, &[new_vec_2.into()], String::new);
+        let add_last_0 = rb
+            .lookup(
+                add_table,
+                &[
+                    last.clone(),
+                    QueryEntry::Const {
+                        val: ids[0],
+                        ty: ColumnTy::Base(int_base),
+                    },
+                ],
+                || "add_last_0".to_string(),
+            )
+            .into();
+        let add_0_last = rb
+            .lookup(
+                add_table,
+                &[
+                    QueryEntry::Const {
+                        val: ids[0],
+                        ty: ColumnTy::Base(int_base),
+                    },
+                    last,
+                ],
+                || "add_0_last".to_string(),
+            )
+            .into();
+        let new_vec_1 = rb
+            .call_external_func(vec_push, &[vec.clone(), add_last_0], ColumnTy::Id, || {
+                "".to_string()
+            })
+            .into();
+        let new_vec_2 = rb
+            .call_external_func(vec_push, &[vec, add_0_last], ColumnTy::Id, || {
+                "".to_string()
+            })
+            .into();
+        rb.lookup(vec_table, &[new_vec_1], String::new);
+        rb.lookup(vec_table, &[new_vec_2], String::new);
         rb.build()
     };
 
     let eval_add = {
         let mut rb = egraph.new_rule("", true);
-        let lhs_raw = rb.new_var(ColumnTy::Base(int_base));
-        let lhs_id = rb.new_var(ColumnTy::Id);
-        let rhs_raw = rb.new_var(ColumnTy::Base(int_base));
-        let rhs_id = rb.new_var(ColumnTy::Id);
-        let add_id = rb.new_var(ColumnTy::Id);
-        rb.query_table(num_table, &[lhs_raw.into(), lhs_id.into()], Some(false))
+        let lhs_raw: QueryEntry = rb.new_var(ColumnTy::Base(int_base)).into();
+        let lhs_id: QueryEntry = rb.new_var(ColumnTy::Id).into();
+        let rhs_raw: QueryEntry = rb.new_var(ColumnTy::Base(int_base)).into();
+        let rhs_id: QueryEntry = rb.new_var(ColumnTy::Id).into();
+        let add_id: QueryEntry = rb.new_var(ColumnTy::Id).into();
+        rb.query_table(num_table, &[lhs_raw.clone(), lhs_id.clone()], Some(false))
             .unwrap();
-        rb.query_table(num_table, &[rhs_raw.into(), rhs_id.into()], Some(false))
+        rb.query_table(num_table, &[rhs_raw.clone(), rhs_id.clone()], Some(false))
             .unwrap();
         rb.query_table(
             add_table,
-            &[lhs_id.into(), rhs_id.into(), add_id.into()],
+            &[lhs_id.clone(), rhs_id.clone(), add_id.clone()],
             Some(false),
         )
         .unwrap();
-        let evaled = rb.call_external_func(
-            int_add,
-            &[lhs_raw.into(), rhs_raw.into()],
-            ColumnTy::Base(int_base),
-            || "".to_string(),
-        );
-        let boxed = rb.lookup(num_table, &[evaled.into()], String::new);
-        rb.union(add_id.into(), boxed.into());
+        let evaled: QueryEntry = rb
+            .call_external_func(
+                int_add,
+                &[lhs_raw.clone(), rhs_raw.clone()],
+                ColumnTy::Base(int_base),
+                || "".to_string(),
+            )
+            .into();
+        let boxed: QueryEntry = rb.lookup(num_table, &[evaled.clone()], String::new).into();
+        rb.union(add_id.clone(), boxed.clone());
         rb.build()
     };
 
@@ -728,20 +715,20 @@ fn container_test() {
         vec![vec![], vec![egraph.get_canon_in_uf(ids[1])]],
     );
 
-    assert!(egraph.run_rules(&[vec_expand]).unwrap().changed);
+    assert!(egraph.run_rules(&[vec_expand]).unwrap().changed());
     assert_eq!(dump_vecs(&egraph).len(), 4);
     // We have 2 new vectors with a last element. Each of those should spawn two more, adding 4.
-    assert!(egraph.run_rules(&[vec_expand]).unwrap().changed);
+    assert!(egraph.run_rules(&[vec_expand]).unwrap().changed());
     assert_eq!(dump_vecs(&egraph).len(), 8);
     // We have 4 new vectors with a last element. Each of those should spawn two more, adding 8.
-    assert!(egraph.run_rules(&[vec_expand]).unwrap().changed);
+    assert!(egraph.run_rules(&[vec_expand]).unwrap().changed());
     assert_eq!(dump_vecs(&egraph).len(), 16);
 
     // Now we want to saturate `eval_add`. This should collapse a bunch of new vectors.
 
     let mut saturated = false;
     for _ in 0..20 {
-        saturated = !egraph.run_rules(&[eval_add]).unwrap().changed;
+        saturated = !egraph.run_rules(&[eval_add]).unwrap().changed();
         if saturated {
             break;
         }
@@ -794,7 +781,7 @@ fn rhs_only_rule() {
     let mut contents = Vec::new();
 
     assert!(contents.is_empty());
-    assert!(egraph.run_rules(&[add_data]).unwrap().changed);
+    assert!(egraph.run_rules(&[add_data]).unwrap().changed());
     egraph.for_each(num_table, |func_row| {
         assert!(!func_row.subsumed);
         contents.push(func_row.vals.to_vec());
@@ -812,19 +799,20 @@ fn rhs_only_rule_only_runs_once() {
     let mut egraph = EGraph::default();
     let counter = Arc::new(AtomicUsize::new(0));
     let inner = counter.clone();
-    let inc_counter_func = egraph.register_external_func(make_external_func(move |_, _| {
-        inner.fetch_add(1, Ordering::SeqCst);
-        Some(Value::new(0))
-    }));
+    let inc_counter_func =
+        egraph.register_external_func(Box::new(make_external_func(move |_, _| {
+            inner.fetch_add(1, Ordering::SeqCst);
+            Some(Value::new(0))
+        })));
     let inc_counter_rule = {
         let mut rb = egraph.new_rule("", true);
         rb.call_external_func(inc_counter_func, &[], ColumnTy::Id, || "".to_string());
         rb.build()
     };
 
-    assert!(!egraph.run_rules(&[inc_counter_rule]).unwrap().changed);
+    assert!(!egraph.run_rules(&[inc_counter_rule]).unwrap().changed());
     assert_eq!(counter.load(Ordering::SeqCst), 1);
-    assert!(!egraph.run_rules(&[inc_counter_rule]).unwrap().changed);
+    assert!(!egraph.run_rules(&[inc_counter_rule]).unwrap().changed());
     assert_eq!(counter.load(Ordering::SeqCst), 1);
 }
 
@@ -834,8 +822,8 @@ fn mergefn_arithmetic() {
     let int_base = egraph.base_values_mut().register_type::<i64>();
 
     // Create external functions for multiplication and addition
-    let multiply_func = egraph.register_external_func(core_relations::make_external_func(
-        |state, vals| -> Option<Value> {
+    let multiply_func = egraph.register_external_func(Box::new(
+        core_relations::make_external_func(|state, vals| -> Option<Value> {
             let [a, b] = vals else {
                 return None;
             };
@@ -843,10 +831,10 @@ fn mergefn_arithmetic() {
             let b_val = state.base_values().unwrap::<i64>(*b);
             let res = state.base_values().get::<i64>(a_val * b_val);
             Some(res)
-        },
+        }),
     ));
 
-    let add_func = egraph.register_external_func(core_relations::make_external_func(
+    let add_func = egraph.register_external_func(Box::new(core_relations::make_external_func(
         |state, vals| -> Option<Value> {
             let [a, b] = vals else {
                 return None;
@@ -856,7 +844,7 @@ fn mergefn_arithmetic() {
             let res = state.base_values().get::<i64>(a_val + b_val);
             Some(res)
         },
-    ));
+    )));
 
     let value_1 = egraph.base_values_mut().get(1i64);
 
@@ -893,7 +881,7 @@ fn mergefn_arithmetic() {
     };
 
     // Run the first rule and check state
-    assert!(egraph.run_rules(&[rule1]).unwrap().changed);
+    assert!(egraph.run_rules(&[rule1]).unwrap().changed());
     let mut contents = Vec::new();
     egraph.for_each(f_table, |func_row| {
         assert!(!func_row.subsumed);
@@ -916,7 +904,7 @@ fn mergefn_arithmetic() {
     // Run the second rule and check state
     // Expected: (f 1 1) because 1 + (0 * 5) = 1
     // Expected: (f 2 7) because 1 + (1 * 6) = 7
-    assert!(egraph.run_rules(&[rule2]).unwrap().changed);
+    assert!(egraph.run_rules(&[rule2]).unwrap().changed());
     contents.clear();
     egraph.for_each(f_table, |func_row| {
         assert!(!func_row.subsumed);
@@ -939,7 +927,7 @@ fn mergefn_arithmetic() {
     // Run the third rule and check state
     // Expected: (f 1 4) because 1 + (1 * 3) = 4
     // Expected: (f 2 29) because 1 + (7 * 4) = 29
-    assert!(egraph.run_rules(&[rule3]).unwrap().changed);
+    assert!(egraph.run_rules(&[rule3]).unwrap().changed());
     contents.clear();
     egraph.for_each(f_table, |func_row| {
         assert!(!func_row.subsumed);
@@ -1021,7 +1009,7 @@ fn mergefn_nested_function() {
     };
 
     // First run of the rule
-    assert!(egraph.run_rules(&[write_rule]).unwrap().changed);
+    assert!(egraph.run_rules(&[write_rule]).unwrap().changed());
     let f_entries_1 = get_f_entries(&egraph);
     let g_entries_1 = get_g_entries(&egraph);
     assert_eq!(f_entries_1.len(), 2);
@@ -1046,7 +1034,7 @@ fn mergefn_nested_function() {
     };
 
     // Second run of the rule - should trigger merging with previous values
-    assert!(egraph.run_rules(&[set_rule]).unwrap().changed);
+    assert!(egraph.run_rules(&[set_rule]).unwrap().changed());
     let f_entries_2 = get_f_entries(&egraph);
     let g_entries_2 = get_g_entries(&egraph);
     assert_eq!(f_entries_2.len(), 2);
@@ -1095,7 +1083,7 @@ fn constrain_prims_simple() {
         can_subsume: false,
     });
 
-    let is_even = egraph.register_external_func(core_relations::make_external_func(
+    let is_even = egraph.register_external_func(Box::new(core_relations::make_external_func(
         |state, vals| -> Option<Value> {
             let [a] = vals else {
                 return None;
@@ -1104,7 +1092,7 @@ fn constrain_prims_simple() {
             let result: bool = a_val % 2 == 0;
             Some(state.base_values().get(result))
         },
-    ));
+    )));
 
     let value_1 = egraph.base_value_constant(1i64);
     let value_2 = egraph.base_value_constant(2i64);
@@ -1120,17 +1108,17 @@ fn constrain_prims_simple() {
 
     let copy_to_g = {
         let mut rb = egraph.new_rule("copy_to_g", true);
-        let val = rb.new_var(ColumnTy::Base(int_base));
-        let id = rb.new_var(ColumnTy::Id);
-        rb.query_table(f_table, &[val.into(), id.into()], Some(false))
+        let val: QueryEntry = rb.new_var(ColumnTy::Base(int_base)).into();
+        let id: QueryEntry = rb.new_var(ColumnTy::Id).into();
+        rb.query_table(f_table, &[val.clone(), id.clone()], Some(false))
             .unwrap();
         rb.query_prim(
             is_even,
-            &[val.into(), value_true.clone()],
+            &[val.clone(), value_true.clone()],
             ColumnTy::Base(bool_base),
         )
         .unwrap();
-        rb.set(g_table, &[val.into(), id.into()]);
+        rb.set(g_table, &[val, id]);
         rb.build()
     };
     let get_entries = |egraph: &EGraph, table: FunctionId| {
@@ -1178,7 +1166,7 @@ fn constrain_prims_abstract() {
         can_subsume: false,
     });
 
-    let neg = egraph.register_external_func(core_relations::make_external_func(
+    let neg = egraph.register_external_func(Box::new(core_relations::make_external_func(
         |state, vals| -> Option<Value> {
             let [a] = vals else {
                 return None;
@@ -1186,8 +1174,8 @@ fn constrain_prims_abstract() {
             let a_val = state.base_values().unwrap::<i64>(*a);
             Some(state.base_values().get(-a_val))
         },
-    ));
-    let abs = egraph.register_external_func(core_relations::make_external_func(
+    )));
+    let abs = egraph.register_external_func(Box::new(core_relations::make_external_func(
         |state, vals| -> Option<Value> {
             let [a] = vals else {
                 return None;
@@ -1195,7 +1183,7 @@ fn constrain_prims_abstract() {
             let a_val = state.base_values().unwrap::<i64>(*a);
             Some(state.base_values().get(a_val.abs()))
         },
-    ));
+    )));
 
     let value_n1 = egraph.base_value_constant(-1i64);
     let value_0 = egraph.base_value_constant(0i64);
@@ -1210,16 +1198,24 @@ fn constrain_prims_abstract() {
 
     let copy_to_g = {
         let mut rb = egraph.new_rule("copy_to_g", true);
-        let val = rb.new_var(ColumnTy::Base(int_base));
-        let id = rb.new_var(ColumnTy::Id);
-        let negval = rb.new_var(ColumnTy::Base(int_base));
-        rb.query_table(f_table, &[val.into(), id.into()], Some(false))
+        let val: QueryEntry = rb.new_var(ColumnTy::Base(int_base)).into();
+        let id: QueryEntry = rb.new_var(ColumnTy::Id).into();
+        let negval: QueryEntry = rb.new_var(ColumnTy::Base(int_base)).into();
+        rb.query_table(f_table, &[val.clone(), id.clone()], Some(false))
             .unwrap();
-        rb.query_prim(neg, &[val.into(), negval.into()], ColumnTy::Base(int_base))
-            .unwrap();
-        rb.query_prim(abs, &[val.into(), negval.into()], ColumnTy::Base(int_base))
-            .unwrap();
-        rb.set(g_table, &[val.into(), id.into()]);
+        rb.query_prim(
+            neg,
+            &[val.clone(), negval.clone()],
+            ColumnTy::Base(int_base),
+        )
+        .unwrap();
+        rb.query_prim(
+            abs,
+            &[val.clone(), negval.clone()],
+            ColumnTy::Base(int_base),
+        )
+        .unwrap();
+        rb.set(g_table, &[val.clone(), id.clone()]);
         rb.build()
     };
     let get_entries = |egraph: &EGraph, table: FunctionId| {
@@ -1286,11 +1282,11 @@ fn basic_subsumption() {
 
     let copy_to_g = {
         let mut rb = egraph.new_rule("copy_to_g", true);
-        let val = rb.new_var(ColumnTy::Base(int_base));
-        let id = rb.new_var(ColumnTy::Id);
-        rb.query_table(f_table, &[val.into(), id.into()], Some(false))
+        let val: QueryEntry = rb.new_var(ColumnTy::Base(int_base)).into();
+        let id: QueryEntry = rb.new_var(ColumnTy::Id).into();
+        rb.query_table(f_table, &[val.clone(), id.clone()], Some(false))
             .unwrap();
-        rb.set(g_table, &[val.into(), id.into()]);
+        rb.set(g_table, &[val, id]);
         rb.build()
     };
     let get_entries = |egraph: &EGraph, table: FunctionId| {
@@ -1379,7 +1375,7 @@ fn primitive_failure_panics() {
     let value_1 = egraph.base_value_constant(1i64);
     let value_2 = egraph.base_value_constant(2i64);
 
-    let assert_odd = egraph.register_external_func(core_relations::make_external_func(
+    let assert_odd = egraph.register_external_func(Box::new(core_relations::make_external_func(
         |state, vals| -> Option<Value> {
             let [a] = vals else {
                 return None;
@@ -1391,7 +1387,7 @@ fn primitive_failure_panics() {
                 None
             }
         },
-    ));
+    )));
 
     let assert_odd_rule = {
         let mut rb = egraph.new_rule("assert_odd", true);
@@ -1411,6 +1407,34 @@ fn primitive_failure_panics() {
     };
 
     egraph.run_rules(&[assert_odd_rule]).err().unwrap();
+}
+
+#[test]
+fn panic_functions_trigger_early_stop() {
+    let db = core_relations::Database::default();
+
+    let channel: crate::SideChannel<String> = Default::default();
+    let panic_fn = super::Panic("panic".to_string(), channel.clone());
+    let stopped = db.with_execution_state(|state| {
+        assert!(!state.should_stop());
+        let res = core_relations::ExternalFunction::invoke(&panic_fn, state, &[]);
+        assert!(res.is_none());
+        state.should_stop()
+    });
+    assert!(stopped);
+    assert_eq!(channel.lock().unwrap().as_deref(), Some("panic"));
+
+    let channel: crate::SideChannel<String> = Default::default();
+    let lazy = Lazy::new(|| "lazy panic".to_string());
+    let panic_fn = super::LazyPanic(Arc::new(lazy), channel.clone());
+    let stopped = db.with_execution_state(|state| {
+        assert!(!state.should_stop());
+        let res = core_relations::ExternalFunction::invoke(&panic_fn, state, &[]);
+        assert!(res.is_none());
+        state.should_stop()
+    });
+    assert!(stopped);
+    assert_eq!(channel.lock().unwrap().as_deref(), Some("lazy panic"));
 }
 
 const _: () = {

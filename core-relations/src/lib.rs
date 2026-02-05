@@ -27,8 +27,8 @@ pub use base_values::{BaseValue, BaseValueId, BaseValuePrinter, BaseValues, Boxe
 pub use common::Value;
 pub use containers::{ContainerValue, ContainerValueId, ContainerValues};
 pub use free_join::{
-    AtomId, CounterId, Database, ExternalFunction, ExternalFunctionId, RuleReport, RuleSetReport,
-    TableId, Variable, make_external_func, plan::PlanStrategy,
+    AtomId, CounterId, Database, ExternalFunction, ExternalFunctionId, TableId, Variable,
+    make_external_func, plan::PlanStrategy,
 };
 pub use hash_index::TupleIndex;
 pub use offsets::{OffsetRange, RowId, Subset, SubsetRef};
@@ -39,8 +39,8 @@ pub use query::{
 pub use row_buffer::TaggedRowBuffer;
 pub use table::{MergeFn, SortedWritesTable};
 pub use table_spec::{
-    ColumnId, Constraint, Offset, Rebuilder, Row, Table, TableChange, TableSpec, TableVersion,
-    WrappedTable,
+    ColumnId, Constraint, MutationBuffer, Offset, Rebuilder, Row, Table, TableChange, TableSpec,
+    TableVersion, WrappedTable,
 };
 pub use uf::{DisplacedTable, DisplacedTableWithProvenance, ProofReason, ProofStep};
 
