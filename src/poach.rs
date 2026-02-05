@@ -1,8 +1,12 @@
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
-use egglog::ast::{all_sexps, Sexp, SexpParser};
+use egglog::ast::{
+    all_sexps, GenericAction, GenericCommand, GenericExpr, GenericFact, GenericRunConfig,
+    GenericSchedule, Sexp, SexpParser,
+};
 use egglog::{CommandOutput, EGraph, TimedEgraph};
 use env_logger::Env;
+use hashbrown::HashMap;
 use serde::Serialize;
 
 use std::fmt::{Debug, Display};
@@ -101,9 +105,6 @@ struct Args {
     // file in the input_path directory
     #[arg(long)]
     initial_egraph: Option<PathBuf>,
-
-    #[arg(long)]
-    allow_let: bool,
 }
 
 fn check_egraph_number(egraph: &TimedEgraph, expected: usize) -> Result<()> {
@@ -241,7 +242,6 @@ fn poach(
     out_dir: &PathBuf,
     run_mode: RunMode,
     initial_egraph: Option<PathBuf>,
-    allow_let: bool,
 ) -> (Vec<String>, Vec<(String, String)>) {
     match run_mode {
         RunMode::TimelineOnly => process_files(
@@ -467,6 +467,98 @@ fn poach(
                 out_dir,
                 initial_egraph.as_deref(),
                 |egg_file, out_dir, timed_egraph| {
+                    // Namespace to avoid shadowing
+                    #[derive(Default)]
+                    struct Namespace {
+                        map: HashMap<String, String>,
+                    }
+
+                    impl Namespace {
+                        fn add(&mut self, name: String) -> String {
+                            if self.map.contains_key(&name) {
+                                panic!("duplicate variable names")
+                            } else {
+                                let namespaced = format!("@@{name}");
+                                self.map.insert(name.clone(), namespaced.clone());
+                                namespaced
+                            }
+                        }
+
+                        fn get(&self, name: String) -> String {
+                            self.map.get(&name).unwrap_or(&name).to_string()
+                        }
+
+                        fn replace_expr(
+                            &self,
+                            expr: GenericExpr<String, String>,
+                        ) -> GenericExpr<String, String> {
+                            match expr {
+                                GenericExpr::Var(span, n) => GenericExpr::Var(span, self.get(n)),
+                                GenericExpr::Call(span, h, generic_exprs) => GenericExpr::Call(
+                                    span,
+                                    self.get(h),
+                                    generic_exprs
+                                        .into_iter()
+                                        .map(|x| self.replace_expr(x))
+                                        .collect(),
+                                ),
+                                GenericExpr::Lit(span, literal) => GenericExpr::Lit(span, literal),
+                            }
+                        }
+
+                        fn replace_fact(
+                            &self,
+                            fact: GenericFact<String, String>,
+                        ) -> GenericFact<String, String> {
+                            match fact {
+                                GenericFact::Eq(span, e1, e2) => GenericFact::Eq(
+                                    span,
+                                    self.replace_expr(e1),
+                                    self.replace_expr(e2),
+                                ),
+                                GenericFact::Fact(e) => GenericFact::Fact(self.replace_expr(e)),
+                            }
+                        }
+
+                        fn replace_sched(
+                            &self,
+                            schedule: GenericSchedule<String, String>,
+                        ) -> GenericSchedule<String, String> {
+                            match schedule {
+                                GenericSchedule::Saturate(span, sched) => {
+                                    GenericSchedule::Saturate(
+                                        span,
+                                        Box::new(self.replace_sched(*sched)),
+                                    )
+                                }
+                                GenericSchedule::Repeat(span, n, sched) => GenericSchedule::Repeat(
+                                    span,
+                                    n,
+                                    Box::new(self.replace_sched(*sched)),
+                                ),
+                                GenericSchedule::Run(span, config) => GenericSchedule::Run(
+                                    span,
+                                    GenericRunConfig {
+                                        ruleset: config.ruleset,
+                                        until: config.until.map(|facts| {
+                                            facts
+                                                .into_iter()
+                                                .map(|f| self.replace_fact(f))
+                                                .collect()
+                                        }),
+                                    },
+                                ),
+                                GenericSchedule::Sequence(span, scheds) => {
+                                    GenericSchedule::Sequence(
+                                        span,
+                                        scheds.into_iter().map(|x| self.replace_sched(x)).collect(),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    let mut namespace = Namespace::default();
+
                     let program_string = &read_to_string(egg_file)?;
 
                     let all_sexps = all_sexps(SexpParser::new(None, program_string))?;
@@ -482,18 +574,65 @@ fn poach(
                         .zip(all_sexps)
                         .filter(|(c, _)| {
                             match c {
-                                // hack: mega mine requires lets to be run, individual mine doesn't work if lets run
-                                egglog::ast::GenericCommand::Action(_) => allow_let,
-                                egglog::ast::GenericCommand::Extract(_, _, _) => true,
-                                egglog::ast::GenericCommand::MultiExtract(_, _, _) => true,
+                                GenericCommand::Action(GenericAction::Let(_, _, _)) => true,
+                                GenericCommand::Extract(_, _, _) => true,
+                                GenericCommand::MultiExtract(_, _, _) => true,
                                 // TODO: Running rules on a deserialized egraph currently does not work
-                                // | egglog::ast::GenericCommand::RunSchedule(_)
-                                egglog::ast::GenericCommand::PrintOverallStatistics => true,
-                                egglog::ast::GenericCommand::Check(_, _) => true,
-                                egglog::ast::GenericCommand::PrintFunction(_, _, _, _, _) => true,
-                                egglog::ast::GenericCommand::PrintSize(_, _) => true,
+                                // | GenericCommand::RunSchedule(_)
+                                GenericCommand::PrintOverallStatistics => true,
+                                GenericCommand::Check(_, _) => true,
+                                GenericCommand::PrintFunction(_, _, _, _, _) => true,
+                                GenericCommand::PrintSize(_, _) => true,
                                 _ => false,
                             }
+                        })
+                        .map(|(cmd, sexp)| {
+                            (
+                                match cmd {
+                                    GenericCommand::Action(GenericAction::Let(
+                                        span,
+                                        name,
+                                        body,
+                                    )) => GenericCommand::Action(GenericAction::Let(
+                                        span,
+                                        namespace.add(name),
+                                        namespace.replace_expr(body),
+                                    )),
+                                    GenericCommand::Extract(span, e1, e2) => {
+                                        GenericCommand::Extract(
+                                            span,
+                                            namespace.replace_expr(e1),
+                                            namespace.replace_expr(e2),
+                                        )
+                                    }
+                                    GenericCommand::MultiExtract(span, e, es) => {
+                                        GenericCommand::MultiExtract(
+                                            span,
+                                            namespace.replace_expr(e),
+                                            es.into_iter()
+                                                .map(|x| namespace.replace_expr(x))
+                                                .collect(),
+                                        )
+                                    }
+                                    GenericCommand::RunSchedule(schedule) => {
+                                        GenericCommand::RunSchedule(
+                                            namespace.replace_sched(schedule),
+                                        )
+                                    }
+                                    GenericCommand::PrintOverallStatistics => cmd,
+                                    GenericCommand::Check(span, facts) => GenericCommand::Check(
+                                        span,
+                                        facts
+                                            .into_iter()
+                                            .map(|f| namespace.replace_fact(f))
+                                            .collect(),
+                                    ),
+                                    GenericCommand::PrintFunction(..) => cmd,
+                                    GenericCommand::PrintSize(..) => cmd,
+                                    _ => panic!("impossible"),
+                                },
+                                sexp,
+                            )
                         })
                         .unzip();
 
@@ -546,13 +685,7 @@ fn main() {
         panic!("Input path is neither file nor directory: {:?}", input_path);
     };
 
-    let (success, failure) = poach(
-        entries,
-        &output_dir,
-        args.run_mode,
-        args.initial_egraph,
-        args.allow_let,
-    );
+    let (success, failure) = poach(entries, &output_dir, args.run_mode, args.initial_egraph);
     #[derive(Serialize)]
     struct Output {
         success: Vec<String>,
