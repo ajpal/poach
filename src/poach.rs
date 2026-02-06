@@ -483,15 +483,15 @@ fn poach(
                         .filter(|(c, _)| {
                             match c {
                                 // hack: mega mine requires lets to be run, individual mine doesn't work if lets run
-                                egglog::ast::GenericCommand::Action(_) => allow_let,
-                                egglog::ast::GenericCommand::Extract(_, _, _) => true,
-                                egglog::ast::GenericCommand::MultiExtract(_, _, _) => true,
+                                egglog::ast::GenericCommand::Action(..) => allow_let,
+                                egglog::ast::GenericCommand::Extract(..) => true,
+                                egglog::ast::GenericCommand::MultiExtract(..) => true,
                                 // TODO: Running rules on a deserialized egraph currently does not work
                                 // | egglog::ast::GenericCommand::RunSchedule(_)
-                                egglog::ast::GenericCommand::PrintOverallStatistics => true,
-                                egglog::ast::GenericCommand::Check(_, _) => true,
-                                egglog::ast::GenericCommand::PrintFunction(_, _, _, _, _) => true,
-                                egglog::ast::GenericCommand::PrintSize(_, _) => true,
+                                egglog::ast::GenericCommand::PrintOverallStatistics(..) => true,
+                                egglog::ast::GenericCommand::Check(..) => true,
+                                egglog::ast::GenericCommand::PrintFunction(..) => true,
+                                egglog::ast::GenericCommand::PrintSize(..) => true,
                                 _ => false,
                             }
                         })
