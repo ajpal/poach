@@ -74,7 +74,7 @@ if __name__ == "__main__":
   run_poach(resource_dir / "test-files" / "easteregg", nightly_dir / "raw" / "easteregg" / "mine-indiv", "mine",
     ["--initial-egraph=" + str(nightly_dir / "raw" / "easteregg" / "serialize" )])
   run_poach(resource_dir / "test-files" / "easteregg", nightly_dir / "raw" / "easteregg" / "mine-mega", "mine",
-    ["--initial-egraph=" + str(nightly_dir / "raw" / "easteregg" / "serialize" / "mega-easteregg" / "serialize.json" ), "--allow-let"])
+    ["--initial-egraph=" + str(nightly_dir / "raw" / "easteregg" / "serialize" / "mega-easteregg" / "serialize.json" )])
 
   # Post-process timeline data
   transform.transform((nightly_dir / "raw"), (nightly_dir / "output" / "data"))
