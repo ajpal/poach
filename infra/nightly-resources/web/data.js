@@ -35,12 +35,13 @@ const BENCH_SUITES = [
 const RUN_MODES = [
   "timeline",
   "sequential",
-  "interleaved",
   "old-serialize",
   "idempotent",
   "no-io",
   "extract",
-  "baseline",
+  "serialize",
+  "mine-mega",
+  "mine-indiv",
 ];
 
 const CMDS = ["run", "extract", "serialize", "deserialize", "read", "write"];
@@ -52,13 +53,25 @@ function initializeGlobalData() {
       { ...suite, ...Object.fromEntries(RUN_MODES.map((mode) => [mode, {}])) },
     ]),
   );
+
   GLOBAL_DATA.runExtractChart = null;
   GLOBAL_DATA.serializeChart = null;
   GLOBAL_DATA.extractChart = null;
   GLOBAL_DATA.differenceChart = null;
+  GLOBAL_DATA.minedChart = null;
+
   return fetch("data/data.json")
     .then((response) => response.json())
-    .then(processRawData);
+
+    .then(processRawData)
+    .catch(onError)
+    .finally(
+      () => (document.getElementById("before-load").style.display = "none"),
+    );
+}
+
+function onError() {
+  document.getElementById("on-error").style.display = "block";
 }
 
 /**
@@ -67,6 +80,7 @@ function initializeGlobalData() {
  * value is the array of timelines where each timeline contains an array of events
  */
 function processRawData(blob) {
+  document.getElementById("after-load").style.display = "block";
   Object.entries(blob).forEach(([name, timelines]) => {
     const [suite, runMode, benchmark, _] = name.split("/");
     if (!GLOBAL_DATA.data[suite]) {

@@ -3,7 +3,7 @@
 <html>
 
 <head>
-  <script src="extract.js"></script>
+  <script src="mined.js"></script>
   <script src="data.js"></script>
   <script src="chart.js"></script>
   <script src="util.js"></script>
@@ -12,7 +12,7 @@
 
 <title>Extract</title>
 
-<body onload="initializeExtract()">
+<body onload="initialize()">
   <h1 id="before-load">Loading report data...</h1>
   <h1 id="on-error">Something went wrong while loading the data. Check logs/console for error messages.</h1>
   <div id="after-load">
@@ -20,16 +20,14 @@
     <p>
       Baseline: Start from an empty e-graph, run rules, extract
       <br>
-      POACH: Deserialize e-graph, extract
+      POACH: Start from a mined e-graph, extract
       <br>
-      Serialization time is not counted
+      mined (mega) e-graph is the result of running all of the benchmarks together and serializing.
+      mined (indiv) e-graph is the result of running just that benchmark and serializing.
     </p>
 
     <div style="max-height: 800px;">
-      <canvas class="content" id="difference-chart"></canvas>
-    </div>
-    <div style="max-height: 800px;">
-      <canvas class="content" id="extract-chart"></canvas>
+      <canvas class="content" id="mined-chart"></canvas>
     </div>
   </div>
 </body>

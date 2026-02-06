@@ -1,9 +1,8 @@
 use anyhow::{Context, Result};
 use clap::{Parser, ValueEnum};
 use egglog::ast::{all_sexps, Sexp, SexpParser};
-use egglog::TimedEgraph;
+use egglog::{CommandOutput, EGraph, TimedEgraph};
 use env_logger::Env;
-use hashbrown::HashMap;
 use serde::Serialize;
 
 use std::fmt::{Debug, Display};
@@ -34,15 +33,6 @@ enum RunMode {
     SequentialRoundTrip,
 
     // For each egg file under the input path,
-    //      Run the egglog program, recording timing information.
-    //      Serialize the resulting egraph
-    // For each egg file under the input path,
-    //      Deserialize the deserialized egraph
-    //      Assert the deserialized egraph has the same size as the initial egraph
-    //      Save the complete timeline, for consumption by the nightly frontend.
-    InterleavedRoundTrip,
-
-    // For each egg file under the input path,
     //      Run the egglog program.
     //      Round trip to file twice.
     //      Assert that the second round trip is idempotent (though the first may not be), crash if not.
@@ -71,11 +61,12 @@ enum RunMode {
     //      Save the completed timeline, for consumption by the nighly frontend
     Extract,
 
-    // Baseline
-    // For each egg file,
-    //      Run the eggglog program, recording timing information
-    //      NO POACH
-    Baseline,
+    // Requires initial-egraph to be provided via Args
+    // For each egg file under the input path,
+    //      Deserialize the initial egraph
+    //      Run the egglog program, skipping declarations of Sorts and Rules
+    //      Save the completed timeline, for consumption by the nightly frontend
+    Mine,
 }
 
 impl Display for RunMode {
@@ -87,12 +78,11 @@ impl Display for RunMode {
                 RunMode::TimelineOnly => "timeline",
                 RunMode::SequentialRoundTrip => "sequential",
                 RunMode::Serialize => "serialize",
-                RunMode::InterleavedRoundTrip => "interleaved",
                 RunMode::IdempotentRoundTrip => "idempotent",
                 RunMode::OldSerialize => "old-serialize",
                 RunMode::NoIO => "no-io",
                 RunMode::Extract => "extract",
-                RunMode::Baseline => "baseline",
+                RunMode::Mine => "mine",
             }
         )
     }
@@ -105,8 +95,15 @@ struct Args {
     output_dir: PathBuf,
     run_mode: RunMode,
 
+    // If this is a single file, it will be used as the initial egraph for
+    // every file in the input_path directory
+    // If it is a directory, we will look for a file matching the name of each
+    // file in the input_path directory
     #[arg(long)]
     initial_egraph: Option<PathBuf>,
+
+    #[arg(long)]
+    allow_let: bool,
 }
 
 fn check_egraph_number(egraph: &TimedEgraph, expected: usize) -> Result<()> {
@@ -149,60 +146,44 @@ fn check_idempotent(p1: &PathBuf, p2: &PathBuf, name: &str, out_dir: &PathBuf) {
     }
 }
 
-fn run_egg_file(initial_egraph: Option<&Path>, egg_file: &PathBuf) -> Result<TimedEgraph> {
-    let mut egraph = if let Some(path) = initial_egraph {
-        println!("Starting from {}", path.display());
-        TimedEgraph::new_from_file(path)
-    } else {
-        TimedEgraph::new()
-    };
-
-    let filename = egg_file
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("unknown");
-
-    let program_text = read_to_string(egg_file)?;
-
-    let parsed_commands = egraph
-        .egraphs
-        .last_mut()
-        .expect("There are no egraphs")
-        .parser
-        .get_program_from_string(Some(filename.to_string()), &program_text)?;
-
-    egraph.run_program_with_timeline(parsed_commands, &program_text)?;
-
-    Ok(egraph)
-}
-
 fn process_files<F>(
     files: &[PathBuf],
     out_dir: &PathBuf,
+    initial_egraph: Option<&Path>,
     mut f: F,
 ) -> (Vec<String>, Vec<(String, String)>)
 where
-    F: FnMut(&PathBuf, &PathBuf) -> Result<()>,
+    F: FnMut(&PathBuf, &PathBuf, &mut TimedEgraph) -> Result<()>,
 {
     let mut failures = vec![];
     let mut successes = vec![];
     for (idx, file) in files.iter().enumerate() {
         let name = file
-            .file_name()
+            .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("unknown");
         let out_dir = out_dir.join(file.file_stem().unwrap().to_str().unwrap());
 
         create_dir_all(&out_dir).expect("Failed to create out dir");
 
-        match f(file, &out_dir) {
+        let mut timed_egraph = if let Some(path) = initial_egraph {
+            if path.is_file() {
+                TimedEgraph::new_from_file(path)
+            } else {
+                TimedEgraph::new_from_file(&path.join(format!("{name}/serialize.json")))
+            }
+        } else {
+            TimedEgraph::new()
+        };
+
+        match f(file, &out_dir, &mut timed_egraph) {
             Ok(_) => {
                 successes.push(name.to_string());
-                println!("[{}/{}] {} : SUCCESS", idx, files.len(), name)
+                println!("[{}/{}] {} : SUCCESS", idx + 1, files.len(), name)
             }
             Err(e) => {
                 failures.push((name.to_string(), format!("{}", e)));
-                println!("[{}/{}] {} : FAILURE {}", idx, files.len(), name, e)
+                println!("[{}/{}] {} : FAILURE {}", idx + 1, files.len(), name, e)
             }
         }
     }
@@ -217,192 +198,320 @@ where
     (successes, failures)
 }
 
+fn compare_extracts(
+    initial_extracts: &[CommandOutput],
+    final_extracts: &[CommandOutput],
+) -> Result<()> {
+    if initial_extracts.len() != final_extracts.len() {
+        anyhow::bail!("extract lengths mismatch")
+    }
+
+    for (x, y) in initial_extracts.iter().zip(final_extracts) {
+        match (x, y) {
+            (CommandOutput::ExtractBest(_, _, term1), CommandOutput::ExtractBest(_, _, term2)) => {
+                if term1 != term2 {
+                    anyhow::bail!("No match : {:?} {:?}", x, y)
+                }
+            }
+            (
+                CommandOutput::ExtractVariants(_, terms1),
+                CommandOutput::ExtractVariants(_, terms2),
+            ) => {
+                if terms1 != terms2 {
+                    anyhow::bail!("No match : {:?} {:?}", x, y)
+                }
+            }
+            (
+                CommandOutput::MultiExtractVariants(_, items1),
+                CommandOutput::MultiExtractVariants(_, items2),
+            ) => {
+                if items1 != items2 {
+                    anyhow::bail!("No match : {:?} {:?}", x, y)
+                }
+            }
+            _ => anyhow::bail!("No match : {:?} {:?}", x, y),
+        }
+    }
+
+    Ok(())
+}
+
 fn poach(
     files: Vec<PathBuf>,
     out_dir: &PathBuf,
     run_mode: RunMode,
     initial_egraph: Option<PathBuf>,
+    allow_let: bool,
 ) -> (Vec<String>, Vec<(String, String)>) {
     match run_mode {
-        RunMode::TimelineOnly => process_files(&files, out_dir, |egg_file, out_dir| {
-            let egraph = run_egg_file(initial_egraph.as_deref(), egg_file)?;
-            egraph.write_timeline(out_dir)?;
+        RunMode::TimelineOnly => process_files(
+            &files,
+            out_dir,
+            initial_egraph.as_deref(),
+            |egg_file, out_dir, timed_egraph| {
+                timed_egraph.run_from_file(egg_file)?;
+                timed_egraph.write_timeline(out_dir)?;
 
-            Ok(())
-        }),
+                Ok(())
+            },
+        ),
 
-        RunMode::Serialize => process_files(&files, out_dir, |egg_file, out_dir| {
-            let mut egraph = run_egg_file(initial_egraph.as_deref(), egg_file)?;
-            egraph.to_file(&out_dir.join("serialize.json"))?;
-            egraph.write_timeline(out_dir)?;
-            Ok(())
-        }),
+        RunMode::Serialize => process_files(
+            &files,
+            out_dir,
+            initial_egraph.as_deref(),
+            |egg_file, out_dir, timed_egraph| {
+                timed_egraph.run_from_file(egg_file)?;
+                timed_egraph.to_file(&out_dir.join("serialize.json"))?;
+                timed_egraph.write_timeline(out_dir)?;
+                Ok(())
+            },
+        ),
 
-        RunMode::SequentialRoundTrip => {
-            process_files(&files, out_dir, |egg_file, out_dir: &PathBuf| {
-                let mut egraph = run_egg_file(initial_egraph.as_deref(), egg_file)?;
+        RunMode::SequentialRoundTrip => process_files(
+            &files,
+            out_dir,
+            initial_egraph.as_deref(),
+            |egg_file, out_dir: &PathBuf, timed_egraph| {
+                timed_egraph.run_from_file(egg_file)?;
                 let s1 = out_dir.join("serialize1.json");
 
-                egraph.to_file(&s1).context("Failed to write s1.json")?;
+                timed_egraph
+                    .to_file(&s1)
+                    .context("Failed to write s1.json")?;
 
-                egraph.from_file(&s1).context("failed to read s1.json")?;
+                timed_egraph
+                    .from_file(&s1)
+                    .context("failed to read s1.json")?;
 
-                check_egraph_number(&egraph, 2)?;
+                check_egraph_number(&timed_egraph, 2)?;
 
-                check_egraph_size(&egraph)?;
+                check_egraph_size(&timed_egraph)?;
 
-                egraph.write_timeline(out_dir)?;
+                timed_egraph.write_timeline(out_dir)?;
                 Ok(())
-            })
-        }
+            },
+        ),
 
-        RunMode::InterleavedRoundTrip => {
-            let mut tmp = HashMap::new();
-            process_files(&files, out_dir, |egg_file, out_dir| {
-                let mut egraph = run_egg_file(initial_egraph.as_deref(), egg_file)?;
+        RunMode::IdempotentRoundTrip => process_files(
+            &files,
+            out_dir,
+            initial_egraph.as_deref(),
+            |egg_file, out_dir, timed_egraph| {
+                let name = egg_file
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unknown");
+                timed_egraph.run_from_file(egg_file)?;
                 let s1 = out_dir.join("serialize1.json");
-                egraph.to_file(&s1).context("Failed to write s1.json")?;
-                tmp.insert(egg_file.clone(), (out_dir.clone(), egraph));
+                let s2 = out_dir.join("serialize2.json");
+                let s3 = out_dir.join("serialize3.json");
+
+                timed_egraph
+                    .to_file(&s1)
+                    .context("failed to serialize s1.json")?;
+
+                timed_egraph
+                    .from_file(&s1)
+                    .context("failed to read s1.json")?;
+
+                timed_egraph
+                    .to_file(&s2)
+                    .context("failed to serialize s2.json")?;
+
+                timed_egraph
+                    .from_file(&s2)
+                    .context("failed to read s2.json")?;
+
+                timed_egraph
+                    .to_file(&s3)
+                    .context("failed to serialize s3.json")?;
+
+                timed_egraph
+                    .from_file(&s3)
+                    .context("failed to read s3.json")?;
+
+                check_egraph_number(&timed_egraph, 4)?;
+                check_egraph_size(&timed_egraph)?;
+                check_idempotent(&s2, &s3, name, &out_dir);
+
+                timed_egraph.write_timeline(out_dir)?;
                 Ok(())
-            });
-            process_files(&files, out_dir, |egg_file, _| {
-                let (out_dir, egraph) = tmp.get_mut(egg_file).unwrap();
-                egraph
-                    .from_file(&out_dir.join("serialize1.json"))
-                    .context("Failed to read s1.json")?;
+            },
+        ),
 
-                check_egraph_number(&egraph, 2)?;
-                check_egraph_size(&egraph)?;
+        RunMode::OldSerialize => process_files(
+            &files,
+            out_dir,
+            initial_egraph.as_deref(),
+            |egg_file, out_dir, timed_egraph| {
+                timed_egraph.run_from_file(egg_file)?;
 
-                egraph.write_timeline(out_dir)?;
+                timed_egraph
+                    .to_file(&out_dir.join("serialize-poach.json"))
+                    .context("failed to write poach.json")?;
+
+                timed_egraph
+                    .old_serialize_egraph(&out_dir.join("serialize-old.json"))
+                    .context("Failed to serialize old.json")?;
+
+                timed_egraph.write_timeline(out_dir)?;
                 Ok(())
-            })
-        }
+            },
+        ),
 
-        RunMode::IdempotentRoundTrip => process_files(&files, out_dir, |egg_file, out_dir| {
-            let name = egg_file
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown");
-            let mut egraph = run_egg_file(initial_egraph.as_deref(), &egg_file)?;
-            let s1 = out_dir.join("serialize1.json");
-            let s2 = out_dir.join("serialize2.json");
-            let s3 = out_dir.join("serialize3.json");
+        RunMode::NoIO => process_files(
+            &files,
+            out_dir,
+            initial_egraph.as_deref(),
+            |egg_file, out_dir, timed_egraph| {
+                timed_egraph.run_from_file(egg_file)?;
 
-            egraph.to_file(&s1).context("failed to serialize s1.json")?;
+                let value = timed_egraph
+                    .to_value()
+                    .context("Failed to encode egraph as json")?;
 
-            egraph.from_file(&s1).context("failed to read s1.json")?;
+                timed_egraph
+                    .from_value(value)
+                    .context("failed to decode egraph from json")?;
 
-            egraph.to_file(&s2).context("failed to serialize s2.json")?;
+                check_egraph_number(&timed_egraph, 2)?;
 
-            egraph.from_file(&s2).context("failed to read s2.json")?;
+                check_egraph_size(&timed_egraph)?;
 
-            egraph.to_file(&s3).context("failed to serialize s3.json")?;
+                timed_egraph.write_timeline(out_dir)?;
 
-            egraph.from_file(&s3).context("failed to read s3.json")?;
+                Ok(())
+            },
+        ),
 
-            check_egraph_number(&egraph, 4)?;
-            check_egraph_size(&egraph)?;
-            check_idempotent(&s2, &s3, name, &out_dir);
+        RunMode::Extract => process_files(
+            &files,
+            out_dir,
+            initial_egraph.as_deref(),
+            |egg_file, out_dir, timed_egraph| {
+                let initial_outputs = timed_egraph.run_from_file(egg_file)?;
 
-            egraph.write_timeline(out_dir)?;
-            Ok(())
-        }),
+                let initial_extracts: Vec<CommandOutput> = initial_outputs
+                    .into_iter()
+                    .filter(|x| {
+                        matches!(
+                            x,
+                            CommandOutput::ExtractBest(_, _, _)
+                                | CommandOutput::ExtractVariants(_, _)
+                                | CommandOutput::MultiExtractVariants(_, _)
+                        )
+                    })
+                    .collect();
 
-        RunMode::OldSerialize => process_files(&files, out_dir, |egg_file, out_dir| {
-            let mut egraph = run_egg_file(initial_egraph.as_deref(), egg_file)?;
+                let program_string = &read_to_string(egg_file)?;
 
-            egraph
-                .to_file(&out_dir.join("serialize-poach.json"))
-                .context("failed to write poach.json")?;
-
-            egraph
-                .old_serialize_egraph(&out_dir.join("serialize-old.json"))
-                .context("Failed to serialize old.json")?;
-
-            egraph.write_timeline(out_dir)?;
-            Ok(())
-        }),
-
-        RunMode::NoIO => process_files(&files, out_dir, |egg_file, out_dir| {
-            let mut egraph = run_egg_file(initial_egraph.as_deref(), egg_file)?;
-
-            let value = egraph
-                .to_value()
-                .context("Failed to encode egraph as json")?;
-
-            egraph
-                .from_value(value)
-                .context("failed to decode egraph from json")?;
-
-            check_egraph_number(&egraph, 2)?;
-
-            check_egraph_size(&egraph)?;
-
-            egraph.write_timeline(out_dir)?;
-
-            Ok(())
-        }),
-
-        RunMode::Extract => process_files(&files, out_dir, |egg_file, out_dir| {
-            let mut timed_egraph = run_egg_file(initial_egraph.as_deref(), egg_file)?;
-
-            let program_string = &read_to_string(egg_file)?;
-
-            let is_extract = |sexp: &&Sexp| {
-                if let Sexp::List(xs, _) = sexp {
-                    if !xs.is_empty() {
-                        match &xs[0] {
-                            Sexp::Atom(s, _) => s == "extract",
-                            _ => false,
+                let is_extract = |sexp: &&Sexp| {
+                    if let Sexp::List(xs, _) = sexp {
+                        if !xs.is_empty() {
+                            match &xs[0] {
+                                Sexp::Atom(s, _) => s == "extract",
+                                _ => false,
+                            }
+                        } else {
+                            false
                         }
                     } else {
                         false
                     }
-                } else {
-                    false
-                }
-            };
+                };
 
-            let all_sexps = all_sexps(SexpParser::new(None, program_string))?;
-            let extracts: String = all_sexps
-                .iter()
-                .filter(is_extract)
-                .map(|s| s.to_string())
-                .collect::<Vec<_>>()
-                .join("\n");
+                let all_sexps = all_sexps(SexpParser::new(None, program_string))?;
+                let extracts: String = all_sexps
+                    .iter()
+                    .filter(is_extract)
+                    .map(|s| s.to_string())
+                    .collect::<Vec<_>>()
+                    .join("\n");
 
-            let extract_cmds = timed_egraph
-                .egraphs
-                .last_mut()
-                .expect("there are no egraphs")
-                .parser
-                .get_program_from_string(None, &extracts)?;
+                let extract_cmds = timed_egraph
+                    .egraphs
+                    .last_mut()
+                    .expect("there are no egraphs")
+                    .parser
+                    .get_program_from_string(None, &extracts)?;
 
-            let value = timed_egraph
-                .to_value()
-                .context("Failed to encode egraph as JSON")?;
+                let value = timed_egraph
+                    .to_value()
+                    .context("Failed to encode egraph as JSON")?;
 
-            timed_egraph
-                .from_value(value)
-                .context("failed to decode egraph from json")?;
+                timed_egraph
+                    .from_value(value)
+                    .context("failed to decode egraph from json")?;
 
-            check_egraph_number(&timed_egraph, 2)?;
+                check_egraph_number(&timed_egraph, 2)?;
 
-            timed_egraph.run_program_with_timeline(extract_cmds, &extracts)?;
+                let final_extracts =
+                    timed_egraph.run_program_with_timeline(extract_cmds, &extracts)?;
 
-            timed_egraph.write_timeline(out_dir)?;
+                compare_extracts(&initial_extracts, &final_extracts)?;
 
-            Ok(())
-        }),
+                timed_egraph.write_timeline(out_dir)?;
 
-        RunMode::Baseline => process_files(&files, out_dir, |egg_file, out_dir| {
-            let egraph = run_egg_file(initial_egraph.as_deref(), egg_file)?;
+                Ok(())
+            },
+        ),
 
-            egraph.write_timeline(out_dir)?;
+        RunMode::Mine => {
+            assert!(
+                initial_egraph.is_some(),
+                "initial_egraph must be provided via CLI args for Mine run mode"
+            );
+            process_files(
+                &files,
+                out_dir,
+                initial_egraph.as_deref(),
+                |egg_file, out_dir, timed_egraph| {
+                    let program_string = &read_to_string(egg_file)?;
 
-            Ok(())
-        }),
+                    let all_sexps = all_sexps(SexpParser::new(None, program_string))?;
+
+                    let all_cmds = EGraph::default()
+                        .parser
+                        .get_program_from_string(None, &program_string)?;
+
+                    assert!(all_cmds.len() == all_sexps.len());
+
+                    let (filtered_cmds, filtered_sexps): (Vec<_>, Vec<_>) = all_cmds
+                        .into_iter()
+                        .zip(all_sexps)
+                        .filter(|(c, _)| {
+                            match c {
+                                // hack: mega mine requires lets to be run, individual mine doesn't work if lets run
+                                egglog::ast::GenericCommand::Action(..) => allow_let,
+                                egglog::ast::GenericCommand::Extract(..) => true,
+                                egglog::ast::GenericCommand::MultiExtract(..) => true,
+                                // TODO: Running rules on a deserialized egraph currently does not work
+                                // | egglog::ast::GenericCommand::RunSchedule(_)
+                                egglog::ast::GenericCommand::PrintOverallStatistics(..) => true,
+                                egglog::ast::GenericCommand::Check(..) => true,
+                                egglog::ast::GenericCommand::PrintFunction(..) => true,
+                                egglog::ast::GenericCommand::PrintSize(..) => true,
+                                _ => false,
+                            }
+                        })
+                        .unzip();
+
+                    timed_egraph.run_program_with_timeline(
+                        filtered_cmds,
+                        &filtered_sexps
+                            .iter()
+                            .map(|s| s.to_string())
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                    )?;
+
+                    timed_egraph.write_timeline(out_dir)?;
+
+                    Ok(())
+                },
+            )
+        }
     }
 }
 
@@ -414,7 +523,7 @@ fn main() {
         .parse_default_env()
         .init();
     let input_path = args.input_path.clone();
-    let output_dir = args.output_dir.join(args.run_mode.to_string());
+    let output_dir = args.output_dir;
 
     create_dir_all(&output_dir).expect("Failed to create output directory");
 
@@ -437,7 +546,13 @@ fn main() {
         panic!("Input path is neither file nor directory: {:?}", input_path);
     };
 
-    let (success, failure) = poach(entries, &output_dir, args.run_mode, args.initial_egraph);
+    let (success, failure) = poach(
+        entries,
+        &output_dir,
+        args.run_mode,
+        args.initial_egraph,
+        args.allow_let,
+    );
     #[derive(Serialize)]
     struct Output {
         success: Vec<String>,

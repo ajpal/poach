@@ -6,7 +6,7 @@
  * @returns {number} - The aggregated value based on the selected mode.
  */
 function aggregate(times, mode) {
-  if (!times || times.length == 0) {
+  if (!times || times.length == 0 || !Array.isArray(times)) {
     return 0;
   }
   switch (mode) {
@@ -25,6 +25,10 @@ function aggregate(times, mode) {
   }
 }
 
+function benchmarkTotalTime(b) {
+  return Object.values(b).reduce((a, b) => a + aggregate(b, "total"), 0);
+}
+
 /**
  * Extracts the first token from an s-expression.
  */
@@ -39,7 +43,6 @@ function getCmd(sexp) {
 }
 
 function getCmdType(cmd) {
-  const CMDS = ["run", "extract", "serialize", "deserialize", "read", "write"];
   if (cmd === "run-schedule") {
     return "run";
   } else if (cmd === "multi-extract") {

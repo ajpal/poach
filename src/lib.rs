@@ -65,7 +65,7 @@ pub use serialize_vis::{SerializeConfig, SerializeOutput, SerializedNode};
 use sort::*;
 use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
-use std::fs::{self, File};
+use std::fs::{self, read_to_string, File};
 use std::hash::Hash;
 use std::io::{BufReader, BufWriter, Read, Write as _};
 use std::iter::once;
@@ -2497,6 +2497,26 @@ impl TimedEgraph {
         let path = dir.join("timeline.json");
         let file = File::create(&path).expect("Failed to create timeline.json");
         serde_json::to_writer_pretty(BufWriter::new(file), &self.timeline)
+    }
+
+    pub fn run_from_file(&mut self, egg_file: &PathBuf) -> Result<Vec<CommandOutput>> {
+        let filename = egg_file
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown");
+
+        let program_text = read_to_string(egg_file)?;
+
+        let parsed_commands = self
+            .egraphs
+            .last_mut()
+            .expect("There are no egraphs")
+            .parser
+            .get_program_from_string(Some(filename.to_string()), &program_text)?;
+
+        let outputs = self.run_program_with_timeline(parsed_commands, &program_text)?;
+
+        Ok(outputs)
     }
 
     pub fn run_program_with_timeline(

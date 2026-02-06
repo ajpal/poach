@@ -70,3 +70,11 @@ body {
 .collapsed {
   display: none;
 }
+
+#after-load {
+  display: none;
+}
+
+#on-error {
+  display: none;
+}
