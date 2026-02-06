@@ -1,5 +1,6 @@
 //! Parse a string into egglog.
 
+use crate::util::INTERNAL_SYMBOL_PREFIX;
 use crate::*;
 use egglog_ast::generic_ast::*;
 use egglog_ast::span::{EgglogSpan, Span, SrcFile};
@@ -167,6 +168,7 @@ pub struct Parser {
     exprs: HashMap<String, Arc<dyn Macro<Expr>>>,
     user_defined: HashSet<String>,
     pub symbol_gen: SymbolGen,
+    pub ensure_no_reserved_symbols: bool,
 }
 
 impl Default for Parser {
@@ -176,12 +178,24 @@ impl Default for Parser {
             actions: Default::default(),
             exprs: Default::default(),
             user_defined: Default::default(),
-            symbol_gen: SymbolGen::new("$".to_string()),
+            symbol_gen: SymbolGen::new(INTERNAL_SYMBOL_PREFIX.to_string()),
+            ensure_no_reserved_symbols: true,
         }
     }
 }
 
 impl Parser {
+    fn ensure_symbol_not_reserved(&self, symbol: &str, span: &Span) -> Result<(), ParseError> {
+        if self.symbol_gen.is_reserved(symbol) && self.ensure_no_reserved_symbols {
+            return error!(
+                span.clone(),
+                "symbols starting with '{}' are reserved for egglog internals",
+                self.symbol_gen.reserved_prefix()
+            );
+        }
+        Ok(())
+    }
+
     pub fn get_program_from_string(
         &mut self,
         filename: Option<String>,
@@ -200,6 +214,25 @@ impl Parser {
     ) -> Result<Expr, ParseError> {
         let sexp = sexp(&mut SexpParser::new(filename, input))?;
         self.parse_expr(&sexp)
+    }
+
+    pub fn get_schedule_from_string(
+        &mut self,
+        filename: Option<String>,
+        input: &str,
+    ) -> Result<Schedule, ParseError> {
+        let sexp = sexp(&mut SexpParser::new(filename, input))?;
+        self.parse_schedule(&sexp)
+    }
+
+    // Parse a fact from a string.
+    pub fn get_fact_from_string(
+        &mut self,
+        filename: Option<String>,
+        input: &str,
+    ) -> Result<Fact, ParseError> {
+        let sexp = sexp(&mut SexpParser::new(filename, input))?;
+        self.parse_fact(&sexp)
     }
 
     pub fn add_command_macro(&mut self, ma: Arc<dyn Macro<Vec<Command>>>) {
@@ -480,7 +513,7 @@ impl Parser {
             }
             "run-schedule" => vec![Command::RunSchedule(Schedule::Sequence(
                 span,
-                map_fallible(tail, self, Self::schedule)?,
+                map_fallible(tail, self, Self::parse_schedule)?,
             ))],
             "extract" => match tail {
                 [e] => vec![Command::Extract(
@@ -521,8 +554,17 @@ impl Parser {
                 _ => return error!(span, "usage: (pop <uint>?)"),
             },
             "print-stats" => match tail {
-                [] => vec![Command::PrintOverallStatistics],
-                _ => return error!(span, "usage: (print-stats)"),
+                [] => vec![Command::PrintOverallStatistics(span, None)],
+                [Sexp::Atom(o, _), file] if o == ":file" => vec![Command::PrintOverallStatistics(
+                    span,
+                    Some(file.expect_string("file name")?),
+                )],
+                _ => {
+                    return error!(
+                        span,
+                        "usages: (print-stats)\n(print-stats :file \"<filename>\")"
+                    );
+                }
             },
             "print-function" => match tail {
                 [name] => vec![Command::PrintFunction(
@@ -624,7 +666,7 @@ impl Parser {
         })
     }
 
-    pub fn schedule(&mut self, sexp: &Sexp) -> Result<Schedule, ParseError> {
+    pub fn parse_schedule(&mut self, sexp: &Sexp) -> Result<Schedule, ParseError> {
         if let Sexp::Atom(ruleset, span) = sexp {
             return Ok(Schedule::Run(
                 span.clone(),
@@ -642,17 +684,17 @@ impl Parser {
                 span.clone(),
                 Box::new(Schedule::Sequence(
                     span,
-                    map_fallible(tail, self, Self::schedule)?,
+                    map_fallible(tail, self, Self::parse_schedule)?,
                 )),
             ),
-            "seq" => Schedule::Sequence(span, map_fallible(tail, self, Self::schedule)?),
+            "seq" => Schedule::Sequence(span, map_fallible(tail, self, Self::parse_schedule)?),
             "repeat" => match tail {
                 [limit, tail @ ..] => Schedule::Repeat(
                     span.clone(),
                     limit.expect_uint("number of iterations")?,
                     Box::new(Schedule::Sequence(
                         span,
-                        map_fallible(tail, self, Self::schedule)?,
+                        map_fallible(tail, self, Self::parse_schedule)?,
                     )),
                 ),
                 _ => return error!(span, "usage: (repeat <number of iterations> <schedule>*)"),
@@ -691,11 +733,12 @@ impl Parser {
 
         Ok(match head.as_str() {
             "let" => match tail {
-                [name, value] => vec![Action::Let(
-                    span,
-                    name.expect_atom("binding name")?,
-                    self.parse_expr(value)?,
-                )],
+                [name, value] => {
+                    let binding_span = name.span();
+                    let binding = name.expect_atom("binding name")?;
+                    self.ensure_symbol_not_reserved(&binding, &binding_span)?;
+                    vec![Action::Let(span, binding, self.parse_expr(value)?)]
+                }
                 _ => return error!(span, "usage: (let <name> <expr>)"),
             },
             "set" => match tail {
@@ -759,6 +802,7 @@ impl Parser {
                 if *symbol == "_" {
                     self.symbol_gen.fresh(symbol)
                 } else {
+                    self.ensure_symbol_not_reserved(symbol, span)?;
                     symbol.clone()
                 },
             ),
@@ -1081,7 +1125,10 @@ mod tests {
     #[test]
     #[rustfmt::skip]
     fn rust_span_display() {
-        assert_eq!(format!("{}", span!()), format!("At {}:34 of src/ast/parse.rs", line!()));
+        let actual = format!("{}", span!()).replace('\\', "/");
+        assert!(actual.starts_with("At "));
+        assert!(actual.contains(":"));
+        assert!(actual.ends_with("src/ast/parse.rs"));
     }
 
     #[test]

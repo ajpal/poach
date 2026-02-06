@@ -279,6 +279,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf0a07a401f374238ab8e2f11a104d2851bf9ce711ec69804834de8af45c7af"
 
 [[package]]
+name = "console"
+version = "0.15.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "054ccb5b10f9f2cbf51eb355ca1d05c2d279ce1804688d0db74b4733a5aeafd8"
+dependencies = [
+ "encode_unicode",
+ "libc",
+ "once_cell",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "cpufeatures"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -445,12 +457,14 @@ dependencies = [
  "egglog-bridge",
  "egglog-core-relations",
  "egglog-numeric-id",
+ "egglog-reports",
  "egraph-serialize",
  "env_logger",
  "glob",
  "hashbrown 0.16.0",
  "im-rc",
  "indexmap",
+ "insta",
  "libtest-mimic",
  "log",
  "mimalloc",
@@ -461,6 +475,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_json_diff",
+ "testing_logger",
  "thiserror",
  "typetag",
  "walkdir",
@@ -493,6 +508,7 @@ dependencies = [
  "dyn-clone",
  "egglog-core-relations",
  "egglog-numeric-id",
+ "egglog-reports",
  "egglog-union-find",
  "env_logger",
  "hashbrown 0.16.0",
@@ -519,9 +535,11 @@ version = "1.0.0"
 dependencies = [
  "arc-swap",
  "codspeed-divan-compat",
+ "egglog-numeric-id",
  "rayon",
  "serde",
  "serde_json",
+ "smallvec",
  "typetag",
 ]
 
@@ -532,11 +550,13 @@ dependencies = [
  "anyhow",
  "bumpalo",
  "codspeed-divan-compat",
+ "crossbeam",
  "crossbeam-queue",
  "dashmap",
  "dyn-clone",
  "egglog-concurrency",
  "egglog-numeric-id",
+ "egglog-reports",
  "egglog-union-find",
  "fixedbitset",
  "hashbrown 0.16.0",
@@ -569,6 +589,19 @@ dependencies = [
  "serde",
  "serde_json",
  "typetag",
+]
+
+[[package]]
+name = "egglog-reports"
+version = "1.0.0"
+dependencies = [
+ "clap",
+ "hashbrown 0.16.0",
+ "indexmap",
+ "rustc-hash",
+ "serde",
+ "serde_json",
+ "web-time",
 ]
 
 [[package]]
@@ -611,6 +644,12 @@ name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
+
+[[package]]
+name = "encode_unicode"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "34aa73646ffb006b8f5147f3dc182bd4bcb190227ce861fc4a4844bf8e3cb2c0"
 
 [[package]]
 name = "env_filter"
@@ -801,6 +840,18 @@ dependencies = [
  "hashbrown 0.16.0",
  "serde",
  "serde_core",
+]
+
+[[package]]
+name = "insta"
+version = "1.45.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b76866be74d68b1595eb8060cb9191dca9c021db2316558e52ddc5d55d41b66c"
+dependencies = [
+ "console",
+ "once_cell",
+ "similar",
+ "tempfile",
 ]
 
 [[package]]
@@ -1433,6 +1484,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 
 [[package]]
+name = "similar"
+version = "2.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
+
+[[package]]
 name = "sized-chunks"
 version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1507,6 +1564,15 @@ checksum = "60b8cb979cb11c32ce1603f8137b22262a9d131aaa5c37b5678025f22b8becd0"
 dependencies = [
  "rustix",
  "windows-sys 0.60.2",
+]
+
+[[package]]
+name = "testing_logger"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d92b727cb45d33ae956f7f46b966b25f1bc712092aeef9dba5ac798fc89f720"
+dependencies = [
+ "log",
 ]
 
 [[package]]

@@ -574,15 +574,15 @@ fn poach(
                         .zip(all_sexps)
                         .filter(|(c, _)| {
                             match c {
-                                GenericCommand::Action(GenericAction::Let(_, _, _)) => true,
-                                GenericCommand::Extract(_, _, _) => true,
-                                GenericCommand::MultiExtract(_, _, _) => true,
+                                GenericCommand::Action(GenericAction::Let(..)) => true,
+                                egglog::ast::GenericCommand::Extract(..) => true,
+                                egglog::ast::GenericCommand::MultiExtract(..) => true,
                                 // TODO: Running rules on a deserialized egraph currently does not work
-                                // | GenericCommand::RunSchedule(_)
-                                GenericCommand::PrintOverallStatistics => true,
-                                GenericCommand::Check(_, _) => true,
-                                GenericCommand::PrintFunction(_, _, _, _, _) => true,
-                                GenericCommand::PrintSize(_, _) => true,
+                                // | egglog::ast::GenericCommand::RunSchedule(_)
+                                egglog::ast::GenericCommand::PrintOverallStatistics(..) => true,
+                                egglog::ast::GenericCommand::Check(..) => true,
+                                egglog::ast::GenericCommand::PrintFunction(..) => true,
+                                egglog::ast::GenericCommand::PrintSize(..) => true,
                                 _ => false,
                             }
                         })

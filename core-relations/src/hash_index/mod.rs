@@ -5,25 +5,25 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::numeric_id::{IdVec, NumericId, define_id};
-use egglog_concurrency::Notification;
+use crate::numeric_id::{define_id, IdVec, NumericId};
+use egglog_concurrency::{Notification, ReadOptimizedLock};
 use hashbrown::HashTable;
 use once_cell::sync::Lazy;
 use rayon::iter::ParallelIterator;
 use rustc_hash::FxHasher;
 use serde::{
-    Deserialize, Serialize, Serializer,
     ser::{SerializeMap, SerializeStruct},
+    Deserialize, Serialize, Serializer,
 };
 
 use crate::{
-    OffsetRange, Subset,
     common::{HashMap, IndexMap, ShardData, ShardId, Value},
     offsets::{RowId, SortedOffsetSlice, SubsetRef},
     parallel_heuristics::parallelize_index_construction,
-    pool::{Pooled, with_pool_set},
+    pool::{with_pool_set, Pooled},
     row_buffer::{RowBuffer, TaggedRowBuffer},
     table_spec::{ColumnId, Generation, Offset, TableVersion, WrappedTableRef},
+    OffsetRange, Subset,
 };
 
 #[cfg(test)]
@@ -136,6 +136,12 @@ impl SubsetTable {
             keys: RowBuffer::new(key_arity),
             hash: with_pool_set(|ps| ps.get()),
         }
+    }
+}
+
+impl Default for SubsetTable {
+    fn default() -> Self {
+        Self::new(0)
     }
 }
 
@@ -418,14 +424,14 @@ impl ColumnIndex {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 struct TupleIndexShard {
     table: SubsetTable,
     subsets: SubsetBuffer,
 }
 
 /// A mapping from keys to subsets of rows.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct TupleIndex {
     // NB: we could store RowBuffers inline and then have indexes reference
     // (u32, RowId) instead of RowId. Trades copying off for indirections.
@@ -610,6 +616,59 @@ fn hash_key(key: &[Value]) -> u64 {
     let mut hasher = FxHasher::default();
     key.hash(&mut hasher);
     hasher.finish()
+}
+
+/// A map from access patterns to indices.
+///
+/// Implemented as an read-optimized key-value arrays, which should be faster
+/// than concurrent hashmaps as long as # indices is smaller than say 64.
+///
+/// For simplicity we assume the index can be cloned cheaply, e.g., it's behind an [`Arc`].
+#[derive(Default)]
+pub struct IndexCatalog<K: Clone + std::hash::Hash + Eq, I: Clone> {
+    data: ReadOptimizedLock<Vec<(K, I)>>,
+}
+
+impl<K, I: Clone> IndexCatalog<K, I>
+where
+    K: Clone + std::hash::Hash + Eq,
+{
+    pub fn new() -> Self {
+        IndexCatalog {
+            data: ReadOptimizedLock::new(Vec::new()),
+        }
+    }
+
+    pub fn map(&self, f: impl Fn(&(K, I)) -> (K, I)) -> Self {
+        let vec = self.data.read().iter().map(f).collect();
+        IndexCatalog {
+            data: ReadOptimizedLock::new(vec),
+        }
+    }
+
+    pub fn update(&mut self, f: impl Fn(&K, &mut I)) {
+        for (k, i) in self.data.as_mut_ref() {
+            f(k, i)
+        }
+    }
+
+    pub fn get_or_insert(&self, k: K, init: impl FnOnce() -> I) -> I {
+        let data = self.data.read();
+        let entry = data.iter().find(|(k1, _)| k1 == &k);
+        if let Some(entry) = entry {
+            entry.1.clone()
+        } else {
+            drop(data);
+            let mut data = self.data.lock();
+            if let Some(entry) = data.iter().find(|(k1, _)| k1 == &k) {
+                entry.1.clone()
+            } else {
+                let index = init();
+                data.push((k, index.clone()));
+                index
+            }
+        }
+    }
 }
 
 define_id!(BufferIndex, u32, "an index into a subset buffer");
@@ -829,7 +888,11 @@ impl BufferedSubset {
 
 fn num_shards() -> usize {
     let n_threads = rayon::current_num_threads();
-    if n_threads == 1 { 1 } else { n_threads * 2 }
+    if n_threads == 1 {
+        1
+    } else {
+        n_threads * 2
+    }
 }
 
 /// A thread pool specifically for parallel hash index construction.

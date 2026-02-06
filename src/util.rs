@@ -1,9 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    ast::ResolvedVar,
-    core::{ResolvedCall, SpecializedPrimitive},
-};
+use crate::{ast::ResolvedVar, core::ResolvedCall};
 
 pub(crate) type BuildHasher = std::hash::BuildHasherDefault<rustc_hash::FxHasher>;
 pub(crate) type HashMap<K, V> = hashbrown::HashMap<K, V, BuildHasher>;
@@ -11,6 +8,9 @@ pub(crate) type HashSet<K> = hashbrown::HashSet<K, BuildHasher>;
 pub(crate) type HEntry<'a, A, B> = hashbrown::hash_map::Entry<'a, A, B, BuildHasher>;
 pub type IndexMap<K, V> = indexmap::IndexMap<K, V, BuildHasher>;
 pub type IndexSet<K> = indexmap::IndexSet<K, BuildHasher>;
+
+pub use egglog_ast::generic_ast_helpers::sanitize_internal_name;
+pub use egglog_ast::generic_ast_helpers::INTERNAL_SYMBOL_PREFIX;
 
 /// Generates fresh symbols for internal use during typechecking and flattening.
 /// These are guaranteed not to collide with the
@@ -31,6 +31,14 @@ impl SymbolGen {
 
     pub fn has_been_used(&self) -> bool {
         self.count > 0
+    }
+
+    pub fn reserved_prefix(&self) -> &str {
+        &self.reserved_string
+    }
+
+    pub fn is_reserved(&self, symbol: &str) -> bool {
+        !self.reserved_string.is_empty() && symbol.starts_with(&self.reserved_string)
     }
 }
 
@@ -59,7 +67,7 @@ impl FreshGen<ResolvedCall, ResolvedVar> for SymbolGen {
         self.count += 1;
         let sort = match name_hint {
             ResolvedCall::Func(f) => f.output.clone(),
-            ResolvedCall::Primitive(SpecializedPrimitive { output, .. }) => output.clone(),
+            ResolvedCall::Primitive(prim) => prim.output().clone(),
         };
         ResolvedVar {
             name,

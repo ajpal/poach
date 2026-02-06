@@ -14,6 +14,7 @@ pub use egglog::ast::{Action, Fact, Facts, GenericActions, RustSpan, Span};
 pub use egglog::sort::{BigIntSort, BigRatSort, BoolSort, F64Sort, I64Sort, StringSort, UnitSort};
 pub use egglog::{action, actions, datatype, expr, fact, facts, sort, vars};
 pub use egglog::{span, EGraph};
+pub use egglog::{CommandMacro, CommandMacroRegistry};
 
 pub mod exprs {
     use super::*;
@@ -660,7 +661,7 @@ pub trait BaseSort: Any + Send + Sync + Debug + Serialize {
     type Base: BaseValue;
     fn name(&self) -> &str;
     fn register_primitives(&self, _eg: &mut EGraph) {}
-    fn reconstruct_termdag(&self, _: &BaseValues, _: Value, _: &mut TermDag) -> Term;
+    fn reconstruct_termdag(&self, _: &BaseValues, _: Value, _: &mut TermDag) -> TermId;
 
     fn to_arcsort(self) -> ArcSort
     where
@@ -704,7 +705,7 @@ impl<T: BaseSort> Sort for BaseSortImpl<T> {
         base_values: &BaseValues,
         value: Value,
         termdag: &mut TermDag,
-    ) -> Term {
+    ) -> TermId {
         self.0.reconstruct_termdag(base_values, value, termdag)
     }
 }
@@ -727,8 +728,8 @@ pub trait ContainerSort: Any + Send + Sync + Debug + Serialize {
         _: &ContainerValues,
         _: Value,
         _: &mut TermDag,
-        _: Vec<Term>,
-    ) -> Term;
+        _: Vec<TermId>,
+    ) -> TermId;
     fn serialized_name(&self, container_values: &ContainerValues, value: Value) -> String;
 
     fn to_arcsort(self) -> ArcSort
@@ -796,8 +797,8 @@ impl<T: ContainerSort> Sort for ContainerSortImpl<T> {
         container_values: &ContainerValues,
         value: Value,
         termdag: &mut TermDag,
-        element_terms: Vec<Term>,
-    ) -> Term {
+        element_terms: Vec<TermId>,
+    ) -> TermId {
         self.0
             .reconstruct_termdag(container_values, value, termdag, element_terms)
     }

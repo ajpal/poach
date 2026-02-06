@@ -8,18 +8,18 @@ use std::{iter, sync::Arc};
 
 use crate::core_relations;
 use crate::core_relations::{
-    ColumnId, CounterId, ExecutionState, ExternalFunctionId, MergeVal, RuleBuilder, TableId, Value,
-    WriteVal, make_external_func,
+    make_external_func, ColumnId, CounterId, ExecutionState, ExternalFunctionId, MergeVal,
+    RuleBuilder, TableId, Value, WriteVal,
 };
-use crate::numeric_id::{DenseIdMap, IdVec, NumericId, define_id};
-use crate::{EGraph, NOT_SUBSUMED, ProofReason, QueryEntry, ReasonSpecId, Result, SchemaMath};
+use crate::numeric_id::{define_id, DenseIdMap, IdVec, NumericId};
+use crate::{EGraph, ProofReason, QueryEntry, ReasonSpecId, Result, SchemaMath, NOT_SUBSUMED};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
 use crate::{
-    ColumnTy, FunctionId, RuleId,
     proof_spec::ProofBuilder,
-    rule::{AtomId, Bindings, Variable},
+    rule::{AtomId, Bindings, VariableId},
+    ColumnTy, FunctionId, RuleId,
 };
 
 define_id!(pub SyntaxId, u32, "an offset into a Syntax DAG.");
@@ -40,7 +40,7 @@ pub enum SourceExpr {
     Const { ty: ColumnTy, val: Value },
     /// A single variable.
     Var {
-        id: Variable,
+        id: VariableId,
         ty: ColumnTy,
         name: String,
     },
@@ -48,7 +48,7 @@ pub enum SourceExpr {
     ExternalCall {
         /// This external function call must be present in the destination query, and bound to this
         /// variable
-        var: Variable,
+        var: VariableId,
         ty: ColumnTy,
         func: ExternalFunctionId,
         args: Vec<SyntaxId>,
@@ -70,7 +70,7 @@ pub enum SourceExpr {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SourceSyntax {
     pub(crate) backing: IdVec<SyntaxId, SourceExpr>,
-    pub(crate) vars: Vec<(Variable, ColumnTy)>,
+    pub(crate) vars: Vec<(VariableId, ColumnTy)>,
     pub(crate) roots: Vec<TopLevelLhsExpr>,
 }
 
@@ -205,9 +205,10 @@ impl ProofBuilder {
             ts_counter: egraph.timestamp_counter,
             reason_spec_id: egraph.cong_spec,
         };
-        let build_term = egraph.register_external_func(make_external_func(move |es, vals| {
-            cong_term(&cong_args, es, vals)
-        }));
+        let build_term =
+            egraph.register_external_func(Box::new(make_external_func(move |es, vals| {
+                cong_term(&cong_args, es, vals)
+            })));
         FunctionCongMetadata {
             table: func_underlying,
             build_term,
