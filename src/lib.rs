@@ -28,6 +28,7 @@ mod termdag;
 mod typechecking;
 pub mod util;
 pub use command_macro::{CommandMacro, CommandMacroRegistry};
+mod get_size_prim;
 
 // This is used to allow the `add_primitive` macro to work in
 // both this crate and other crates by referring to `::egglog`.
@@ -653,6 +654,9 @@ impl Default for EGraph {
 
         eg.rulesets
             .insert("".into(), Ruleset::Rules(Default::default()));
+
+        // support get-size! macro for Herbie
+        eg.add_primitive(get_size_prim::GetSizePrimitive);
 
         eg
     }
