@@ -29,14 +29,10 @@ mod typechecking;
 pub mod util;
 pub use command_macro::{CommandMacro, CommandMacroRegistry};
 
-<<<<<<< HEAD
-mod size;
-pub use size::*;
+pub mod get_size_prim;
 mod custom_schedulers;
 pub use custom_schedulers::*;
 
-=======
->>>>>>> parent of 9aec7fa6 (add get-size! macro)
 // This is used to allow the `add_primitive` macro to work in
 // both this crate and other crates by referring to `::egglog`.
 extern crate self as egglog;
@@ -366,14 +362,9 @@ impl Default for EGraph {
         eg.rulesets
             .insert("".into(), Ruleset::Rules(Default::default()));
 
-<<<<<<< HEAD
-        // Additional features ported from egglog-experimental.
-        eg.add_primitive(GetSizePrimitive);
-        eg.add_command("run-schedule".into(), Arc::new(RunExtendedSchedule))
-            .unwrap();
+        // support get-size! macro for Herbie
+        eg.add_primitive(get_size_prim::GetSizePrimitive);
 
-=======
->>>>>>> parent of 9aec7fa6 (add get-size! macro)
         eg
     }
 }
