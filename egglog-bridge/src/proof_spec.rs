@@ -4,18 +4,20 @@ use crate::core_relations::{
     BaseValuePrinter, ColumnId, DisplacedTableWithProvenance, ProofReason as UfProofReason,
     ProofStep, RuleBuilder, Value,
 };
-use crate::numeric_id::{DenseIdMap, NumericId, define_id};
+use crate::numeric_id::{define_id, DenseIdMap, NumericId};
+use crate::rule::Variable;
+use egglog_reports::ReportLevel;
 use hashbrown::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    ColumnTy, EGraph, FunctionId, GetFirstMatch, QueryEntry, Result, RuleId, SideChannel,
-    SourceExpr, TopLevelLhsExpr,
     proof_format::{
         CongProof, EqProof, EqProofId, Premise, ProofStore, Term, TermId, TermProof, TermProofId,
     },
-    rule::{AtomId, Bindings, DstVar, Variable},
+    rule::{AtomId, Bindings, DstVar, VariableId},
     syntax::{RuleData, SourceSyntax, SyntaxId},
+    ColumnTy, EGraph, FunctionId, GetFirstMatch, QueryEntry, Result, RuleId, SideChannel,
+    SourceExpr, TopLevelLhsExpr,
 };
 
 define_id!(pub(crate) ReasonSpecId, u32, "A unique identifier for the step in a proof.");
@@ -85,7 +87,7 @@ impl ProofBuilder {
         let term_counter = db.id_counter;
         let after = after.to_vec();
         move |inner, rb| {
-            let old_term = inner.mapping[vars.before_term];
+            let old_term = inner.mapping[vars.before_term.id];
             let reason_id = rb.lookup_or_insert(
                 reason_table,
                 &[Value::new(reason_spec_id.rep()).into(), old_term],
@@ -104,8 +106,8 @@ impl ProofBuilder {
                 &[term_counter.into(), reason_id.into()],
                 ColumnId::from_usize(entries.len()),
             )?;
-            inner.mapping.insert(vars.new_term, term_id.into());
-            inner.mapping.insert(vars.reason, reason_id.into());
+            inner.mapping.insert(vars.new_term.id, term_id.into());
+            inner.mapping.insert(vars.reason.id, reason_id.into());
             Ok(())
         }
     }
@@ -116,7 +118,7 @@ impl ProofBuilder {
         &mut self,
         func: FunctionId,
         entries: Vec<QueryEntry>,
-        term_var: Variable,
+        term_var: VariableId,
         db: &mut EGraph,
     ) -> impl Fn(&mut Bindings, &mut RuleBuilder) -> Result<()> + Clone + use<> {
         let func_table = db.funcs[func].table;
@@ -170,7 +172,7 @@ impl EGraph {
         &mut self,
         node: SyntaxId,
         syntax: &SourceSyntax,
-        subst: &DenseIdMap<Variable, Value>,
+        subst: &DenseIdMap<VariableId, Value>,
         memo: &mut DenseIdMap<SyntaxId, Value>,
     ) -> Value {
         if let Some(prev) = memo.get(node).copied() {
@@ -191,10 +193,18 @@ impl EGraph {
                     row_key.push(self.get_syntax_val(*arg, syntax, subst, memo));
                 }
                 let term_table = self.term_table(self.funcs[*func].table);
-                self.db
+                let Some(val) = self
+                    .db
                     .get_table(term_table)
-                    .get_row_column(&row_key, ColumnId::from_usize(args.len()))
-                    .expect("failed to find term for function call")
+                    .get_row_column(&row_key, ColumnId::from_usize(args.len() + 1))
+                else {
+                    panic!(
+                        "failed to find term for function call ({func:?} {:?}), memo={:?}, arg={node:?}",
+                        &row_key[1..],
+                        memo
+                    )
+                };
+                val
             }
         };
         memo.insert(node, res);
@@ -206,10 +216,10 @@ impl EGraph {
         RuleData { syntax, .. }: &RuleData,
         vars: &[Value],
         state: &mut ProofReconstructionState,
-    ) -> (DenseIdMap<Variable, TermId>, Vec<Premise>) {
+    ) -> (DenseIdMap<VariableId, TermId>, Vec<Premise>) {
         // First, reconstruct terms for all the relevant variables.
-        let mut subst_term = DenseIdMap::<Variable, TermId>::new();
-        let mut subst_val = DenseIdMap::<Variable, Value>::new();
+        let mut subst_term = DenseIdMap::<VariableId, TermId>::new();
+        let mut subst_val = DenseIdMap::<VariableId, Value>::new();
         for ((var, ty), term_id) in syntax.vars.iter().zip(vars) {
             subst_val.insert(*var, *term_id);
             let term = self.reconstruct_term(*term_id, *ty, state);
@@ -238,6 +248,7 @@ impl EGraph {
         term_id: Value,
         state: &mut ProofReconstructionState,
     ) -> TermProofId {
+        let term_id = self.canonicalize_term_id(term_id);
         if let Some(prev) = state.term_prf_memo.get(&(term_id, ColumnTy::Id)) {
             return *prev;
         }
@@ -286,12 +297,16 @@ impl EGraph {
         ty: ColumnTy,
         state: &mut ProofReconstructionState,
     ) -> TermId {
-        if let Some(cached) = state.term_memo.get(&(term_id, ty)) {
+        let key_id = match ty {
+            ColumnTy::Id => self.canonicalize_term_id(term_id),
+            ColumnTy::Base(_) => term_id,
+        };
+        if let Some(cached) = state.term_memo.get(&(key_id, ty)) {
             return *cached;
         }
         let res = match ty {
             ColumnTy::Id => {
-                let term_row = self.get_term_row(term_id);
+                let term_row = self.get_term_row(key_id);
                 let func = FunctionId::new(term_row[0].rep());
                 let info = &self.funcs[func];
                 // NB: this clone is needed because `get_term_row` borrows the whole egraph, though it
@@ -324,7 +339,7 @@ impl EGraph {
             }
         };
 
-        state.term_memo.insert((term_id, ty), res);
+        state.term_memo.insert((key_id, ty), res);
         res
     }
 
@@ -334,6 +349,8 @@ impl EGraph {
         r: Value,
         state: &mut ProofReconstructionState,
     ) -> EqProofId {
+        let l = self.canonicalize_term_id(l);
+        let r = self.canonicalize_term_id(r);
         if let Some(prev) = state.eq_memo.get(&(l, r)) {
             return *prev;
         }
@@ -465,6 +482,7 @@ impl EGraph {
     }
 
     fn get_term_row(&mut self, term_id: Value) -> Vec<Value> {
+        let term_id = self.canonicalize_term_id(term_id);
         let mut atom = Vec::<DstVar>::new();
         let mut cur = 0;
         loop {
@@ -475,7 +493,9 @@ impl EGraph {
             };
 
             let gfm_sc = SideChannel::default();
-            let gfm_id = self.db.add_external_function(GetFirstMatch(gfm_sc.clone()));
+            let gfm_id = self
+                .db
+                .add_external_function(Box::new(GetFirstMatch(gfm_sc.clone())));
             {
                 let mut rsb = self.db.new_rule_set();
                 let mut qb = rsb.new_rule();
@@ -490,7 +510,7 @@ impl EGraph {
                 rb.build();
                 let rs = rsb.build();
                 atom.clear();
-                self.db.run_rule_set(&rs);
+                self.db.run_rule_set(&rs, ReportLevel::TimeOnly);
             }
             self.db.free_external_function(gfm_id);
 
@@ -513,7 +533,9 @@ impl EGraph {
                 .unwrap_or_else(|| panic!("failed to find reason with id {reason_id:?}"));
 
             let gfm_sc = SideChannel::default();
-            let gfm_id = self.db.add_external_function(GetFirstMatch(gfm_sc.clone()));
+            let gfm_id = self
+                .db
+                .add_external_function(Box::new(GetFirstMatch(gfm_sc.clone())));
             {
                 let mut rsb = self.db.new_rule_set();
                 let mut qb = rsb.new_rule();
@@ -527,7 +549,7 @@ impl EGraph {
                 rb.build();
                 let rs = rsb.build();
                 atom.clear();
-                self.db.run_rule_set(&rs);
+                self.db.run_rule_set(&rs, ReportLevel::TimeOnly);
             }
             self.db.free_external_function(gfm_id);
 

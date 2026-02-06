@@ -29,7 +29,7 @@ function initializeCharts() {
             },
           },
         },
-      }
+      },
     );
   }
 
@@ -69,7 +69,7 @@ function initializeCharts() {
             },
           },
         },
-      }
+      },
     );
   }
 
@@ -120,7 +120,7 @@ function initializeCharts() {
             },
           },
         },
-      }
+      },
     );
   }
 
@@ -165,8 +165,47 @@ function initializeCharts() {
             },
           },
         },
-      }
+      },
     );
+  }
+
+  if (!!document.getElementById("mined-chart")) {
+    console.assert(GLOBAL_DATA.minedChart === null);
+
+    GLOBAL_DATA.minedChart = new Chart(document.getElementById("mined-chart"), {
+      type: "bar",
+      data: {},
+      options: {
+        responsive: true,
+        plugins: {
+          title: {
+            display: true,
+            text: "Easteregg Mined POACH",
+          },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => `${ctx.raw.toFixed(2)} ms`,
+            },
+          },
+        },
+        scales: {
+          x: {
+            stacked: false,
+            ticks: {
+              maxRotation: 90,
+              minRotation: 45,
+            },
+          },
+          y: {
+            stacked: false,
+            title: {
+              display: true,
+              text: "Time (ms)",
+            },
+          },
+        },
+      },
+    });
   }
 }
 
@@ -177,7 +216,7 @@ function plotTimeline() {
   console.assert(GLOBAL_DATA.runExtractChart !== null);
 
   const mode = document.querySelector(
-    'input[name="timelineMode"]:checked'
+    'input[name="timelineMode"]:checked',
   ).value;
 
   const datasets = Object.values(GLOBAL_DATA.data).map((suite) => ({
@@ -211,17 +250,17 @@ function plotSerialization() {
   const cmdTypes = [...CMDS, "other"];
 
   const suite = document.querySelector(
-    'input[name="suiteToggle"]:checked'
+    'input[name="suiteToggle"]:checked',
   ).value;
 
   const runMode = document.querySelector(
-    'input[name="runModeToggle"]:checked'
+    'input[name="runModeToggle"]:checked',
   ).value;
 
   console.assert(RUN_MODES.includes(runMode));
 
   const mode = document.querySelector(
-    'input[name="serializationMode"]:checked'
+    'input[name="serializationMode"]:checked',
   ).value;
   const benchmark = document.getElementById("tests").value;
 
@@ -243,18 +282,18 @@ function plotSerialization() {
             cmd,
             aggregate(
               GLOBAL_DATA.data[suite][runMode]?.[benchmark]?.[cmd],
-              "total"
+              "total",
             ),
-          ])
+          ]),
         ),
-      ]).filter((entry) => Object.values(entry[1]).some((v) => v !== 0))
+      ]).filter((entry) => Object.values(entry[1]).some((v) => v !== 0)),
     );
 
     if (mode === "percentage") {
       Object.keys(datasets).forEach((entry) => {
         const total = aggregate(
           cmdTypes.map((cmd) => datasets[entry][cmd]),
-          "total"
+          "total",
         );
         cmdTypes.forEach((cmd) => {
           datasets[entry][cmd] /= total;
@@ -282,16 +321,16 @@ function plotSerialization() {
           cmdTypes.map((cmd) => [
             cmd,
             aggregate(GLOBAL_DATA.data[suite][runMode][bench][cmd], "total"),
-          ])
+          ]),
         ),
-      ])
+      ]),
     );
 
     if (mode === "percentage") {
       Object.keys(datasets).forEach((entry) => {
         const total = aggregate(
           cmdTypes.map((cmd) => datasets[entry][cmd]),
-          "total"
+          "total",
         );
         cmdTypes.forEach((cmd) => {
           datasets[entry][cmd] /= total;

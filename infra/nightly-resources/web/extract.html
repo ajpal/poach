@@ -13,20 +13,24 @@
 <title>Extract</title>
 
 <body onload="initializeExtract()">
-  <h2>POACH vs Vanilla Egglog</h2>
-  <p>
-    Baseline: Start from an empty e-graph, run rules, extract
-    <br>
-    POACH: Deserialize e-graph, extract
-    <br>
-    Serialization time is not counted
-  </p>
+  <h1 id="before-load">Loading report data...</h1>
+  <h1 id="on-error">Something went wrong while loading the data. Check logs/console for error messages.</h1>
+  <div id="after-load">
+    <h2>POACH vs Vanilla Egglog</h2>
+    <p>
+      Baseline: Start from an empty e-graph, run rules, extract
+      <br>
+      POACH: Deserialize e-graph, extract
+      <br>
+      Serialization time is not counted
+    </p>
 
-  <div style="max-height: 800px;">
-    <canvas class="content" id="difference-chart"></canvas>
-  </div>
-  <div style="max-height: 800px;">
-    <canvas class="content" id="extract-chart"></canvas>
+    <div style="max-height: 800px;">
+      <canvas class="content" id="difference-chart"></canvas>
+    </div>
+    <div style="max-height: 800px;">
+      <canvas class="content" id="extract-chart"></canvas>
+    </div>
   </div>
 </body>
 

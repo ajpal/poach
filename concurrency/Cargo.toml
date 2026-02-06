@@ -14,6 +14,8 @@ rayon = { workspace = true}
 serde = { workspace = true }
 typetag = { workspace = true }
 serde_json = { workspace = true }
+egglog-numeric-id = { workspace = true }
+smallvec = { workspace = true }
 
 [dev-dependencies]
 divan = { workspace = true}

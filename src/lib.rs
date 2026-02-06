@@ -4,16 +4,18 @@
 //! egglog is faster and more general than egg.
 //!
 //! # Documentation
-//! Documentation for the egglog language can be found
-//! here: [`Command`]
+//! Documentation for the egglog language can be found here: [`Command`].
 //!
 //! # Tutorial
-//! [Here](https://www.youtube.com/watch?v=N2RDQGRBrSY) is the video tutorial on what egglog is and how to use it.
-//! We plan to have a text tutorial here soon, PRs welcome!
+//! We have a [text tutorial](https://egraphs-good.github.io/egglog-tutorial/01-basics.html) on egglog and how to use it.
+//! We also have a slightly outdated [video tutorial](https://www.youtube.com/watch?v=N2RDQGRBrSY).
+//!
+//!
 //!
 pub mod ast;
 #[cfg(feature = "bin")]
 mod cli;
+mod command_macro;
 pub mod constraint;
 mod core;
 pub mod extract;
@@ -21,19 +23,23 @@ pub mod prelude;
 pub mod scheduler;
 mod serialize_vis;
 pub mod sort;
+mod term_encoding;
 mod termdag;
 mod typechecking;
 pub mod util;
+pub use command_macro::{CommandMacro, CommandMacroRegistry};
 
 // This is used to allow the `add_primitive` macro to work in
 // both this crate and other crates by referring to `::egglog`.
 extern crate self as egglog;
 use anyhow::{Context, Result};
 use ast::*;
+pub use ast::{ResolvedExpr, ResolvedFact, ResolvedVar};
 #[cfg(feature = "bin")]
 pub use cli::*;
 use constraint::{Constraint, Problem, SimpleTypeConstraint, TypeConstraint};
-use core::{AtomTerm, ResolvedAtomTerm, ResolvedCall};
+pub use core::{Atom, AtomTerm, ResolvedCall};
+use core::{CoreActionContext, ResolvedAtomTerm};
 use core_relations::{make_external_func, ExternalFunctionId};
 pub use core_relations::{BaseValue, ContainerValue, ExecutionState, Value};
 use csv::Writer;
@@ -42,9 +48,10 @@ use egglog_ast::generic_ast::{Change, GenericExpr, Literal};
 use egglog_ast::span::Span;
 use egglog_ast::util::ListDisplay;
 pub use egglog_bridge::FunctionRow;
-use egglog_bridge::{ColumnTy, IterationReport, QueryEntry};
+use egglog_bridge::{ColumnTy, QueryEntry};
 use egglog_core_relations as core_relations;
 use egglog_numeric_id as numeric_id;
+use egglog_reports::{ReportLevel, RunReport};
 use extract::{CostModel, DefaultCost, Extractor, TreeAdditiveCostModel};
 use indexmap::map::Entry;
 use log::{log_enabled, Level};
@@ -58,7 +65,7 @@ pub use serialize_vis::{SerializeConfig, SerializeOutput, SerializedNode};
 use sort::*;
 use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
-use std::fs::{self, File};
+use std::fs::{self, read_to_string, File};
 use std::hash::Hash;
 use std::io::{BufReader, BufWriter, Read, Write as _};
 use std::iter::once;
@@ -69,11 +76,15 @@ use std::sync::Arc;
 pub use termdag::{Term, TermDag, TermId};
 use thiserror::Error;
 pub use typechecking::TypeError;
-use typechecking::TypeInfo;
+pub use typechecking::TypeInfo;
 use util::*;
-use web_time::Duration;
 
+use crate::ast::desugar::desugar_command;
 use crate::core::{GenericActionsExt, ResolvedRuleExt};
+pub use crate::term_encoding::file_supports_proofs;
+use crate::term_encoding::{command_supports_proof_encoding, EncodingState, TermState};
+
+pub const GLOBAL_NAME_PREFIX: &str = "$";
 
 pub type ArcSort = Arc<dyn Sort>;
 
@@ -345,145 +356,28 @@ pub trait Primitive {
     fn apply(&self, exec_state: &mut ExecutionState, args: &[Value]) -> Option<Value>;
 }
 
-/// Running a schedule produces a report of the results.
-/// This includes rough timing information and whether
-/// the database was updated.
-/// Calling `union` on two run reports adds the timing
-/// information together.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct RunReport {
-    /// If any changes were made to the database.
-    pub updated: bool,
-    pub search_and_apply_time_per_rule: HashMap<String, Duration>,
-    pub num_matches_per_rule: HashMap<String, usize>,
-    pub search_and_apply_time_per_ruleset: HashMap<String, Duration>,
-    pub merge_time_per_ruleset: HashMap<String, Duration>,
-    pub rebuild_time_per_ruleset: HashMap<String, Duration>,
-}
-
-impl RunReport {
-    /// add a ... and a maximum size to the name
-    /// for printing, since they may be the rule itself
-    fn truncate_rule_name(mut s: String) -> String {
-        // replace newlines in s with a space
-        s = s.replace('\n', " ");
-        if s.len() > 80 {
-            s.truncate(80);
-            s.push_str("...");
-        }
-        s
-    }
-}
-
-impl Display for RunReport {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let mut rule_times_vec: Vec<_> = self.search_and_apply_time_per_rule.iter().collect();
-        rule_times_vec.sort_by_key(|(_, time)| **time);
-
-        for (rule, time) in rule_times_vec {
-            let name = Self::truncate_rule_name(rule.clone());
-            let time = time.as_secs_f64();
-            let num_matches = self.num_matches_per_rule.get(rule).copied().unwrap_or(0);
-            writeln!(
-                f,
-                "Rule {name}: search and apply {time:.3}s, num matches {num_matches}",
-            )?;
-        }
-
-        let rulesets = self
-            .search_and_apply_time_per_ruleset
-            .keys()
-            .chain(self.merge_time_per_ruleset.keys())
-            .chain(self.rebuild_time_per_ruleset.keys())
-            .collect::<IndexSet<_>>();
-
-        for ruleset in rulesets {
-            // print out the search and apply time for rule
-            let search_and_apply_time = self
-                .search_and_apply_time_per_ruleset
-                .get(ruleset)
-                .cloned()
-                .unwrap_or(Duration::ZERO)
-                .as_secs_f64();
-            let merge_time = self
-                .merge_time_per_ruleset
-                .get(ruleset)
-                .cloned()
-                .unwrap_or(Duration::ZERO)
-                .as_secs_f64();
-            let rebuild_time = self
-                .rebuild_time_per_ruleset
-                .get(ruleset)
-                .cloned()
-                .unwrap_or(Duration::ZERO)
-                .as_secs_f64();
-            writeln!(
-                f,
-                "Ruleset {ruleset}: search {search_and_apply_time:.3}s, merge {merge_time:.3}s, rebuild {rebuild_time:.3}s",
-            )?;
-        }
-
-        Ok(())
-    }
-}
-
-impl RunReport {
-    fn union_times(times: &mut HashMap<String, Duration>, other_times: HashMap<String, Duration>) {
-        for (k, v) in other_times {
-            *times.entry(k).or_default() += v;
-        }
-    }
-
-    fn union_counts(counts: &mut HashMap<String, usize>, other_counts: HashMap<String, usize>) {
-        for (k, v) in other_counts {
-            *counts.entry(k).or_default() += v;
-        }
-    }
-
-    /// Merge two reports.
-    pub fn union(&mut self, other: Self) {
-        self.updated |= other.updated;
-        RunReport::union_times(
-            &mut self.search_and_apply_time_per_rule,
-            other.search_and_apply_time_per_rule,
-        );
-        RunReport::union_counts(&mut self.num_matches_per_rule, other.num_matches_per_rule);
-        RunReport::union_times(
-            &mut self.search_and_apply_time_per_ruleset,
-            other.search_and_apply_time_per_ruleset,
-        );
-        RunReport::union_times(
-            &mut self.merge_time_per_ruleset,
-            other.merge_time_per_ruleset,
-        );
-        RunReport::union_times(
-            &mut self.rebuild_time_per_ruleset,
-            other.rebuild_time_per_ruleset,
-        );
-    }
-}
-
 /// A user-defined command output trait.
 pub trait UserDefinedCommandOutput: Debug + std::fmt::Display + Send + Sync {}
 impl<T> UserDefinedCommandOutput for T where T: Debug + std::fmt::Display + Send + Sync {}
 
 /// Output from a command.
 #[derive(Clone, Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum CommandOutput {
     /// The size of a function
     PrintFunctionSize(usize),
     /// The name of all functions and their sizes
     PrintAllFunctionsSize(Vec<(String, usize)>),
     /// The best function found after extracting
-    ExtractBest(TermDag, DefaultCost, Term),
+    ExtractBest(TermDag, DefaultCost, TermId),
     /// The variants of a function found after extracting
-    ExtractVariants(TermDag, Vec<Term>),
+    ExtractVariants(TermDag, Vec<TermId>),
     /// The variants of multiple functions found after extracting
-    MultiExtractVariants(TermDag, Vec<Vec<Term>>),
+    MultiExtractVariants(TermDag, Vec<Vec<TermId>>),
     /// The report from all runs
     OverallStatistics(RunReport),
     /// A printed function and all its values
-    PrintFunction(Function, TermDag, Vec<(Term, Term)>, PrintFunctionMode),
+    PrintFunction(Function, TermDag, Vec<(TermId, TermId)>, PrintFunctionMode),
     /// The report from a single run
     RunSchedule(RunReport),
     /// A user defined output
@@ -502,12 +396,12 @@ impl std::fmt::Display for CommandOutput {
                 Ok(())
             }
             CommandOutput::ExtractBest(termdag, _cost, term) => {
-                writeln!(f, "{}", termdag.to_string(term))
+                writeln!(f, "{}", termdag.to_string(*term))
             }
             CommandOutput::ExtractVariants(termdag, terms) => {
                 writeln!(f, "(")?;
                 for expr in terms {
-                    writeln!(f, "   {}", termdag.to_string(expr))?;
+                    writeln!(f, "   {}", termdag.to_string(*expr))?;
                 }
                 writeln!(f, ")")
             }
@@ -516,7 +410,7 @@ impl std::fmt::Display for CommandOutput {
                 for variants in terms {
                     writeln!(f, "   (")?;
                     for expr in variants {
-                        writeln!(f, "      {}", termdag.to_string(expr))?;
+                        writeln!(f, "      {}", termdag.to_string(*expr))?;
                     }
                     writeln!(f, "   )")?;
                 }
@@ -530,15 +424,15 @@ impl std::fmt::Display for CommandOutput {
                 if *mode == PrintFunctionMode::CSV {
                     let mut wtr = Writer::from_writer(vec![]);
                     for (term, output) in terms_and_outputs {
-                        match term {
+                        match termdag.get(*term) {
                             Term::App(name, children) => {
                                 let mut values = vec![name.clone()];
                                 for child_id in children {
-                                    values.push(termdag.to_string(termdag.get(*child_id)));
+                                    values.push(termdag.to_string(*child_id));
                                 }
 
                                 if !out_is_unit {
-                                    values.push(termdag.to_string(output));
+                                    values.push(termdag.to_string(*output));
                                 }
                                 wtr.write_record(&values).map_err(|_| std::fmt::Error)?;
                             }
@@ -550,9 +444,9 @@ impl std::fmt::Display for CommandOutput {
                 } else {
                     writeln!(f, "(")?;
                     for (term, output) in terms_and_outputs.iter() {
-                        write!(f, "   {}", termdag.to_string(term))?;
+                        write!(f, "   {}", termdag.to_string(*term))?;
                         if !out_is_unit {
-                            write!(f, " -> {}", termdag.to_string(output))?;
+                            write!(f, " -> {}", termdag.to_string(*output))?;
                         }
                         writeln!(f)?;
                     }
@@ -604,6 +498,11 @@ pub struct EGraph {
     schedulers: DenseIdMap<SchedulerId, SchedulerRecord>,
 
     commands: IndexMap<String, Arc<dyn UserDefinedCommand>>,
+    strict_mode: bool,
+    warned_about_missing_global_prefix: bool,
+    /// Registry for command-level macros
+    command_macros: CommandMacroRegistry,
+    proof_state: EncodingState,
 }
 
 /// A user-defined command allows users to inject custom command that can be called
@@ -689,6 +588,10 @@ impl Default for EGraph {
             type_info: Default::default(),
             schedulers: Default::default(),
             commands: Default::default(),
+            strict_mode: false,
+            warned_about_missing_global_prefix: false,
+            command_macros: Default::default(),
+            proof_state: Default::default(),
         };
 
         add_base_sort(&mut eg, UnitSort, span!()).unwrap();
@@ -729,7 +632,48 @@ impl Default for EGraph {
 pub struct NotFoundError(String);
 
 impl EGraph {
+    /// Create a new e-graph with the term-encoding pipeline enabled.
+    ///
+    /// In term-encoding mode the e-graph eagerly instruments every constructor
+    /// and function with auxiliary term tables, view tables, and per-sort
+    /// union-finds so that canonical representatives and their justifications are
+    /// materialized explicitly.  This makes it possible to record and emit
+    /// equality proofs while preserving the observable behaviour of supported
+    /// commands.
+    pub fn new_with_term_encoding() -> Self {
+        let mut egraph = EGraph::default();
+        egraph.proof_state.original_typechecking = Some(Box::new(egraph.clone()));
+        egraph
+    }
+
+    /// Enable the term-encoding pipeline on an existing `EGraph`.
+    ///
+    /// This is primarily a convenience for builder-style APIs that start with
+    /// `EGraph::default()` before deciding whether term encoding is required.  The
+    /// e-graph must still be empty when this is invoked; enabling term encoding
+    /// after commands have been added is unsupported and will lead to panics when
+    /// encoding is attempted.
+    pub fn with_term_encoding_enabled(mut self) -> Self {
+        self.proof_state.original_typechecking = Some(Box::new(self.clone()));
+        self
+    }
+
     /// Add a user-defined command to the e-graph
+    /// Get the type information for this e-graph
+    pub fn type_info(&mut self) -> &mut TypeInfo {
+        &mut self.type_info
+    }
+
+    /// Get read-only access to the command macro registry
+    pub fn command_macros(&self) -> &CommandMacroRegistry {
+        &self.command_macros
+    }
+
+    /// Get mutable access to the command macro registry
+    pub fn command_macros_mut(&mut self) -> &mut CommandMacroRegistry {
+        &mut self.command_macros
+    }
+
     pub fn add_command(
         &mut self,
         name: String,
@@ -743,6 +687,55 @@ impl EGraph {
         }
         self.commands.insert(name.clone(), command);
         self.parser.add_user_defined(name)?;
+        Ok(())
+    }
+
+    /// Configure whether globals missing the required `$` prefix are treated as errors.
+    pub fn set_strict_mode(&mut self, strict_mode: bool) {
+        self.strict_mode = strict_mode;
+    }
+
+    /// Returns `true` when missing `$` prefixes on globals are treated as errors.
+    pub fn strict_mode(&self) -> bool {
+        self.strict_mode
+    }
+
+    fn ensure_global_name_prefix(&mut self, span: &Span, name: &str) -> Result<(), TypeError> {
+        if name.starts_with(GLOBAL_NAME_PREFIX) {
+            return Ok(());
+        }
+        if self.strict_mode {
+            Err(TypeError::GlobalMissingPrefix {
+                name: name.to_owned(),
+                span: span.clone(),
+            })
+        } else {
+            self.warn_missing_global_prefix(span, name)?;
+            Ok(())
+        }
+    }
+
+    fn warn_missing_global_prefix(
+        &mut self,
+        span: &Span,
+        canonical_name: &str,
+    ) -> Result<(), TypeError> {
+        if self.strict_mode {
+            return Err(TypeError::NonGlobalPrefixed {
+                name: format!("{}{}", GLOBAL_NAME_PREFIX, canonical_name),
+                span: span.clone(),
+            });
+        }
+        if self.warned_about_missing_global_prefix {
+            return Ok(());
+        }
+        self.warned_about_missing_global_prefix = true;
+        log::warn!(
+            "{}\nGlobal `{}` should start with `{}`. Enable `--strict-mode` to turn this warning into an error. Suppressing additional warnings of this type.",
+            span,
+            canonical_name,
+            GLOBAL_NAME_PREFIX
+        );
         Ok(())
     }
 
@@ -804,7 +797,7 @@ impl EGraph {
                     .map(|arg| self.translate_expr_to_mergefn(arg))
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(egglog_bridge::MergeFn::Primitive(
-                    p.primitive.id,
+                    p.external_id(),
                     translated_args,
                 ))
             }
@@ -885,7 +878,7 @@ impl EGraph {
         sym: &str,
         n: usize,
         include_output: bool,
-    ) -> Result<(Vec<Term>, Option<Vec<Term>>, TermDag), Error> {
+    ) -> Result<(Vec<TermId>, Option<Vec<TermId>>, TermDag), Error> {
         let func = self
             .functions
             .get(sym)
@@ -901,8 +894,8 @@ impl EGraph {
         );
 
         let mut termdag = TermDag::default();
-        let mut inputs: Vec<Term> = Vec::new();
-        let mut output: Option<Vec<Term>> = if include_output {
+        let mut inputs: Vec<TermId> = Vec::new();
+        let mut output: Option<Vec<TermId>> = if include_output {
             Some(Vec::new())
         } else {
             None
@@ -911,7 +904,7 @@ impl EGraph {
         let extract_row = |row: egglog_bridge::FunctionRow| {
             if inputs.len() < n {
                 // include subsumed rows
-                let mut children: Vec<Term> = Vec::new();
+                let mut children: Vec<TermId> = Vec::new();
                 for (value, sort) in row.vals.iter().zip(&func.schema.input) {
                     let (_, term) = extractor
                         .extract_best_with_sort(self, &mut termdag, *value, sort.clone())
@@ -979,7 +972,7 @@ impl EGraph {
 
     /// Print the size of a function. If no function name is provided,
     /// print the size of all functions in "name: len" pairs.
-    pub fn print_size(&mut self, sym: Option<&str>) -> Result<CommandOutput, Error> {
+    pub fn print_size(&self, sym: Option<&str>) -> Result<CommandOutput, Error> {
         if let Some(sym) = sym {
             let f = self
                 .functions
@@ -1045,25 +1038,25 @@ impl EGraph {
         }
     }
 
-    /// Extract a value to a [`TermDag`] and [`Term`] in the [`TermDag`] using the default cost model.
+    /// Extract a value to a [`TermDag`] and [`TermId`] in the [`TermDag`] using the default cost model.
     /// See also [`EGraph::extract_value_with_cost_model`] for more control.
     pub fn extract_value(
         &self,
         sort: &ArcSort,
         value: Value,
-    ) -> Result<(TermDag, Term, DefaultCost), Error> {
+    ) -> Result<(TermDag, TermId, DefaultCost), Error> {
         self.extract_value_with_cost_model(sort, value, TreeAdditiveCostModel::default())
     }
 
-    /// Extract a value to a [`TermDag`] and [`Term`] in the [`TermDag`].
-    /// Note that the `TermDag` may contain a superset of the nodes in the `Term`.
+    /// Extract a value to a [`TermDag`] and [`TermId`] in the [`TermDag`].
+    /// Note that the `TermDag` may contain a superset of the nodes referenced by the returned `TermId`.
     /// See also [`EGraph::extract_value_to_string`] for convenience.
     pub fn extract_value_with_cost_model<CM: CostModel<DefaultCost> + 'static>(
         &self,
         sort: &ArcSort,
         value: Value,
         cost_model: CM,
-    ) -> Result<(TermDag, Term, DefaultCost), Error> {
+    ) -> Result<(TermDag, TermId, DefaultCost), Error> {
         let extractor =
             Extractor::compute_costs_from_rootsorts(Some(vec![sort.clone()]), self, cost_model);
         let mut termdag = TermDag::default();
@@ -1079,10 +1072,11 @@ impl EGraph {
         value: Value,
     ) -> Result<(String, DefaultCost), Error> {
         let (termdag, term, cost) = self.extract_value(sort, value)?;
-        Ok((termdag.to_string(&term), cost))
+        Ok((termdag.to_string(term), cost))
     }
 
     fn run_rules(&mut self, span: &Span, config: &ResolvedRunConfig) -> Result<RunReport, Error> {
+        log::debug!("Running ruleset: {}", config.ruleset);
         let mut report: RunReport = Default::default();
 
         let GenericRunConfig { ruleset, until } = config;
@@ -1135,43 +1129,23 @@ impl EGraph {
 
         let mut rule_ids = Vec::new();
         collect_rule_ids(ruleset, &self.rulesets, &mut rule_ids);
+
         let iteration_report = self
             .backend
             .run_rules(&rule_ids)
             .map_err(|e| Error::BackendError(e.to_string()))?;
-        let IterationReport {
-            changed: updated,
-            rule_reports,
-            search_and_apply_time,
-            merge_time,
-            rebuild_time,
-        } = iteration_report;
 
-        let (search_and_apply_time_per_rule, num_matches_per_rule) = rule_reports
-            .into_iter()
-            .map(|(rule, report)| {
-                (
-                    (rule.as_str().into(), report.search_and_apply_time),
-                    (rule.as_str().into(), report.num_matches),
-                )
-            })
-            .unzip();
-
-        let per_ruleset = |x| [(ruleset.to_owned(), x)].into_iter().collect();
-
-        Ok(RunReport {
-            updated,
-            search_and_apply_time_per_rule,
-            num_matches_per_rule,
-            search_and_apply_time_per_ruleset: per_ruleset(search_and_apply_time),
-            merge_time_per_ruleset: per_ruleset(merge_time),
-            rebuild_time_per_ruleset: per_ruleset(rebuild_time),
-        })
+        Ok(RunReport::singleton(ruleset, iteration_report))
     }
 
     fn add_rule(&mut self, rule: ast::ResolvedRule) -> Result<String, Error> {
-        let core_rule =
-            rule.to_canonicalized_core_rule(&self.type_info, &mut self.parser.symbol_gen)?;
+        // Disable union_to_set optimization in proof or term encoding mode, since
+        // it expects only `union` on constructors (not set).
+        let core_rule = rule.to_canonicalized_core_rule(
+            &self.type_info,
+            &mut self.parser.symbol_gen,
+            self.proof_state.original_typechecking.is_none(),
+        )?;
         let (query, actions) = (&core_rule.body, &core_rule.head);
 
         let rule_id = {
@@ -1205,11 +1179,14 @@ impl EGraph {
     }
 
     fn eval_actions(&mut self, actions: &ResolvedActions) -> Result<(), Error> {
-        let (actions, _) = actions.to_core_actions(
+        let mut binding = IndexSet::default();
+        let mut ctx = CoreActionContext::new(
             &self.type_info,
-            &mut Default::default(),
+            &mut binding,
             &mut self.parser.symbol_gen,
-        )?;
+            self.proof_state.original_typechecking.is_none(),
+        );
+        let (actions, _) = actions.to_core_actions(&mut ctx)?;
 
         let mut translator = BackendRule::new(
             self.backend.new_rule("eval_actions", false),
@@ -1231,7 +1208,7 @@ impl EGraph {
     pub fn eval_expr(&mut self, expr: &Expr) -> Result<(ArcSort, Value), Error> {
         let span = expr.span();
         let command = Command::Action(Action::Expr(span.clone(), expr.clone()));
-        let resolved_commands = self.process_command(command)?;
+        let resolved_commands = self.resolve_command(command)?;
         assert_eq!(resolved_commands.len(), 1);
         let resolved_command = resolved_commands.into_iter().next().unwrap();
         let resolved_expr = match resolved_command {
@@ -1251,11 +1228,11 @@ impl EGraph {
         let result_ref = result.clone();
         let ext_id = self
             .backend
-            .register_external_func(make_external_func(move |_es, vals| {
+            .register_external_func(Box::new(make_external_func(move |_es, vals| {
                 debug_assert!(vals.len() == 1);
                 *result_ref.lock().unwrap() = Some(vals[0]);
                 Some(unit_val)
-            }));
+            })));
 
         let mut translator = BackendRule::new(
             self.backend.new_rule("eval_resolved_expr", false),
@@ -1273,13 +1250,14 @@ impl EGraph {
             result_var.clone(),
             expr.clone(),
         ));
-        let actions = actions
-            .to_core_actions(
-                &self.type_info,
-                &mut Default::default(),
-                &mut self.parser.symbol_gen,
-            )?
-            .0;
+        let mut binding = IndexSet::default();
+        let mut ctx = CoreActionContext::new(
+            &self.type_info,
+            &mut binding,
+            &mut self.parser.symbol_gen,
+            self.proof_state.original_typechecking.is_none(),
+        );
+        let actions = actions.to_core_actions(&mut ctx)?.0;
         translator.actions(&actions)?;
 
         let arg = translator.entry(&ResolvedAtomTerm::Var(span.clone(), result_var));
@@ -1326,18 +1304,21 @@ impl EGraph {
             name: fresh_name.clone(),
             ruleset: fresh_ruleset.clone(),
         };
-        let core_rule =
-            rule.to_canonicalized_core_rule(&self.type_info, &mut self.parser.symbol_gen)?;
+        let core_rule = rule.to_canonicalized_core_rule(
+            &self.type_info,
+            &mut self.parser.symbol_gen,
+            self.proof_state.original_typechecking.is_none(),
+        )?;
         let query = core_rule.body;
 
         let ext_sc = egglog_bridge::SideChannel::default();
         let ext_sc_ref = ext_sc.clone();
         let ext_id = self
             .backend
-            .register_external_func(make_external_func(move |_, _| {
+            .register_external_func(Box::new(make_external_func(move |_, _| {
                 *ext_sc_ref.lock().unwrap() = Some(());
                 Some(Value::new_const(0))
-            }));
+            })));
 
         let mut translator = BackendRule::new(
             self.backend.new_rule("check_facts", false),
@@ -1402,12 +1383,22 @@ impl EGraph {
                 self.overall_run_report.union(report.clone());
                 return Ok(Some(CommandOutput::RunSchedule(report)));
             }
-            ResolvedNCommand::PrintOverallStatistics => {
-                log::info!("Overall statistics:\n{}", self.overall_run_report);
-                return Ok(Some(CommandOutput::OverallStatistics(
-                    self.overall_run_report.clone(),
-                )));
-            }
+            ResolvedNCommand::PrintOverallStatistics(span, file) => match file {
+                None => {
+                    log::info!("Printed overall statistics");
+                    return Ok(Some(CommandOutput::OverallStatistics(
+                        self.overall_run_report.clone(),
+                    )));
+                }
+                Some(path) => {
+                    let mut file = std::fs::File::create(&path)
+                        .map_err(|e| Error::IoError(path.clone().into(), e, span.clone()))?;
+                    log::info!("Printed overall statistics to json file {}", path);
+
+                    serde_json::to_writer(&mut file, &self.overall_run_report)
+                        .expect("error serializing to json");
+                }
+            },
             ResolvedNCommand::Check(span, facts) => {
                 self.check_facts(&span, &facts)?;
                 log::info!("Checked fact {:?}.", facts);
@@ -1438,7 +1429,7 @@ impl EGraph {
                     if let Some((cost, term)) = extractor.extract_best(self, &mut termdag, x) {
                         // dont turn termdag into a string if we have messages disabled for performance reasons
                         if log_enabled!(Level::Info) {
-                            log::info!("extracted with cost {cost}: {}", termdag.to_string(&term));
+                            log::info!("extracted with cost {cost}: {}", termdag.to_string(term));
                         }
                         Ok(Some(CommandOutput::ExtractBest(termdag, cost, term)))
                     } else {
@@ -1451,10 +1442,10 @@ impl EGraph {
                     if n < 0 {
                         panic!("Cannot extract negative number of variants");
                     }
-                    let terms: Vec<Term> = extractor
+                    let terms: Vec<TermId> = extractor
                         .extract_variants(self, &mut termdag, x, n as usize)
                         .iter()
-                        .map(|e| e.1.clone())
+                        .map(|e| e.1)
                         .collect();
                     if log_enabled!(Level::Info) {
                         let expr_str = expr.to_string();
@@ -1591,7 +1582,7 @@ impl EGraph {
                         .extract_best_with_sort(self, &mut termdag, value, expr_type)
                         .unwrap()
                         .1;
-                    writeln!(f, "{}", termdag.to_string(&term))
+                    writeln!(f, "{}", termdag.to_string(term))
                         .map_err(|e| Error::IoError(filename.clone(), e, span.clone()))?;
                 }
 
@@ -1726,61 +1717,130 @@ impl EGraph {
         Ok(())
     }
 
-    pub(crate) fn process_command(
-        &mut self,
-        command: Command,
-    ) -> Result<Vec<ResolvedNCommand>, Error> {
-        let mut program = self.resolve_command(command)?;
+    /// Desugars, typechecks, and removes globals from a single [`Command`].
+    /// Leverages previous type information in the [`EGraph`] to do so, adding new type information.
+    fn resolve_command(&mut self, command: Command) -> Result<Vec<ResolvedNCommand>, Error> {
+        let desugared = desugar_command(command, &mut self.parser)?;
 
-        program = remove_globals::remove_globals(program, &mut self.parser.symbol_gen);
-        for command in &program {
-            self.names.check_shadowing(command)?;
+        // Add term encoding when it is enabled
+        if let Some(original_typechecking) = self.proof_state.original_typechecking.as_mut() {
+            // Typecheck using the original egraph
+            // TODO this is ugly- we don't need an entire e-graph just for type information.
+            let mut typechecked = original_typechecking.typecheck_program(&desugared)?;
+
+            typechecked =
+                proof_global_remover::remove_globals(typechecked, &mut self.parser.symbol_gen);
+            for command in &typechecked {
+                self.names.check_shadowing(command)?;
+
+                if !command_supports_proof_encoding(&command.to_command()) {
+                    let command_text = format!("{}", command.to_command());
+                    return Err(Error::UnsupportedProofCommand {
+                        command: command_text,
+                    });
+                }
+            }
+
+            let term_encoding_added = TermState::add_term_encoding(self, typechecked);
+            let mut new_typechecked = vec![];
+            for new_cmd in term_encoding_added {
+                let desugared = desugar_command(new_cmd, &mut self.parser)?;
+
+                // Now typecheck using self, adding term type information.
+                let desugared_typechecked = self.typecheck_program(&desugared)?;
+                // remove globals again, but this time allow primitive globals
+                let desugared_typechecked = remove_globals::remove_globals(
+                    desugared_typechecked,
+                    &mut self.parser.symbol_gen,
+                );
+
+                new_typechecked.extend(desugared_typechecked);
+            }
+            Ok(new_typechecked)
+        } else {
+            let mut typechecked = self.typecheck_program(&desugared)?;
+
+            typechecked = remove_globals::remove_globals(typechecked, &mut self.parser.symbol_gen);
+            for command in &typechecked {
+                self.names.check_shadowing(command)?;
+            }
+            Ok(typechecked)
         }
-
-        Ok(program)
     }
 
-    fn resolve_command(&mut self, command: Command) -> Result<Vec<ResolvedNCommand>, Error> {
-        let program = desugar::desugar_program(vec![command], &mut self.parser, self.seminaive)?;
-        Ok(self.typecheck_program(&program)?)
+    /// Run a program, returning the desugared outputs as well as the CommandOutputs.
+    /// Can optionally not run the commands, just adding type information.
+    fn process_program_internal(
+        &mut self,
+        program: Vec<Command>,
+        run_commands: bool,
+    ) -> Result<(Vec<CommandOutput>, Vec<ResolvedCommand>), Error> {
+        let mut outputs = Vec::new();
+        let mut desugared_commands = Vec::new();
+
+        for before_expanded_command in program {
+            // First do user-provided macro expansion for this command,
+            // which may rely on type information from previous commands.
+            let macro_expanded = self.command_macros.apply(
+                before_expanded_command,
+                &mut self.parser.symbol_gen,
+                &self.type_info,
+            )?;
+
+            for command in macro_expanded {
+                // handle include specially- we keep them as-is for desugaring
+                if let Command::Include(span, file) = &command {
+                    let s = std::fs::read_to_string(file)
+                        .unwrap_or_else(|_| panic!("{span} Failed to read file {file}"));
+                    let included_program = self
+                        .parser
+                        .get_program_from_string(Some(file.clone()), &s)?;
+                    // run program internal on these include commands
+                    let (included_outputs, included_desugared) =
+                        self.process_program_internal(included_program, run_commands)?;
+                    outputs.extend(included_outputs);
+                    desugared_commands.extend(included_desugared);
+                } else {
+                    for processed in self.resolve_command(command)? {
+                        desugared_commands.push(processed.to_command());
+
+                        // even in desugar mode we still run push and pop
+                        if run_commands
+                            || matches!(
+                                processed,
+                                ResolvedNCommand::Push(_) | ResolvedNCommand::Pop(_, _)
+                            )
+                        {
+                            let result = self.run_command(processed)?;
+                            if let Some(output) = result {
+                                outputs.push(output);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok((outputs, desugared_commands))
     }
 
     /// Run a program, represented as an AST.
     /// Return a list of messages.
     pub fn run_program(&mut self, program: Vec<Command>) -> Result<Vec<CommandOutput>, Error> {
-        let mut outputs = Vec::new();
-        for command in program {
-            // Important to process each command individually
-            // because push and pop create new scopes
-            for processed in self.process_command(command)? {
-                let result = self.run_command(processed)?;
-                if let Some(output) = result {
-                    outputs.push(output);
-                }
-            }
-        }
-
+        let (outputs, _desugared_commands) = self.process_program_internal(program, true)?;
         Ok(outputs)
     }
 
-    pub fn resugar_program(
+    /// Desugars an egglog program by parsing and desugaring each command.
+    /// Outputs a new egglog program without any syntactic sugar, either user provided ([`CommandMacro`]) or built-in (e.g., `rewrite` commands).
+    pub fn desugar_program(
         &mut self,
         filename: Option<String>,
         input: &str,
-    ) -> Result<Vec<String>, Error> {
+    ) -> Result<Vec<ResolvedCommand>, Error> {
         let parsed = self.parser.get_program_from_string(filename, input)?;
-        let mut outputs = Vec::new();
-        for command in parsed {
-            for processed in self.resolve_command(command)? {
-                // When re-suggaring, we still need to run scope-related commands (Push/Pop) to make
-                // the program well-scoped.
-                if let GenericNCommand::Push(..) | GenericNCommand::Pop(..) = &processed {
-                    self.run_command(processed.clone())?;
-                }
-                outputs.push(processed.to_command().to_string());
-            }
-        }
-        Ok(outputs)
+        let (_outputs, desugared_commands) = self.process_program_internal(parsed, false)?;
+        Ok(desugared_commands)
     }
 
     /// Takes a source program `input`, parses it, runs it, and returns a list of messages.
@@ -1900,6 +1960,10 @@ impl EGraph {
         self.functions.get(name)
     }
 
+    pub fn set_report_level(&mut self, level: ReportLevel) {
+        self.backend.set_report_level(level);
+    }
+
     /// A basic method for dumping the state of the database to `log::info!`.
     ///
     /// For large tables, this is unlikely to give particularly useful output.
@@ -1961,7 +2025,7 @@ impl<'a> BackendRule<'a> {
     ) -> (ExternalFunctionId, Vec<QueryEntry>, ColumnTy) {
         let mut qe_args = self.args(args);
 
-        if prim.primitive.prim.name() == "unstable-fn" {
+        if prim.name() == "unstable-fn" {
             let core::ResolvedAtomTerm::Literal(_, Literal::String(ref name)) = args[0] else {
                 panic!("expected string literal after `unstable-fn`")
             };
@@ -1978,7 +2042,7 @@ impl<'a> BackendRule<'a> {
                         .into_iter()
                         .any(|f| {
                             let types: Vec<_> = prim
-                                .input
+                                .input()
                                 .iter()
                                 .skip(1)
                                 .chain(f.inputs())
@@ -1993,24 +2057,19 @@ impl<'a> BackendRule<'a> {
             } else {
                 panic!("no callable for {name}");
             };
-            let do_rebuild = prim
-                .input
-                .iter()
-                .skip(1)
-                .map(|s| s.is_eq_sort() || s.is_eq_container_sort())
-                .collect();
+            let partial_arcsorts = prim.input().iter().skip(1).cloned().collect();
 
             qe_args[0] = self.rb.egraph().base_value_constant(ResolvedFunction {
                 id,
-                do_rebuild,
+                partial_arcsorts,
                 name: name.clone(),
             });
         }
 
         (
-            prim.primitive.id,
+            prim.external_id(),
             qe_args,
-            prim.output.column_ty(self.rb.egraph()),
+            prim.output().column_ty(self.rb.egraph()),
         )
     }
 
@@ -2057,7 +2116,7 @@ impl<'a> BackendRule<'a> {
                             })
                         }
                         ResolvedCall::Primitive(p) => {
-                            let name = p.primitive.prim.name().to_owned();
+                            let name = p.name().to_owned();
                             let (p, args, ty) = self.prim(p, args);
                             let span = span.clone();
                             self.rb.call_external_func(p, &args, ty, move || {
@@ -2168,6 +2227,13 @@ pub enum Error {
     CommandAlreadyExists(String, Span),
     #[error("Incorrect format in file '{0}'.")]
     InputFileFormatError(String),
+    #[error(
+        "Command is not supported by the current proof term encoding implementation.\n\
+         This typically means the command uses constructs that cannot yet be represented as proof terms.\n\
+         Consider disabling proof term encoding for this run or rewriting the command to avoid unsupported features.\n\
+         Offending command: {command}"
+    )]
+    UnsupportedProofCommand { command: String },
 }
 
 #[cfg(test)]
@@ -2404,7 +2470,20 @@ impl TimedEgraph {
     pub fn new() -> Self {
         Self {
             egraphs: vec![EGraph::default()],
-            timeline: Vec::new(),
+            timeline: vec![],
+            timer: std::time::Instant::now(),
+        }
+    }
+
+    pub fn new_from_file(path: &Path) -> Self {
+        let file = File::open(path).expect("failed to open egraph file");
+        let reader = BufReader::new(file);
+
+        let egraph: EGraph = serde_json::from_reader(reader).expect("failed to parse egraph JSON");
+
+        Self {
+            egraphs: vec![egraph],
+            timeline: vec![],
             timer: std::time::Instant::now(),
         }
     }
@@ -2420,24 +2499,50 @@ impl TimedEgraph {
         serde_json::to_writer_pretty(BufWriter::new(file), &self.timeline)
     }
 
+    pub fn run_from_file(&mut self, egg_file: &PathBuf) -> Result<Vec<CommandOutput>> {
+        let filename = egg_file
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown");
+
+        let program_text = read_to_string(egg_file)?;
+
+        let parsed_commands = self
+            .egraphs
+            .last_mut()
+            .expect("There are no egraphs")
+            .parser
+            .get_program_from_string(Some(filename.to_string()), &program_text)?;
+
+        let outputs = self.run_program_with_timeline(parsed_commands, &program_text)?;
+
+        Ok(outputs)
+    }
+
     pub fn run_program_with_timeline(
         &mut self,
         program: Vec<Command>,
         timeline_description: &str,
     ) -> Result<Vec<CommandOutput>, Error> {
+        // Expand all Include commands, rebuilding program_text inline
         let mut program_timeline = ProgramTimeline::new(timeline_description);
 
         let egraph: &mut EGraph = self.egraphs.last_mut().expect("there are no egraphs");
+
+        program_timeline.program_text.clear();
+        let expanded_commands =
+            Self::expand_includes_with_text(egraph, program, &mut program_timeline.program_text)?;
+
         let mut outputs = Vec::new();
         let mut i: i32 = 0;
-        for command in program {
+        for command in expanded_commands {
             program_timeline.evts.push(EgraphEvent {
                 sexp_idx: i,
                 evt: START,
                 time_micros: self.timer.elapsed().as_micros(),
             });
 
-            for processed in egraph.process_command(command)? {
+            for processed in egraph.resolve_command(command)? {
                 let result = egraph.run_command(processed)?;
                 if let Some(output) = result {
                     outputs.push(output);
@@ -2456,6 +2561,35 @@ impl TimedEgraph {
         self.timeline.push(program_timeline);
 
         Ok(outputs)
+    }
+
+    /// Recursively expand Include commands, building program_text inline.
+    /// Returns the expanded list of commands with includes replaced by their contents.
+    fn expand_includes_with_text(
+        egraph: &mut EGraph,
+        commands: Vec<Command>,
+        text: &mut String,
+    ) -> Result<Vec<Command>, Error> {
+        let mut expanded = Vec::new();
+
+        for command in commands {
+            if let Command::Include(span, file) = command {
+                let s = std::fs::read_to_string(&file)
+                    .unwrap_or_else(|_| panic!("{span} Failed to read file {file}"));
+                let included_program = {
+                    egraph
+                        .parser
+                        .get_program_from_string(Some(file.clone()), &s)?
+                };
+                let nested = Self::expand_includes_with_text(egraph, included_program, text)?;
+                expanded.extend(nested);
+            } else {
+                text.push_str(&format!("{}\n", command));
+                expanded.push(command);
+            }
+        }
+
+        Ok(expanded)
     }
 
     pub fn old_serialize_egraph(&mut self, path: &Path) -> Result<()> {
