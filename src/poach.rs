@@ -619,7 +619,7 @@ fn poach(
                                             namespace.replace_sched(schedule),
                                         )
                                     }
-                                    GenericCommand::PrintOverallStatistics => cmd,
+                                    GenericCommand::PrintOverallStatistics(..) => cmd,
                                     GenericCommand::Check(span, facts) => GenericCommand::Check(
                                         span,
                                         facts
