@@ -36,6 +36,9 @@ def run_poach(in_dir, out_dir, run_mode, extra_args = [], dry_run = False):
 if __name__ == "__main__":
   print("Beginning poach nightly")
 
+  # Suppress egglog warnings (only show errors)
+  os.environ["RUST_LOG"] = "error"
+
   # determine location of this script
   script_dir = Path(__file__).resolve().parent
 
