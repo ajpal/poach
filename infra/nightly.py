@@ -79,7 +79,7 @@ if __name__ == "__main__":
   # Post-process timeline data
   transform.transform((nightly_dir / "raw"), (nightly_dir / "output" / "data"))
 
-  if shutil.which("perf") is not None:
-    # Generate flamegraphs
-    for egg_file in glob.glob("tests/*.egg") + glob.glob("tests/web-demo/*.egg"):
-      run_cmd([str(script_dir / "flamegraph.sh"), egg_file, str(nightly_dir / "output" / "flamegraphs")])
+  # if shutil.which("perf") is not None:
+  #   # Generate flamegraphs
+  #   for egg_file in glob.glob("tests/*.egg") + glob.glob("tests/web-demo/*.egg"):
+  #     run_cmd([str(script_dir / "flamegraph.sh"), egg_file, str(nightly_dir / "output" / "flamegraphs")])
