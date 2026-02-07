@@ -56,25 +56,25 @@ if __name__ == "__main__":
     run_poach(resource_dir / "test-files" / suite, nightly_dir / "raw" / suite / "timeline", "timeline-only")
 
   no_io_suites = ["easteregg", "herbie-hamming", "herbie-math-rewrite"] # herbie-math-taylor runs out of memory
-  for suite in no_io_suites:
-    run_poach(resource_dir / "test-files" / suite, nightly_dir / "raw" / suite / "no-io", "no-io")
+  # for suite in no_io_suites:
+  #   run_poach(resource_dir / "test-files" / suite, nightly_dir / "raw" / suite / "no-io", "no-io")
 
   # Run the egglog tests under each serialization experiemntal treatment:
-  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests" / "timeline", "timeline-only")
-  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests" / "sequential", "sequential-round-trip")
-  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests" / "old-serialize", "old-serialize")
-  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests" / "no-io", "no-io")
-  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests" / "extract", "extract")
+  # run_poach(top_dir / "tests", nightly_dir / "raw" / "tests" / "timeline", "timeline-only")
+  # run_poach(top_dir / "tests", nightly_dir / "raw" / "tests" / "sequential", "sequential-round-trip")
+  # run_poach(top_dir / "tests", nightly_dir / "raw" / "tests" / "old-serialize", "old-serialize")
+  # run_poach(top_dir / "tests", nightly_dir / "raw" / "tests" / "no-io", "no-io")
+  # run_poach(top_dir / "tests", nightly_dir / "raw" / "tests" / "extract", "extract")
 
-  # Mined POACH Experiment
-  # precompute
-  run_poach(resource_dir / "mega-easteregg.egg", nightly_dir / "raw" / "easteregg" / "serialize", "serialize")
-  run_poach(resource_dir / "test-files" / "easteregg", nightly_dir / "raw" / "easteregg" / "serialize", "serialize")
-  # mined
-  run_poach(resource_dir / "test-files" / "easteregg", nightly_dir / "raw" / "easteregg" / "mine-indiv", "mine",
-    ["--initial-egraph=" + str(nightly_dir / "raw" / "easteregg" / "serialize" )])
-  run_poach(resource_dir / "test-files" / "easteregg", nightly_dir / "raw" / "easteregg" / "mine-mega", "mine",
-    ["--initial-egraph=" + str(nightly_dir / "raw" / "easteregg" / "serialize" / "mega-easteregg" / "serialize.json" )])
+  # # Mined POACH Experiment
+  # # precompute
+  # run_poach(resource_dir / "mega-easteregg.egg", nightly_dir / "raw" / "easteregg" / "serialize", "serialize")
+  # run_poach(resource_dir / "test-files" / "easteregg", nightly_dir / "raw" / "easteregg" / "serialize", "serialize")
+  # # mined
+  # run_poach(resource_dir / "test-files" / "easteregg", nightly_dir / "raw" / "easteregg" / "mine-indiv", "mine",
+  #   ["--initial-egraph=" + str(nightly_dir / "raw" / "easteregg" / "serialize" )])
+  # run_poach(resource_dir / "test-files" / "easteregg", nightly_dir / "raw" / "easteregg" / "mine-mega", "mine",
+  #   ["--initial-egraph=" + str(nightly_dir / "raw" / "easteregg" / "serialize" / "mega-easteregg" / "serialize.json" )])
 
   # Post-process timeline data
   transform.transform((nightly_dir / "raw"), (nightly_dir / "output" / "data"))
