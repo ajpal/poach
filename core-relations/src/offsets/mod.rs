@@ -2,11 +2,11 @@ use std::{cmp, fmt, mem};
 
 use serde::{Deserialize, Serialize};
 
-use crate::numeric_id::{NumericId, define_id};
+use crate::numeric_id::{define_id, NumericId};
 
 use crate::{
+    pool::{with_pool_set, Clear, Pooled},
     Pool,
-    pool::{Clear, Pooled, with_pool_set},
 };
 
 define_id!(pub RowId, u32, "a numeric offset into a table");
@@ -56,7 +56,7 @@ impl OffsetRange {
     }
 }
 
-#[derive(Default, Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(Default, Clone, PartialEq, Eq, Debug, Hash, Serialize, Deserialize)]
 pub struct SortedOffsetVector(Vec<RowId>);
 
 impl SortedOffsetVector {
@@ -293,7 +293,7 @@ impl SubsetRef<'_> {
 }
 
 /// Either or an offset range or a sorted offset vector.
-#[derive(Debug, Hash, PartialEq, Eq)]
+#[derive(Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Subset {
     Dense(OffsetRange),
     Sparse(Pooled<SortedOffsetVector>),

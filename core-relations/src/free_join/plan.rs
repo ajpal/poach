@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, iter, mem, sync::Arc};
 use crate::numeric_id::{DenseIdMap, NumericId};
 use fixedbitset::FixedBitSet;
 use serde::{Deserialize, Serialize};
-use smallvec::{SmallVec, smallvec};
+use smallvec::{smallvec, SmallVec};
 
 use crate::{
     common::{HashMap, HashSet, IndexSet},
@@ -158,7 +158,6 @@ impl JoinStage {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Plan {
-    #[serde(skip)]
     pub atoms: Arc<DenseIdMap<AtomId, Atom>>,
     pub stages: JoinStages,
 }

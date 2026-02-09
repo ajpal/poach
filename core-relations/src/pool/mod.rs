@@ -11,20 +11,21 @@ use std::{
 };
 
 use crate::{
-    AtomId,
     numeric_id::{DenseIdMap, IdVec},
+    AtomId,
 };
 use fixedbitset::FixedBitSet;
 use hashbrown::HashTable;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{
-    ColumnId, RowId,
     action::{Instr, PredictedVals},
     common::{HashMap, HashSet, IndexMap, IndexSet, ShardId, Value},
     hash_index::{BufferedSubset, ColumnIndex, TableEntry},
     offsets::SortedOffsetVector,
     table::TableEntry as SwTableEntry,
     table_spec::Constraint,
+    ColumnId, RowId,
 };
 
 #[cfg(test)]
@@ -253,6 +254,33 @@ impl<T: Clear + InPoolSet<PoolSet>> Pool<T> {
 /// no longer used.
 pub struct Pooled<T: Clear + InPoolSet<PoolSet>> {
     data: ManuallyDrop<T>,
+}
+
+impl<T> Serialize for Pooled<T>
+where
+    T: Serialize + Clear + InPoolSet<PoolSet>,
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        (&*self.data).serialize(serializer)
+    }
+}
+
+impl<'de, T> Deserialize<'de> for Pooled<T>
+where
+    T: Deserialize<'de> + Clear + InPoolSet<PoolSet>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = T::deserialize(deserializer)?;
+        Ok(Pooled {
+            data: ManuallyDrop::new(value),
+        })
+    }
 }
 
 impl<T: Clear + InPoolSet<PoolSet>> Default for Pooled<T> {

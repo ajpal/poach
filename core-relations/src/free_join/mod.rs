@@ -2,12 +2,12 @@
 use std::{
     mem,
     sync::{
-        Arc,
         atomic::{AtomicUsize, Ordering},
+        Arc,
     },
 };
 
-use crate::numeric_id::{DenseIdMap, DenseIdMapWithReuse, NumericId, define_id};
+use crate::numeric_id::{define_id, DenseIdMap, DenseIdMapWithReuse, NumericId};
 use egglog_concurrency::ResettableOnceLock;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -15,21 +15,21 @@ use smallvec::SmallVec;
 use web_time::Duration;
 
 use crate::{
-    BaseValues, ContainerValues, PoolSet, QueryEntry, TupleIndex, Value,
     action::{
-        Bindings, DbView,
         mask::{Mask, MaskIter, ValueSource},
+        Bindings, DbView,
     },
-    common::{DashMap, iter_dashmap_bulk},
+    common::{iter_dashmap_bulk, DashMap},
     dependency_graph::DependencyGraph,
     hash_index::{ColumnIndex, Index, IndexBase},
     offsets::Subset,
     parallel_heuristics::parallelize_db_level_op,
-    pool::{Pool, Pooled, with_pool_set},
+    pool::{with_pool_set, Pool, Pooled},
     query::{Query, RuleSetBuilder},
     table_spec::{
         ColumnId, Constraint, MutationBuffer, Table, TableSpec, WrappedTable, WrappedTableRef,
     },
+    BaseValues, ContainerValues, PoolSet, QueryEntry, TupleIndex, Value,
 };
 
 use self::plan::Plan;
@@ -56,7 +56,7 @@ define_id!(pub TableId, u32, "a table in the database");
 
 define_id!(pub(crate) ActionId, u32, "an identifier picking out the RHS of a rule");
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct ProcessedConstraints {
     /// The subset of the table matching the fast constraints. If there are no
     /// fast constraints then this is the full table.
@@ -694,12 +694,10 @@ fn get_index_from_tableinfo(table_info: &TableInfo, cols: &[ColumnId]) -> HashIn
     index.get_or_update(|index| {
         index.refresh(table_info.table.as_ref());
     });
-    debug_assert!(
-        !index
-            .get()
-            .unwrap()
-            .needs_refresh(table_info.table.as_ref())
-    );
+    debug_assert!(!index
+        .get()
+        .unwrap()
+        .needs_refresh(table_info.table.as_ref()));
     index
 }
 
@@ -720,11 +718,9 @@ fn get_column_index_from_tableinfo(table_info: &TableInfo, col: ColumnId) -> Has
     index.get_or_update(|index| {
         index.refresh(table_info.table.as_ref());
     });
-    debug_assert!(
-        !index
-            .get()
-            .unwrap()
-            .needs_refresh(table_info.table.as_ref())
-    );
+    debug_assert!(!index
+        .get()
+        .unwrap()
+        .needs_refresh(table_info.table.as_ref()));
     index
 }

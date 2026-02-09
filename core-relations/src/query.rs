@@ -755,7 +755,7 @@ impl RuleBuilder<'_, '_> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Atom {
     pub(crate) table: TableId,
     pub(crate) var_to_column: HashMap<Variable, ColumnId>,
