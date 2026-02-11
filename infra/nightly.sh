@@ -1,4 +1,14 @@
 #!/bin/bash
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+cleanup() {
+  echo "Cleaning up"
+  rm -rf "$REPO_ROOT/FlameGraph"
+  rm -rf "$REPO_ROOT/nightly/raw"
+}
+trap cleanup EXIT
 
 echo "Beginning POACH nightly script..."
 
@@ -56,10 +66,6 @@ fi
 ls nightly/output/flamegraphs > nightly/output/flamegraphs.txt
 
 cp infra/nightly-resources/web/* nightly/output
-
-# Clean Up
-rm -rf FlameGraph
-rm -rf nightly/raw
 
 # Uncomment for local development
 # cd nightly/output && python3 -m http.server 8002
