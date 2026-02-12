@@ -22,6 +22,7 @@ pub mod extract;
 pub mod prelude;
 pub mod scheduler;
 mod serialize_vis;
+pub mod size;
 pub mod sort;
 mod term_encoding;
 mod termdag;
@@ -62,6 +63,7 @@ use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 pub use serialize_vis::{SerializeConfig, SerializeOutput, SerializedNode};
+use size::GetSizePrimitive;
 use sort::*;
 use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
@@ -2468,8 +2470,11 @@ pub struct TimedEgraph {
 impl TimedEgraph {
     /// Create a new TimedEgraph with a default EGraph
     pub fn new() -> Self {
+        let mut egraph = EGraph::default();
+        egraph.add_primitive(GetSizePrimitive);
+
         Self {
-            egraphs: vec![EGraph::default()],
+            egraphs: vec![egraph],
             timeline: vec![],
             timer: std::time::Instant::now(),
         }

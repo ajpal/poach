@@ -5,6 +5,15 @@
 
 set -euo pipefail
 
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+cleanup() {
+  echo "Cleaning up"
+  rm -rf "$REPO_ROOT/FlameGraph"
+  rm -rf "$REPO_ROOT/nightly/raw"
+}
+trap cleanup ERR INT TERM
+
 if [[ $# -ne 2 ]]; then
   echo "Usage: $0 <file.egg> <out_dir>"
   exit 1

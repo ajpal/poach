@@ -15,6 +15,13 @@ import glob
 # 4. rustfilt is installed
 ###############################################################################
 
+def run_cmd(cmd, msg = "", dry_run = False):
+  prefix = "[DRY_RUN]" if dry_run else "[RUN]"
+  cmd_str = " ".join(cmd)
+  print(f"{prefix} {msg} {cmd_str}")
+  if not dry_run:
+    subprocess.run(cmd, check = True)
+
 def run_poach(in_dir, out_dir, run_mode, extra_args = [], dry_run = False):
   prefix = "[DRY_RUN]" if dry_run else "[RUN]"
   cmd = [
