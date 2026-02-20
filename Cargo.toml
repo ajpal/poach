@@ -180,3 +180,5 @@ incremental = true
 [profile.profiling]
 inherits = "release"
 debug = true
+lto = "off"
+strip = false

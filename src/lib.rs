@@ -2547,8 +2547,18 @@ impl TimedEgraph {
                 time_micros: self.timer.elapsed().as_micros(),
             });
 
-            for processed in egraph.resolve_command(command)? {
-                let result = egraph.run_command(processed)?;
+            let is_extract = matches!(command, Command::MultiExtract(_, _, _));
+
+            for processed in if is_extract {
+                Self::resolve_extract_command(egraph, command)
+            } else {
+                egraph.resolve_command(command)
+            }? {
+                let result = if is_extract {
+                    Self::run_extract_command(egraph, processed)
+                } else {
+                    egraph.run_command(processed)
+                }?;
                 if let Some(output) = result {
                     outputs.push(output);
                 }
@@ -2566,6 +2576,28 @@ impl TimedEgraph {
         self.timeline.push(program_timeline);
 
         Ok(outputs)
+    }
+
+    // Wrapper function to isolate extract time in flamegraphs.
+    #[inline(never)]
+    fn resolve_extract_command(
+        egraph: &mut EGraph,
+        command: Command,
+    ) -> Result<Vec<ResolvedNCommand>, Error> {
+        let out = egraph.resolve_command(command);
+        std::hint::black_box(&out);
+        out
+    }
+
+    // Wrapper function to isolate extract time in flamegraphs.
+    #[inline(never)]
+    fn run_extract_command(
+        egraph: &mut EGraph,
+        command: ResolvedNCommand,
+    ) -> Result<Option<CommandOutput>, Error> {
+        let out = egraph.run_command(command);
+        std::hint::black_box(&out);
+        out
     }
 
     /// Recursively expand Include commands, building program_text inline.

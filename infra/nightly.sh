@@ -49,8 +49,8 @@ mkdir -p nightly/raw
 
 git clone https://github.com/brendangregg/FlameGraph.git
 
-# Build in release mode before running nightly.py
-cargo build --release
+# Build profiling binary with frame pointers for stable flamegraph stacks
+RUSTFLAGS="${RUSTFLAGS:-} -C force-frame-pointers=yes" cargo build --profile profiling --bin poach
 
 # This script runs all of the benchmarks/experiments and generates flamegraphs
 python3 infra/nightly.py
@@ -66,4 +66,4 @@ ls nightly/output/flamegraphs > nightly/output/flamegraphs.txt
 cp infra/nightly-resources/web/* nightly/output
 
 # Uncomment for local development
-# cd nightly/output && python3 -m http.server 8002
+cd nightly/output && python3 -m http.server 8002

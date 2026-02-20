@@ -31,12 +31,13 @@ fi
 
 base=$(basename "$EGG_FILE" .egg)
 out_svg="$OUT_DIR/$base.svg"
+poach_bin="$REPO_ROOT/target/profiling/poach"
 
 
 echo "Generating flamegraph for $EGG_FILE"
 
-perf record -F 999 --call-graph dwarf -- ./target/release/poach "$EGG_FILE" nightly/raw timeline-only
+perf record -F 999 --call-graph fp -- "$poach_bin" "$EGG_FILE" nightly/raw timeline-only
 
-perf script --demangle | rustfilt | ./FlameGraph/stackcollapse-perf.pl | ./FlameGraph/flamegraph.pl > "$out_svg"
+perf script --demangle | rustfilt | "$REPO_ROOT/FlameGraph/stackcollapse-perf.pl" | "$REPO_ROOT/FlameGraph/flamegraph.pl" > "$out_svg"
 
 echo "done"

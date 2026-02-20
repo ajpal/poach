@@ -11,7 +11,7 @@ import glob
 # 1. https://github.com/brendangregg/FlameGraph is located in the directory
 # above this script.
 # 2. Directories nightly/output, nightly/raw, and nightly/flamegraphs exist
-# 3. Poach is built in release mode at target/release/poach
+# 3. Poach is built in profiling mode at target/profiling/poach
 # 4. rustfilt is installed
 ###############################################################################
 
