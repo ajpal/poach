@@ -57,36 +57,47 @@ if __name__ == "__main__":
   # Make sure we're in the right place
   os.chdir(top_dir)
 
-  # Iterate through each benchmark suite:
-  timeline_suites = ["easteregg", "herbie-hamming", "herbie-math-rewrite", "herbie-math-taylor"]
-  for suite in timeline_suites:
-    run_poach(resource_dir / "test-files" / suite, nightly_dir / "raw" / suite / "timeline", "timeline-only")
+  # # Iterate through each benchmark suite:
+  # timeline_suites = ["easteregg", "herbie-hamming", "herbie-math-rewrite", "herbie-math-taylor"]
+  # for suite in timeline_suites:
+  #   run_poach(resource_dir / "test-files" / suite, nightly_dir / "raw" / suite / "timeline", "timeline-only")
 
-  no_io_suites = ["easteregg", "herbie-hamming", "herbie-math-rewrite"] # herbie-math-taylor runs out of memory
-  for suite in no_io_suites:
-    run_poach(resource_dir / "test-files" / suite, nightly_dir / "raw" / suite / "no-io", "no-io")
+  # no_io_suites = ["easteregg", "herbie-hamming", "herbie-math-rewrite"] # herbie-math-taylor runs out of memory
+  # for suite in no_io_suites:
+  #   run_poach(resource_dir / "test-files" / suite, nightly_dir / "raw" / suite / "no-io", "no-io")
 
-  # Run the egglog tests under each serialization experiemntal treatment:
-  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests" / "timeline", "timeline-only")
-  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests" / "sequential", "sequential-round-trip")
-  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests" / "old-serialize", "old-serialize")
-  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests" / "no-io", "no-io")
-  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests" / "extract", "extract")
+  # # Run the egglog tests under each serialization experiemntal treatment:
+  # run_poach(top_dir / "tests", nightly_dir / "raw" / "tests" / "timeline", "timeline-only")
+  # run_poach(top_dir / "tests", nightly_dir / "raw" / "tests" / "sequential", "sequential-round-trip")
+  # run_poach(top_dir / "tests", nightly_dir / "raw" / "tests" / "old-serialize", "old-serialize")
+  # run_poach(top_dir / "tests", nightly_dir / "raw" / "tests" / "no-io", "no-io")
+  # run_poach(top_dir / "tests", nightly_dir / "raw" / "tests" / "extract", "extract")
 
-  # Mined POACH Experiment
-  # precompute
-  run_poach(resource_dir / "mega-easteregg.egg", nightly_dir / "raw" / "easteregg" / "serialize", "serialize")
-  run_poach(resource_dir / "test-files" / "easteregg", nightly_dir / "raw" / "easteregg" / "serialize", "serialize")
-  # mined
-  run_poach(resource_dir / "test-files" / "easteregg", nightly_dir / "raw" / "easteregg" / "mine-indiv", "mine",
-    ["--initial-egraph=" + str(nightly_dir / "raw" / "easteregg" / "serialize" )])
-  run_poach(resource_dir / "test-files" / "easteregg", nightly_dir / "raw" / "easteregg" / "mine-mega", "mine",
-    ["--initial-egraph=" + str(nightly_dir / "raw" / "easteregg" / "serialize" / "mega-easteregg" / "serialize.json" )])
+  # # Mined POACH Experiment
+  # # precompute
+  # run_poach(resource_dir / "mega-easteregg.egg", nightly_dir / "raw" / "easteregg" / "serialize", "serialize")
+  # run_poach(resource_dir / "test-files" / "easteregg", nightly_dir / "raw" / "easteregg" / "serialize", "serialize")
+  # # mined
+  # run_poach(resource_dir / "test-files" / "easteregg", nightly_dir / "raw" / "easteregg" / "mine-indiv", "mine",
+  #   ["--initial-egraph=" + str(nightly_dir / "raw" / "easteregg" / "serialize" )])
+  # run_poach(resource_dir / "test-files" / "easteregg", nightly_dir / "raw" / "easteregg" / "mine-mega", "mine",
+  #   ["--initial-egraph=" + str(nightly_dir / "raw" / "easteregg" / "serialize" / "mega-easteregg" / "serialize.json" )])
 
-  # Post-process timeline data
-  transform.transform((nightly_dir / "raw"), (nightly_dir / "output" / "data"))
+  # # Post-process timeline data
+  # transform.transform((nightly_dir / "raw"), (nightly_dir / "output" / "data"))
 
   if shutil.which("perf") is not None:
     # Generate flamegraphs
-    for egg_file in glob.glob("tests/*.egg") + glob.glob("tests/web-demo/*.egg"):
-      run_cmd([str(script_dir / "flamegraph.sh"), egg_file, str(nightly_dir / "output" / "flamegraphs")])
+    for egg_file in [
+      "easteregg/Zen_News__layer_0.egg",
+      "herbie-hamming/rewrite73.egg",
+      "herbie-hamming/rewrite102.egg",
+      "herbie-hamming/rewrite103.egg",
+      "herbie-hamming/taylor17.egg",
+      "herbie-math-rewrite/rewrite60.egg",
+      "herbie-math-rewrite/rewrite116.egg",
+      "herbie-math-taylor/taylor40.egg"]:
+      run_cmd([
+        str(script_dir / "flamegraph.sh"),
+        str("infra/nightly-resources/test-files/" + egg_file),
+        str(nightly_dir / "output" / "flamegraphs")])
