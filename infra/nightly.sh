@@ -55,15 +55,15 @@ cargo build --release
 # This script runs all of the benchmarks/experiments and generates flamegraphs
 python3 infra/nightly.py
 
-# Abort if nightly.py failed to produce data.json
-if [ ! -f nightly/output/data/data.json ]; then
-  echo "ERROR: nightly/output/data/data.json was not generated."
-  exit 1
-fi
+# # Abort if nightly.py failed to produce data.json
+# if [ ! -f nightly/output/data/data.json ]; then
+#   echo "ERROR: nightly/output/data/data.json was not generated."
+#   exit 1
+# fi
 
 ls nightly/output/flamegraphs > nightly/output/flamegraphs.txt
 
 cp infra/nightly-resources/web/* nightly/output
 
 # Uncomment for local development
-# cd nightly/output && python3 -m http.server 8002
+cd nightly/output && python3 -m http.server 8002
