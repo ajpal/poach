@@ -3,17 +3,22 @@
 <html>
 
 <head>
+  <!--
   <script src="index.js"></script>
   <script src="data.js"></script>
   <script src="chart.js"></script>
   <script src="handlers.js"></script>
   <script src="util.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  -->
 </head>
 
 <title>Poach</title>
 
-<body onload="initializeIndex()">
+<body>
+  <h2><a href="flamegraphs.html">Flamegraphs</a></h2>
+
+  <!--
   <h1 id="before-load">Loading report data...</h1>
   <h1 id="on-error">Something went wrong while loading the data. Check logs/console for error messages.</h1>
   <div id="after-load">
@@ -44,8 +49,6 @@
       <option value="" selected>Show All Bechmarks</option>
     </select>
 
-
-
     <form onchange="plotSerialization()">
       <label>
         <input type="radio" name="serializationMode" value="total" checked>
@@ -58,7 +61,7 @@
     </form>
 
     <form id="runModeToggle" onchange="plotSerialization()"></form>
-    
+
     <button
       type="button"
       class="collapsible"
@@ -124,7 +127,7 @@
       <a href="data/">Data</a>
     </p>
   </div>
-  
+  -->
 </body>
 
 </html>
