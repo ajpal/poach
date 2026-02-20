@@ -96,7 +96,7 @@ if __name__ == "__main__":
       "herbie-hamming/taylor17.egg",
       "herbie-math-rewrite/rewrite60.egg",
       "herbie-math-rewrite/rewrite116.egg",
-      # "herbie-math-taylor/taylor40.egg"
+      "herbie-math-taylor/taylor40.egg"
       ]:
       run_cmd([
         str(script_dir / "flamegraph.sh"),

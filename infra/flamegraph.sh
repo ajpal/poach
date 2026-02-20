@@ -35,7 +35,7 @@ out_svg="$OUT_DIR/$base.svg"
 
 echo "Generating flamegraph for $EGG_FILE"
 
-perf record -F 999 --call-graph dwarf -- ./target/release/poach "$EGG_FILE" nightly/raw sequential-round-trip
+perf record -F 999 --call-graph dwarf -- ./target/release/poach "$EGG_FILE" nightly/raw timeline-only
 
 perf script --demangle | rustfilt | ./FlameGraph/stackcollapse-perf.pl | ./FlameGraph/flamegraph.pl > "$out_svg"
 
