@@ -33,6 +33,7 @@ pub use command_macro::{CommandMacro, CommandMacroRegistry};
 // This is used to allow the `add_primitive` macro to work in
 // both this crate and other crates by referring to `::egglog`.
 extern crate self as egglog;
+extern crate flexbuffers;
 use anyhow::{Context, Result};
 use ast::*;
 pub use ast::{ResolvedExpr, ResolvedFact, ResolvedVar};
@@ -2674,8 +2675,11 @@ impl TimedEgraph {
             time_micros: self.timer.elapsed().as_micros(),
         });
 
-        let value = serde_json::to_value(egraph).context("Failed to encode egraph as json")?;
-
+        //let value = serde_json::to_value(egraph).context("Failed to encode egraph as json")?;
+        let mut buf = flexbuffers::FlexbufferSerializer::new();
+        // Have to use the fully qualified syntax because egraph has a method called serailize
+        Serialize::serialize(egraph, &mut buf).expect("Failed to serialize the egraph in Flexbuffer");
+        
         timeline.evts.push(EgraphEvent {
             sexp_idx: 0,
             evt: END,
@@ -2688,10 +2692,11 @@ impl TimedEgraph {
             time_micros: self.timer.elapsed().as_micros(),
         });
 
-        let file = fs::File::create(path)
+        let mut file = fs::File::create(path)
             .with_context(|| format!("failed to create file {}", path.display()))?;
-        serde_json::to_writer(BufWriter::new(file), &value)
-            .context("Failed to write value to file")?;
+        //serde_json::to_writer(BufWriter::new(file), &value)
+        //    .context("Failed to write value to file")?;
+        file.write_all(buf.view()).context("Failed to write value to file")?;
 
         timeline.evts.push(EgraphEvent {
             sexp_idx: 1,
@@ -2713,11 +2718,13 @@ impl TimedEgraph {
             time_micros: self.timer.elapsed().as_micros(),
         });
 
-        let file = fs::File::open(path)
+        let mut file = fs::File::open(path)
             .with_context(|| format!("failed to open file {}", path.display()))?;
-        let reader = BufReader::new(file);
-        let value: serde_json::Value =
-            serde_json::from_reader(reader).context("Failed to read json from file")?;
+        //let reader = BufReader::new(file);
+        //let value: serde_json::Value =
+        //    serde_json::from_reader(reader).context("Failed to read json from file")?;
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf).context("Failed to read Flatbuffer from file")?;
 
         timeline.evts.push(EgraphEvent {
             sexp_idx: 0,
@@ -2731,7 +2738,9 @@ impl TimedEgraph {
             time_micros: self.timer.elapsed().as_micros(),
         });
 
-        let egraph: EGraph = serde_json::from_value(value)?;
+        //let egraph: EGraph = serde_json::from_value(value)?;
+        let r = flexbuffers::Reader::get_root(buf.as_slice()).unwrap();
+        let egraph: EGraph = EGraph::deserialize(r).unwrap();
 
         timeline.evts.push(EgraphEvent {
             sexp_idx: 1,

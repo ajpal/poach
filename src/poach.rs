@@ -52,7 +52,7 @@ enum RunMode {
     // For each egg file under the input path,
     //      Run the egglog program, recording timing information.
     //      Round trip to JSON Value, but do not read/write from file
-    //      Assert the deserialized egraph has hthe same size as the initial egraph.
+    //      Assert the deserialized egraph has the same size as the initial egraph.
     //      Save the completed timeline, for consumption by the nightly frontend
     NoIO,
 

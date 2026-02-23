@@ -915,6 +915,7 @@ static THREAD_POOL: Lazy<rayon::ThreadPool> = Lazy::new(|| {
 /// to the beginning of an unused vector.
 #[derive(Default, Clone, Serialize, Deserialize)]
 pub(super) struct FreeList {
+    #[serde(skip)]
     data: HashMap<usize, Vec<BufferIndex>>,
 }
 impl FreeList {
