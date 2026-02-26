@@ -2,6 +2,16 @@ body {
   font-family: monospace;
 }
 
+table {
+  border-collapse: collapse;
+}
+
+th,
+td {
+  border: 1px solid #d0d0d0;
+  padding: 4px 8px;
+}
+
 .good {
   background-color: lightgreen;
 }
@@ -77,4 +87,30 @@ body {
 
 #on-error {
   display: none;
+}
+
+.table-wrapper {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.summary-table {
+  width: 100%;
+  margin-bottom: 16px;
+}
+
+.summary-table th {
+  background-color: #f2f2f2;
+  position: sticky;
+  top: 0;
+}
+
+.summary-table td,
+.summary-table th {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.summary-table .cell-text {
+  text-align: left;
 }

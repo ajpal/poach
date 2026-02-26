@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<link rel="stylesheet" href="stylesheet.css" type="text/css" charset="utf-8" />
+<html>
+
+<head>
+  <script src="perf-summary.js"></script>
+</head>
+
+<title>Perf Summary</title>
+
+<body onload="initializePerfSummary()">
+  <h1 id="before-load">Loading perf summary...</h1>
+  <h1 id="on-error">Something went wrong while loading perf summary data. Check logs/console for details.</h1>
+  <div id="after-load">
+    <h2>Perf Summary</h2>
+    <p id="summary-source"></p>
+
+    <h3>Meta</h3>
+    <div class="table-wrapper">
+      <table class="summary-table" id="meta-table"></table>
+    </div>
+
+    <h3>Suites</h3>
+    <div class="table-wrapper">
+      <table class="summary-table" id="suite-table"></table>
+    </div>
+
+    <h3>Benchmarks</h3>
+    <div class="table-wrapper">
+      <table class="summary-table" id="benchmark-table"></table>
+    </div>
+  </div>
+</body>
+
+</html>

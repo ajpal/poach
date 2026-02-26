@@ -115,7 +115,14 @@ if __name__ == "__main__":
     # Generate perf records
     perf_targets = {
       "root_symbol": "run_extract_command",
-      "callee_symbols": []
+      "callee_symbols": [
+        "extract_variants_with_sort",
+        "compute_costs_from_rootsorts",
+        "for_each",
+        "scan_bounded",
+        "reconstruct_termdag_node_helper",
+        "compute_cost_hyperedge"
+      ]
     }
     perf_out_dir = nightly_dir / "output" / "perf"
     perf_input_dir = Path("infra/nightly-resources/test-files")
