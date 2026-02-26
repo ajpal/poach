@@ -124,7 +124,7 @@ if __name__ == "__main__":
         "compute_cost_hyperedge"
       ]
     }
-    perf_out_dir = nightly_dir / "output" / "perf"
+    perf_out_dir = nightly_dir / "raw" / "perf"
     perf_input_dir = Path("infra/nightly-resources/test-files")
     for egg_file in perf_input_dir.rglob("*.egg"):
       relative_parent = egg_file.relative_to(perf_input_dir).parent

@@ -55,6 +55,14 @@ RUSTFLAGS="${RUSTFLAGS:-} -C force-frame-pointers=yes" cargo build --profile pro
 # This script runs all of the benchmarks/experiments and generates flamegraphs
 python3 infra/nightly.py
 
+# Publish perf summary to nightly/output (without copying perf.data files).
+if [ -f nightly/raw/perf/perf-summary.json ]; then
+  mkdir -p nightly/output/perf
+  cp nightly/raw/perf/perf-summary.json nightly/output/perf/perf-summary.json
+else
+  echo "WARNING: nightly/raw/perf/perf-summary.json was not found; skipping perf summary copy."
+fi
+
 # # Abort if nightly.py failed to produce data.json
 # if [ ! -f nightly/output/data/data.json ]; then
 #   echo "ERROR: nightly/output/data/data.json was not generated."
