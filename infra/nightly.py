@@ -117,8 +117,27 @@ if __name__ == "__main__":
       "root_symbol": "run_extract_command",
       "callee_symbols": []
     }
+    perf_out_dir = nightly_dir / "output" / "perf"
     perf_input_dir = Path("infra/nightly-resources/test-files")
     for egg_file in perf_input_dir.rglob("*.egg"):
       relative_parent = egg_file.relative_to(perf_input_dir).parent
-      out_dir = nightly_dir / "output" / "perf" / relative_parent
+      out_dir = perf_out_dir / relative_parent
       run_cmd([str(script_dir / "perf.sh"), str(egg_file), str(out_dir)])
+
+    perf_summary_cmd = [
+      "cargo",
+      "run",
+      "--release",
+      "--bin",
+      "perf_analyze",
+      "--",
+      str(perf_out_dir),
+      "--out",
+      str(perf_out_dir / "perf-summary.json"),
+      "--root-symbol",
+      perf_targets["root_symbol"]
+    ]
+    for callee_symbol in perf_targets["callee_symbols"]:
+      perf_summary_cmd.extend(["--callee-symbol", callee_symbol])
+
+    run_cmd(perf_summary_cmd)
