@@ -123,50 +123,15 @@ impl Debug for PrimitiveWithId {
 }
 
 /// Stores resolved typechecking information.
-#[derive(Clone, Default, Serialize)]
+#[derive(Clone, Default)]
 pub struct TypeInfo {
-    #[serde(skip)]
     mksorts: HashMap<String, MkSort>,
     // TODO(yz): I want to get rid of this as now we have user-defined primitives and constraint based type checking
-    #[serde(skip)]
     reserved_primitives: HashSet<&'static str>,
-    #[serde(with = "arc_sort_map_serde")]
     sorts: HashMap<String, ArcSort>,
     primitives: HashMap<String, Vec<PrimitiveWithId>>,
     func_types: HashMap<String, FuncType>,
-    #[serde(with = "arc_sort_map_serde")]
     pub(crate) global_sorts: HashMap<String, ArcSort>,
-}
-
-impl<'de> Deserialize<'de> for TypeInfo {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        struct Partial {
-            #[serde(with = "arc_sort_map_serde")]
-            sorts: HashMap<String, ArcSort>,
-
-            primitives: HashMap<String, Vec<PrimitiveWithId>>,
-
-            func_types: HashMap<String, FuncType>,
-
-            #[serde(with = "arc_sort_map_serde")]
-            global_sorts: HashMap<String, ArcSort>,
-        }
-
-        let helper = Partial::deserialize(deserializer)?;
-
-        Ok(TypeInfo {
-            mksorts: Default::default(),
-            reserved_primitives: Default::default(),
-            sorts: helper.sorts,
-            primitives: helper.primitives,
-            func_types: helper.func_types,
-            global_sorts: helper.global_sorts,
-        }) // TODO: this is a bogus default value
-    }
 }
 
 // These methods need to be on the `EGraph` in order to
