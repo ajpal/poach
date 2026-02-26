@@ -27,6 +27,6 @@ poach_bin="$REPO_ROOT/target/profiling/poach"
 
 echo "Recording perf data for $EGG_FILE"
 
-perf record -o "$out_perf" -F 999 --call-graph fp -- "$poach_bin" "$EGG_FILE" nightly/raw/perf timeline-only
+perf record -o "$out_perf" -F 9999 --call-graph fp -- "$poach_bin" "$EGG_FILE" nightly/raw/perf timeline-only
 
 echo "Wrote $out_perf"

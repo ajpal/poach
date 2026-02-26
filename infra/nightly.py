@@ -3,7 +3,6 @@ import subprocess
 import shutil
 from pathlib import Path
 import transform
-import glob
 
 ###############################################################################
 # IMPORTANT:
@@ -87,28 +86,39 @@ if __name__ == "__main__":
   # transform.transform((nightly_dir / "raw"), (nightly_dir / "output" / "data"))
 
   if shutil.which("perf") is not None:
-    # Generate flamegraphs
-    for egg_file in [
-      # high extract
-      "easteregg/Zen_News__layer_0.egg",
-      "herbie-hamming/rewrite73.egg",
-      "herbie-hamming/rewrite102.egg",
-      "herbie-hamming/rewrite103.egg",
-      "herbie-hamming/taylor17.egg",
-      "herbie-math-rewrite/rewrite60.egg",
-      "herbie-math-rewrite/rewrite116.egg",
-      "herbie-math-taylor/taylor40.egg",
-      # low extract
-      "herbie-hamming/rewrite59.egg",
-      "herbie-hamming/rewrite67.egg",
-      "herbie-hamming/rewrite53.egg",
-      "herbie-hamming/taylor85.egg",
-      "herbie-math-rewrite/rewrite180.egg",
-      "herbie-math-rewrite/rewrite172.egg",
-      "herbie-math-rewrite/rewrite122.egg",
-      "herbie-math-taylor/taylor22.egg"
-      ]:
-      run_cmd([
-        str(script_dir / "flamegraph.sh"),
-        str("infra/nightly-resources/test-files/" + egg_file),
-        str(nightly_dir / "output" / "flamegraphs")])
+    # # Generate flamegraphs
+    # for egg_file in [
+    #   # high extract
+    #   "easteregg/Zen_News__layer_0.egg",
+    #   "herbie-hamming/rewrite73.egg",
+    #   "herbie-hamming/rewrite102.egg",
+    #   "herbie-hamming/rewrite103.egg",
+    #   "herbie-hamming/taylor17.egg",
+    #   "herbie-math-rewrite/rewrite60.egg",
+    #   "herbie-math-rewrite/rewrite116.egg",
+    #   "herbie-math-taylor/taylor40.egg",
+    #   # low extract
+    #   "herbie-hamming/rewrite59.egg",
+    #   "herbie-hamming/rewrite67.egg",
+    #   "herbie-hamming/rewrite53.egg",
+    #   "herbie-hamming/taylor85.egg",
+    #   "herbie-math-rewrite/rewrite180.egg",
+    #   "herbie-math-rewrite/rewrite172.egg",
+    #   "herbie-math-rewrite/rewrite122.egg",
+    #   "herbie-math-taylor/taylor22.egg"
+    #   ]:
+    #   run_cmd([
+    #     str(script_dir / "flamegraph.sh"),
+    #     str("infra/nightly-resources/test-files/" + egg_file),
+    #     str(nightly_dir / "output" / "flamegraphs")])
+
+    # Generate perf records
+    perf_targets = {
+      "root_symbol": "run_extract_command",
+      "callee_symbols": []
+    }
+    perf_input_dir = Path("infra/nightly-resources/test-files")
+    for egg_file in perf_input_dir.rglob("*.egg"):
+      relative_parent = egg_file.relative_to(perf_input_dir).parent
+      out_dir = nightly_dir / "output" / "perf" / relative_parent
+      run_cmd([str(script_dir / "perf.sh"), str(egg_file), str(out_dir)])
