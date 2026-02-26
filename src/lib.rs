@@ -493,6 +493,7 @@ pub struct EGraph {
     pub fact_directory: Option<PathBuf>,
     pub seminaive: bool,
 
+    #[serde(skip)]
     type_info: TypeInfo,
     /// The run report unioned over all runs so far.
     overall_run_report: RunReport,
@@ -2468,9 +2469,42 @@ pub struct TimedEgraph {
 }
 
 impl TimedEgraph {
+    fn finish_initializing(eg: &mut EGraph) {
+        add_base_sort(eg, UnitSort, span!()).unwrap();
+        add_base_sort(eg, StringSort, span!()).unwrap();
+        add_base_sort(eg, BoolSort, span!()).unwrap();
+        add_base_sort(eg, I64Sort, span!()).unwrap();
+        add_base_sort(eg, F64Sort, span!()).unwrap();
+        add_base_sort(eg, BigIntSort, span!()).unwrap();
+        add_base_sort(eg, BigRatSort, span!()).unwrap();
+        eg.type_info.add_presort::<MapSort>(span!()).unwrap();
+        eg.type_info.add_presort::<SetSort>(span!()).unwrap();
+        eg.type_info.add_presort::<VecSort>(span!()).unwrap();
+        eg.type_info.add_presort::<FunctionSort>(span!()).unwrap();
+        eg.type_info.add_presort::<MultiSetSort>(span!()).unwrap();
+
+        add_primitive!(eg, "!=" = |a: #, b: #| -?> () {
+            (a != b).then_some(())
+        });
+        add_primitive!(eg, "value-eq" = |a: #, b: #| -?> () {
+            (a == b).then_some(())
+        });
+        add_primitive!(eg, "ordering-min" = |a: #, b: #| -> # {
+            if a < b { a } else { b }
+        });
+        add_primitive!(eg, "ordering-max" = |a: #, b: #| -> # {
+            if a > b { a } else { b }
+        });
+
+        eg.rulesets
+            .insert("".into(), Ruleset::Rules(Default::default()));
+    }
+
     /// Create a new TimedEgraph with a default EGraph
     pub fn new() -> Self {
         let mut egraph = EGraph::default();
+        // don't need finish_initializing because we went through the egraph constructor
+
         egraph.add_primitive(GetSizePrimitive);
 
         Self {
@@ -2484,7 +2518,9 @@ impl TimedEgraph {
         let file = File::open(path).expect("failed to open egraph file");
         let reader = BufReader::new(file);
 
-        let egraph: EGraph = serde_json::from_reader(reader).expect("failed to parse egraph JSON");
+        let mut egraph: EGraph =
+            serde_json::from_reader(reader).expect("failed to parse egraph JSON");
+        TimedEgraph::finish_initializing(&mut egraph);
 
         Self {
             egraphs: vec![egraph],
@@ -2650,8 +2686,9 @@ impl TimedEgraph {
             time_micros: self.timer.elapsed().as_micros(),
         });
 
-        let egraph: EGraph =
+        let mut egraph: EGraph =
             serde_json::from_value(value).context("Failed to decode egraph from json")?;
+        TimedEgraph::finish_initializing(&mut egraph);
 
         timeline.evts.push(EgraphEvent {
             sexp_idx: 0,
@@ -2731,7 +2768,8 @@ impl TimedEgraph {
             time_micros: self.timer.elapsed().as_micros(),
         });
 
-        let egraph: EGraph = serde_json::from_value(value)?;
+        let mut egraph: EGraph = serde_json::from_value(value)?;
+        TimedEgraph::finish_initializing(&mut egraph);
 
         timeline.evts.push(EgraphEvent {
             sexp_idx: 1,
