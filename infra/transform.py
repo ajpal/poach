@@ -12,11 +12,6 @@ def save_json(path, data):
   with open(path, 'w') as file:
     json.dump(data, file, indent=4)
 
-def load_json_if_exists(path, default):
-  if not os.path.exists(path):
-    return default
-  return load_json(path)
-
 def merge_start_end_events(timeline_events):
     merged_events = []
     for i in range(0, len(timeline_events), 2):
