@@ -14,9 +14,8 @@ echo "Beginning POACH nightly script..."
 # This script generates the data for the nightly frontend 
 # 
 # Expected structure after running this script:
-# nightly/output/data will contain two files
-# 1. data.json is the big blob of data that the frontend uses to show graphs/tables
-# 2. list.json is a text file containing a list of all benchmarks
+# nightly/output/data will contain data.json, the big blob of data that the
+# frontend uses to show graphs/tables.
 
 # nightly/output/flamegraphs will contain an svg flamegraph for each benchmark
 
@@ -25,8 +24,9 @@ echo "Beginning POACH nightly script..."
 # on each execution.
 
 # Temporary files:
-# nightly/raw is used for large intermediate files (mostly serialized egraphs). 
-# It must be deleted so that these large files do not clutter the nightly machine.
+# nightly/raw is used for large intermediate files (mostly serialized egraphs).
+# Benchmark outputs are deleted as each benchmark completes, and any leftovers
+# are removed on exit so that these files do not clutter the nightly machine.
 
 # FlameGraph/ is a repo for generating flamegraphs. It is cloned and removed
 # on each execution of this script.
@@ -66,4 +66,4 @@ ls nightly/output/flamegraphs > nightly/output/flamegraphs.txt
 cp infra/nightly-resources/web/* nightly/output
 
 # Uncomment for local development
-# cd nightly/output && python3 -m http.server 8002
+cd nightly/output && python3 -m http.server 8002

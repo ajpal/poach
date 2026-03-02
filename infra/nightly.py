@@ -40,6 +40,22 @@ def run_poach(in_dir, out_dir, run_mode, extra_args = [], dry_run = False):
   if not dry_run:
     subprocess.run(cmd, check = True)
 
+def transform_and_cleanup(raw_dir, output_dir, benchmark_dir):
+  if any(benchmark_dir.rglob("timeline.json")):
+    transform.transform(benchmark_dir, output_dir, relative_to = raw_dir)
+  shutil.rmtree(benchmark_dir, ignore_errors = True)
+  for parent in benchmark_dir.parents:
+    if parent == raw_dir:
+      break
+    try:
+      parent.rmdir()
+    except OSError:
+      break
+
+def benchmark_files(input_dir, recursive = False):
+  pattern = "**/*.egg" if recursive else "*.egg"
+  return sorted(input_dir.glob(pattern))
+
 if __name__ == "__main__":
   print("Beginning poach nightly")
 
@@ -53,6 +69,8 @@ if __name__ == "__main__":
   top_dir = script_dir.parent
   resource_dir = script_dir / "nightly-resources"
   nightly_dir = top_dir / "nightly"
+  raw_dir = nightly_dir / "raw"
+  output_data_dir = nightly_dir / "output" / "data"
 
   # Make sure we're in the right place
   os.chdir(top_dir)
@@ -60,31 +78,50 @@ if __name__ == "__main__":
   # Iterate through each benchmark suite:
   timeline_suites = ["easteregg", "herbie-hamming", "herbie-math-rewrite", "herbie-math-taylor"]
   for suite in timeline_suites:
-    run_poach(resource_dir / "test-files" / suite, nightly_dir / "raw" / suite / "timeline", "timeline-only")
+    mode_dir = raw_dir / suite / "timeline"
+    for benchmark in benchmark_files(resource_dir / "test-files" / suite):
+      run_poach(benchmark, mode_dir, "timeline-only")
+      transform_and_cleanup(raw_dir, output_data_dir, mode_dir / benchmark.stem)
 
   no_io_suites = ["easteregg", "herbie-hamming", "herbie-math-rewrite"] # herbie-math-taylor runs out of memory
   for suite in no_io_suites:
-    run_poach(resource_dir / "test-files" / suite, nightly_dir / "raw" / suite / "no-io", "no-io")
+    mode_dir = raw_dir / suite / "no-io"
+    for benchmark in benchmark_files(resource_dir / "test-files" / suite):
+      run_poach(benchmark, mode_dir, "no-io")
+      transform_and_cleanup(raw_dir, output_data_dir, mode_dir / benchmark.stem)
 
   # Run the egglog tests under each serialization experiemntal treatment:
-  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests" / "timeline", "timeline-only")
-  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests" / "sequential", "sequential-round-trip")
-  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests" / "old-serialize", "old-serialize")
-  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests" / "no-io", "no-io")
-  run_poach(top_dir / "tests", nightly_dir / "raw" / "tests" / "extract", "extract")
+  test_modes = [
+    ("timeline", "timeline-only"),
+    ("sequential", "sequential-round-trip"),
+    ("old-serialize", "old-serialize"),
+    ("no-io", "no-io"),
+    ("extract", "extract"),
+  ]
+  for benchmark_name, run_mode in test_modes:
+    mode_dir = raw_dir / "tests" / benchmark_name
+    for benchmark in benchmark_files(top_dir / "tests", recursive = True):
+      run_poach(benchmark, mode_dir, run_mode)
+      transform_and_cleanup(raw_dir, output_data_dir, mode_dir / benchmark.stem)
 
   # Mined POACH Experiment
   # precompute
-  run_poach(resource_dir / "mega-easteregg.egg", nightly_dir / "raw" / "easteregg" / "serialize", "serialize")
-  run_poach(resource_dir / "test-files" / "easteregg", nightly_dir / "raw" / "easteregg" / "serialize", "serialize")
-  # mined
-  run_poach(resource_dir / "test-files" / "easteregg", nightly_dir / "raw" / "easteregg" / "mine-indiv", "mine",
-    ["--initial-egraph=" + str(nightly_dir / "raw" / "easteregg" / "serialize" )])
-  run_poach(resource_dir / "test-files" / "easteregg", nightly_dir / "raw" / "easteregg" / "mine-mega", "mine",
-    ["--initial-egraph=" + str(nightly_dir / "raw" / "easteregg" / "serialize" / "mega-easteregg" / "serialize.json" )])
+  serialize_dir = raw_dir / "easteregg" / "serialize"
+  run_poach(resource_dir / "mega-easteregg.egg", serialize_dir, "serialize")
+  mine_indiv_dir = raw_dir / "easteregg" / "mine-indiv"
+  mine_mega_dir = raw_dir / "easteregg" / "mine-mega"
+  for benchmark in benchmark_files(resource_dir / "test-files" / "easteregg"):
+    run_poach(benchmark, serialize_dir, "serialize")
+    run_poach(benchmark, mine_indiv_dir, "mine",
+      ["--initial-egraph=" + str(serialize_dir)])
+    transform_and_cleanup(raw_dir, output_data_dir, mine_indiv_dir / benchmark.stem)
 
-  # Post-process timeline data
-  transform.transform((nightly_dir / "raw"), (nightly_dir / "output" / "data"))
+    run_poach(benchmark, mine_mega_dir, "mine",
+      ["--initial-egraph=" + str(serialize_dir / "mega-easteregg" / "serialize.json")])
+    transform_and_cleanup(raw_dir, output_data_dir, mine_mega_dir / benchmark.stem)
+    transform_and_cleanup(raw_dir, output_data_dir, serialize_dir / benchmark.stem)
+
+  transform_and_cleanup(raw_dir, output_data_dir, serialize_dir / "mega-easteregg")
 
   if shutil.which("perf") is not None:
     # Generate flamegraphs

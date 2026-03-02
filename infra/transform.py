@@ -2,6 +2,7 @@ import json
 import re
 import os
 import glob
+from pathlib import Path
 
 def load_json(path):
   with open(path, 'r') as file:
@@ -12,6 +13,11 @@ def save_json(path, data):
   os.makedirs(os.path.dirname(path), exist_ok=True)
   with open(path, 'w') as file:
     json.dump(data, file, indent=4)
+
+def load_json_if_exists(path, default):
+  if not os.path.exists(path):
+    return default
+  return load_json(path)
 
 def merge_start_end_events(timeline_events):
     merged_events = []
@@ -81,26 +87,30 @@ def add_sexp_strs(timeline_events, program_text):
             raise IndexError("sexp_idx out of bounds")
     return sexps
 
-def transform(input_dir, output_dir):
+def transform(input_dir, output_dir, relative_to = None):
     """
     Processes all JSON files in the input directory, applying each transformation in order,
-    and writes the results to the output directory.
+    and merges the results into the output directory.
 
     Args:
         input_dir (str): Path to the input directory containing JSON files.
         output_dir (str): Path to the output directory to save processed JSON files.
+        relative_to (str): Optional root used to compute benchmark names.
     """
+    input_dir = Path(input_dir)
+    output_dir = Path(output_dir)
+    relative_to = Path(relative_to) if relative_to is not None else input_dir
+
     os.makedirs(output_dir, exist_ok=True)
 
-    benchmark_names = [str(f.relative_to(input_dir)) for f in input_dir.rglob("timeline.json")]
-    save_json(os.path.join(output_dir, "list.json"), benchmark_names)
+    data_path = output_dir / "data.json"
 
-    aggregated = {}
+    benchmark_files = sorted(input_dir.rglob("timeline.json"))
+    benchmark_names = [str(f.relative_to(relative_to)) for f in benchmark_files]
 
-    for benchmark in benchmark_names:
-        input_file_path = input_dir / benchmark
-        output_file_path = os.path.join(output_dir, benchmark)
+    aggregated = load_json_if_exists(data_path, {})
 
+    for benchmark, input_file_path in zip(benchmark_names, benchmark_files):
         data = load_json(input_file_path)
         timelines = []
         for timeline in data:
@@ -112,4 +122,4 @@ def transform(input_dir, output_dir):
             timelines.append({"events": events, "sexps": sexps})
         aggregated[benchmark] = timelines
 
-    save_json(os.path.join(output_dir, "data.json"), aggregated)
+    save_json(data_path, aggregated)
