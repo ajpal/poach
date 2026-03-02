@@ -10,7 +10,7 @@ import glob
 # In order, for this script to run successfully, requires:
 # 1. https://github.com/brendangregg/FlameGraph is located in the directory
 # above this script.
-# 2. Directories nightly/output, nightly/raw, and nightly/flamegraphs exist
+# 2. Directories nightly/output, nightly/tmp, and nightly/flamegraphs exist
 # 3. Poach is built in release mode at target/release/poach
 # 4. rustfilt is installed
 ###############################################################################
@@ -40,12 +40,20 @@ def run_poach(in_dir, out_dir, run_mode, extra_args = [], dry_run = False):
   if not dry_run:
     subprocess.run(cmd, check = True)
 
-def transform_and_cleanup(raw_dir, output_dir, benchmark_dir):
-  if any(benchmark_dir.rglob("timeline.json")):
-    transform.transform(benchmark_dir, output_dir, relative_to = raw_dir)
+def add_benchmark_data(aggregator, benchmark_dir, benchmark_key):
+  timeline_file = benchmark_dir / "timeline.json"
+  if timeline_file.exists():
+    aggregator.add_file(timeline_file, benchmark_key)
+
+def remove_timeline_file(benchmark_dir):
+  timeline_file = benchmark_dir / "timeline.json"
+  if timeline_file.exists():
+    timeline_file.unlink()
+
+def cleanup_benchmark_dir(tmp_dir, benchmark_dir):
   shutil.rmtree(benchmark_dir, ignore_errors = True)
   for parent in benchmark_dir.parents:
-    if parent == raw_dir:
+    if parent == tmp_dir:
       break
     try:
       parent.rmdir()
@@ -69,8 +77,9 @@ if __name__ == "__main__":
   top_dir = script_dir.parent
   resource_dir = script_dir / "nightly-resources"
   nightly_dir = top_dir / "nightly"
-  raw_dir = nightly_dir / "raw"
+  tmp_dir = nightly_dir / "tmp"
   output_data_dir = nightly_dir / "output" / "data"
+  aggregator = transform.TimelineAggregator(output_data_dir)
 
   # Make sure we're in the right place
   os.chdir(top_dir)
@@ -78,17 +87,19 @@ if __name__ == "__main__":
   # Iterate through each benchmark suite:
   timeline_suites = ["easteregg", "herbie-hamming", "herbie-math-rewrite", "herbie-math-taylor"]
   for suite in timeline_suites:
-    mode_dir = raw_dir / suite / "timeline"
     for benchmark in benchmark_files(resource_dir / "test-files" / suite):
-      run_poach(benchmark, mode_dir, "timeline-only")
-      transform_and_cleanup(raw_dir, output_data_dir, mode_dir / benchmark.stem)
+      benchmark_dir = tmp_dir / benchmark.stem
+      run_poach(benchmark, tmp_dir, "timeline-only")
+      add_benchmark_data(aggregator, benchmark_dir, f"{suite}/timeline/{benchmark.stem}/timeline.json")
+      cleanup_benchmark_dir(tmp_dir, benchmark_dir)
 
   no_io_suites = ["easteregg", "herbie-hamming", "herbie-math-rewrite"] # herbie-math-taylor runs out of memory
   for suite in no_io_suites:
-    mode_dir = raw_dir / suite / "no-io"
     for benchmark in benchmark_files(resource_dir / "test-files" / suite):
-      run_poach(benchmark, mode_dir, "no-io")
-      transform_and_cleanup(raw_dir, output_data_dir, mode_dir / benchmark.stem)
+      benchmark_dir = tmp_dir / benchmark.stem
+      run_poach(benchmark, tmp_dir, "no-io")
+      add_benchmark_data(aggregator, benchmark_dir, f"{suite}/no-io/{benchmark.stem}/timeline.json")
+      cleanup_benchmark_dir(tmp_dir, benchmark_dir)
 
   # Run the egglog tests under each serialization experiemntal treatment:
   test_modes = [
@@ -99,29 +110,36 @@ if __name__ == "__main__":
     ("extract", "extract"),
   ]
   for benchmark_name, run_mode in test_modes:
-    mode_dir = raw_dir / "tests" / benchmark_name
     for benchmark in benchmark_files(top_dir / "tests", recursive = True):
-      run_poach(benchmark, mode_dir, run_mode)
-      transform_and_cleanup(raw_dir, output_data_dir, mode_dir / benchmark.stem)
+      benchmark_dir = tmp_dir / benchmark.stem
+      run_poach(benchmark, tmp_dir, run_mode)
+      add_benchmark_data(aggregator, benchmark_dir, f"tests/{benchmark_name}/{benchmark.stem}/timeline.json")
+      cleanup_benchmark_dir(tmp_dir, benchmark_dir)
 
   # Mined POACH Experiment
   # precompute
-  serialize_dir = raw_dir / "easteregg" / "serialize"
-  run_poach(resource_dir / "mega-easteregg.egg", serialize_dir, "serialize")
-  mine_indiv_dir = raw_dir / "easteregg" / "mine-indiv"
-  mine_mega_dir = raw_dir / "easteregg" / "mine-mega"
+  mega_dir = tmp_dir / "mega-easteregg"
+  run_poach(resource_dir / "mega-easteregg.egg", tmp_dir, "serialize")
+  add_benchmark_data(aggregator, mega_dir, "easteregg/serialize/mega-easteregg/timeline.json")
+  remove_timeline_file(mega_dir)
   for benchmark in benchmark_files(resource_dir / "test-files" / "easteregg"):
-    run_poach(benchmark, serialize_dir, "serialize")
-    run_poach(benchmark, mine_indiv_dir, "mine",
-      ["--initial-egraph=" + str(serialize_dir)])
-    transform_and_cleanup(raw_dir, output_data_dir, mine_indiv_dir / benchmark.stem)
+    benchmark_dir = tmp_dir / benchmark.stem
+    run_poach(benchmark, tmp_dir, "serialize")
+    add_benchmark_data(aggregator, benchmark_dir, f"easteregg/serialize/{benchmark.stem}/timeline.json")
+    remove_timeline_file(benchmark_dir)
 
-    run_poach(benchmark, mine_mega_dir, "mine",
-      ["--initial-egraph=" + str(serialize_dir / "mega-easteregg" / "serialize.json")])
-    transform_and_cleanup(raw_dir, output_data_dir, mine_mega_dir / benchmark.stem)
-    transform_and_cleanup(raw_dir, output_data_dir, serialize_dir / benchmark.stem)
+    run_poach(benchmark, tmp_dir, "mine",
+      ["--initial-egraph=" + str(tmp_dir)])
+    add_benchmark_data(aggregator, benchmark_dir, f"easteregg/mine-indiv/{benchmark.stem}/timeline.json")
+    remove_timeline_file(benchmark_dir)
 
-  transform_and_cleanup(raw_dir, output_data_dir, serialize_dir / "mega-easteregg")
+    run_poach(benchmark, tmp_dir, "mine",
+      ["--initial-egraph=" + str(mega_dir / "serialize.json")])
+    add_benchmark_data(aggregator, benchmark_dir, f"easteregg/mine-mega/{benchmark.stem}/timeline.json")
+    cleanup_benchmark_dir(tmp_dir, benchmark_dir)
+
+  cleanup_benchmark_dir(tmp_dir, mega_dir)
+  aggregator.save()
 
   if shutil.which("perf") is not None:
     # Generate flamegraphs

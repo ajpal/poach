@@ -4,7 +4,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cleanup() {
   echo "Cleaning up"
   rm -rf "$REPO_ROOT/FlameGraph"
-  rm -rf "$REPO_ROOT/nightly/raw"
+  rm -rf "$REPO_ROOT/nightly/tmp"
 }
 trap cleanup EXIT
 
@@ -24,7 +24,7 @@ echo "Beginning POACH nightly script..."
 # on each execution.
 
 # Temporary files:
-# nightly/raw is used for large intermediate files (mostly serialized egraphs).
+# nightly/tmp is used for intermediate files (mostly serialized egraphs).
 # Benchmark outputs are deleted as each benchmark completes, and any leftovers
 # are removed on exit so that these files do not clutter the nightly machine.
 
@@ -45,7 +45,7 @@ rm -rf nightly
 # Set Up
 mkdir -p nightly/output
 mkdir -p nightly/output/flamegraphs
-mkdir -p nightly/raw
+mkdir -p nightly/tmp
 
 git clone https://github.com/brendangregg/FlameGraph.git
 

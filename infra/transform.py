@@ -1,7 +1,5 @@
 import json
-import re
 import os
-import glob
 from pathlib import Path
 
 def load_json(path):
@@ -87,31 +85,24 @@ def add_sexp_strs(timeline_events, program_text):
             raise IndexError("sexp_idx out of bounds")
     return sexps
 
-def transform(input_dir, output_dir, relative_to = None):
-    """
-    Processes all JSON files in the input directory, applying each transformation in order,
-    and merges the results into the output directory.
+class TimelineAggregator:
+    def __init__(self, output_dir):
+        self.output_dir = Path(output_dir)
+        self.data_path = self.output_dir / "data.json"
+        self.aggregated = {}
 
-    Args:
-        input_dir (str): Path to the input directory containing JSON files.
-        output_dir (str): Path to the output directory to save processed JSON files.
-        relative_to (str): Optional root used to compute benchmark names.
-    """
-    input_dir = Path(input_dir)
-    output_dir = Path(output_dir)
-    relative_to = Path(relative_to) if relative_to is not None else input_dir
+    def add_file(self, input_file, benchmark_name):
+        """
+        Process a single timeline JSON file and stage its transformed contents
+        in memory.
 
-    os.makedirs(output_dir, exist_ok=True)
+        Args:
+            input_file (str): Path to a single timeline JSON file.
+            benchmark_name (str): Key to write into the aggregated data object.
+        """
+        input_file = Path(input_file)
 
-    data_path = output_dir / "data.json"
-
-    benchmark_files = sorted(input_dir.rglob("timeline.json"))
-    benchmark_names = [str(f.relative_to(relative_to)) for f in benchmark_files]
-
-    aggregated = load_json_if_exists(data_path, {})
-
-    for benchmark, input_file_path in zip(benchmark_names, benchmark_files):
-        data = load_json(input_file_path)
+        data = load_json(input_file)
         timelines = []
         for timeline in data:
             if 'evts' not in timeline:
@@ -120,6 +111,8 @@ def transform(input_dir, output_dir, relative_to = None):
             sexps = add_sexp_strs(timeline['evts'], timeline['program_text'])
             assert(len(events) == len(sexps))
             timelines.append({"events": events, "sexps": sexps})
-        aggregated[benchmark] = timelines
+        self.aggregated[benchmark_name] = timelines
 
-    save_json(data_path, aggregated)
+    def save(self):
+        os.makedirs(self.output_dir, exist_ok=True)
+        save_json(self.data_path, self.aggregated)
