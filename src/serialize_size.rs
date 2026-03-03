@@ -53,7 +53,10 @@ fn truncate_string_with_ellipsis(s: &str, max_len: usize) -> String {
 }
 
 impl SizeReport {
-    pub fn pretty_print(&self, level: usize) {
+    pub fn pretty_print(&self, level: usize, max_level: usize) {
+        if level > max_level {
+            return;
+        }
         if level == 0 {
             println!("{} : {}", self.name, pretty_print_nbytes(self.size));
         }
@@ -61,14 +64,15 @@ impl SizeReport {
         sorted_fields.sort_by(|(_, a), (_, b)| b.size.cmp(&a.size));
         for (name, sr) in sorted_fields.iter().take(10) {
             let percentage = (sr.size as f64 / self.size as f64) * 100.0;
+            let indent = level * 2;
             println!(
-                "  {:level$}{} : {} ({:.2}%)",
+                "  {:indent$}{} : {} ({:.2}%)",
                 "",
                 name,
                 pretty_print_nbytes(sr.size),
                 percentage
             );
-            sr.pretty_print(level + 2);
+            sr.pretty_print(level + 1, max_level);
         }
         if sorted_fields.len() > 10 {
             println!("  {:level$} ... {:} fields total", "", sorted_fields.len());

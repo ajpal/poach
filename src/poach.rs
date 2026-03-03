@@ -663,7 +663,7 @@ fn poach(
             initial_egraph.as_deref(),
             |egg_file, _, timed_egraph| {
                 timed_egraph.run_from_file(egg_file)?;
-                timed_egraph.print_size_report()
+                timed_egraph.print_size_report(0)
             },
         ),
     }

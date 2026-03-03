@@ -2669,8 +2669,8 @@ impl TimedEgraph {
         Ok(())
     }
 
-    pub fn print_size_report(&mut self) -> Result<()> {
-        self.egraphs.last().unwrap().get_sizerp().pretty_print(0);
+    pub fn print_size_report(&mut self, max_level: usize) -> Result<()> {
+        self.egraphs.last().unwrap().get_sizerp().pretty_print(0, max_level);
         Ok(())
     }
 
