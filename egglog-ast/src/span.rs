@@ -3,12 +3,31 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub enum Span {
     Panic,
     Egglog(Arc<EgglogSpan>),
     Rust(Arc<RustSpan>),
+    POACH,
 }
+
+impl serde::Serialize for Span {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer {
+        serializer.serialize_unit()
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Span {
+    fn deserialize<D>(_: D) -> Result<Self, D::Error>
+        where
+            D: serde::Deserializer<'de> {
+        Ok(Self::POACH)
+    }
+}
+
+
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct EgglogSpan {
@@ -55,6 +74,7 @@ impl Span {
             Span::Panic => panic!("Span::Panic in Span::string"),
             Span::Rust(_) => panic!("Span::Rust cannot track end position"),
             Span::Egglog(span) => &span.file.contents[span.i..span.j],
+            Span::POACH => "From POACH deserialization",
         }
     }
 }
@@ -96,7 +116,8 @@ impl Display for Span {
                         write!(f, "In {}:{}-{}: {quote}", start_line, start_col, end_col)
                     }
                 }
-            }
+            },
+            Span::POACH => write!(f, "From POACH deserialization"),
         }
     }
 }
