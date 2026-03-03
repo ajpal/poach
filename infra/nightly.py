@@ -56,27 +56,7 @@ def benchmark_files(input_dir, recursive = False):
   pattern = "**/*.egg" if recursive else "*.egg"
   return sorted(input_dir.glob(pattern))
 
-if __name__ == "__main__":
-  print("Beginning poach nightly")
-
-  # Suppress egglog warnings (only show errors)
-  os.environ["RUST_LOG"] = "error"
-
-  # determine location of this script
-  script_dir = Path(__file__).resolve().parent
-
-  # Absolute directory paths
-  top_dir = script_dir.parent
-  resource_dir = script_dir / "nightly-resources"
-  nightly_dir = top_dir / "nightly"
-  tmp_dir = nightly_dir / "tmp"
-  output_data_dir = nightly_dir / "output" / "data"
-  aggregator = transform.TimelineAggregator(output_data_dir)
-
-  # Make sure we're in the right place
-  os.chdir(top_dir)
-
-  # Iterate through each benchmark suite:
+def run_timeline_experiments(resource_dir, tmp_dir, aggregator):
   timeline_suites = ["easteregg", "herbie-hamming", "herbie-math-rewrite", "herbie-math-taylor"]
   for suite in timeline_suites:
     for benchmark in benchmark_files(resource_dir / "test-files" / suite):
@@ -85,6 +65,7 @@ if __name__ == "__main__":
       add_benchmark_data(aggregator, timeline_file, f"{suite}/timeline/{benchmark.stem}/timeline.json")
       cleanup_benchmark_files(timeline_file, tmp_dir / "summary.json")
 
+def run_no_io_experiments(resource_dir, tmp_dir, aggregator):
   no_io_suites = ["easteregg", "herbie-hamming", "herbie-math-rewrite"] # herbie-math-taylor runs out of memory
   for suite in no_io_suites:
     for benchmark in benchmark_files(resource_dir / "test-files" / suite):
@@ -93,7 +74,7 @@ if __name__ == "__main__":
       add_benchmark_data(aggregator, timeline_file, f"{suite}/no-io/{benchmark.stem}/timeline.json")
       cleanup_benchmark_files(timeline_file, tmp_dir / "summary.json")
 
-  # Run the egglog tests under each serialization experiemntal treatment:
+def run_test_experiments(top_dir, tmp_dir, aggregator):
   test_modes = [
     ("timeline", "timeline-only"),
     ("sequential", "sequential-round-trip"),
@@ -115,8 +96,7 @@ if __name__ == "__main__":
       }.get(run_mode, [])
       cleanup_benchmark_files(timeline_file, tmp_dir / "summary.json", *extra_files)
 
-  # Mined POACH Experiment
-  # precompute
+def run_mined_experiments(resource_dir, tmp_dir, aggregator):
   mega_serialize_file = tmp_dir / "mega-easteregg-serialize.json"
   mega_timeline_file = tmp_dir / "mega-easteregg-timeline.json"
   run_poach(resource_dir / "mega-easteregg.egg", tmp_dir, "serialize")
@@ -140,6 +120,45 @@ if __name__ == "__main__":
     cleanup_benchmark_files(timeline_file, tmp_dir / "summary.json")
 
   cleanup_benchmark_files(mega_serialize_file, tmp_dir / "summary.json")
+
+if __name__ == "__main__":
+  print("Beginning poach nightly")
+
+  # Suppress egglog warnings (only show errors)
+  os.environ["RUST_LOG"] = "error"
+
+  # determine location of this script
+  script_dir = Path(__file__).resolve().parent
+
+  # Absolute directory paths
+  top_dir = script_dir.parent
+  resource_dir = script_dir / "nightly-resources"
+  nightly_dir = top_dir / "nightly"
+  tmp_dir = nightly_dir / "tmp"
+  output_data_dir = nightly_dir / "output" / "data"
+  aggregator = transform.TimelineAggregator(output_data_dir)
+
+  # Make sure we're in the right place
+  os.chdir(top_dir)
+
+  ##############################################################################
+  #                          run experiments                                   #
+  ##############################################################################
+
+  # Run the benchmarks and record timeline-only data.
+  run_timeline_experiments(resource_dir, tmp_dir, aggregator)
+  
+  # Re-run the benchmarks with JSON round-tripping kept entirely in memory.
+  run_no_io_experiments(resource_dir, tmp_dir, aggregator)
+  
+  # Run the egglog tests under each serialization experiment mode.
+  run_test_experiments(top_dir, tmp_dir, aggregator)
+  
+  # Run the mined-egraph experiment using both per-benchmark and mega-egraph seeds.
+  run_mined_experiments(resource_dir, tmp_dir, aggregator)
+
+  ##############################################################################
+
   aggregator.save()
 
   if shutil.which("perf") is not None:
