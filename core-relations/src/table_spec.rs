@@ -27,6 +27,7 @@ use crate::{
     offsets::{RowId, Subset, SubsetRef},
     pool::{with_pool_set, PoolSet, Pooled},
     row_buffer::{RowBuffer, TaggedRowBuffer},
+    DisplacedTable, DisplacedTableWithProvenance,
     QueryEntry, TableId, Variable,
 };
 
@@ -542,8 +543,15 @@ impl<'de> Deserialize<'de> for WrappedTable {
         D: serde::Deserializer<'de>,
     {
         let inner: Box<dyn Table> = Deserialize::deserialize(deserializer)?;
-
-        let wrapper = wrapper::<SortedWritesTable>(); // todo: different kind of wrapper?
+        let wrapper = if inner.as_any().is::<SortedWritesTable>() {
+            wrapper::<SortedWritesTable>()
+        } else if inner.as_any().is::<DisplacedTable>() {
+            wrapper::<DisplacedTable>()
+        } else if inner.as_any().is::<DisplacedTableWithProvenance>() {
+            wrapper::<DisplacedTableWithProvenance>()
+        } else {
+            return Err(serde::de::Error::custom("unknown table type for WrappedTable"));
+        };
 
         Ok(WrappedTable { inner, wrapper })
     }

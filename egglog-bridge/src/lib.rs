@@ -1135,6 +1135,21 @@ impl EGraph {
         updated
     }
 
+    pub fn restore_deserialized_runtime(&mut self) {
+        let funcs = self
+            .funcs
+            .iter()
+            .map(|(func, info)| (func, info.schema.clone()))
+            .collect::<Vec<_>>();
+        for (func, schema) in funcs {
+            let incremental_rebuild_rules = self.incremental_rebuild_rules(func, &schema);
+            let nonincremental_rebuild_rule = self.nonincremental_rebuild(func, &schema);
+            let info = &mut self.funcs[func];
+            info.incremental_rebuild_rules = incremental_rebuild_rules;
+            info.nonincremental_rebuild_rule = nonincremental_rebuild_rule;
+        }
+    }
+
     pub fn set_report_level(&mut self, level: ReportLevel) {
         self.report_level = level;
     }
