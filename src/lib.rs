@@ -34,8 +34,8 @@ mod serialize_size;
 
 // This is used to allow the `add_primitive` macro to work in
 // both this crate and other crates by referring to `::egglog`.
-extern crate self as egglog;
 extern crate flexbuffers;
+extern crate self as egglog;
 use anyhow::{Context, Result};
 use ast::*;
 pub use ast::{ResolvedExpr, ResolvedFact, ResolvedVar};
@@ -65,8 +65,8 @@ use scheduler::{SchedulerId, SchedulerRecord};
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-pub use serialize_vis::{SerializeConfig, SerializeOutput, SerializedNode};
 use serialize_size::GenerateSizeReport;
+pub use serialize_vis::{SerializeConfig, SerializeOutput, SerializedNode};
 use size::GetSizePrimitive;
 use sort::*;
 use std::any::Any;
@@ -2686,8 +2686,9 @@ impl TimedEgraph {
         //let value = serde_json::to_value(egraph).context("Failed to encode egraph as json")?;
         let mut buf = flexbuffers::FlexbufferSerializer::new();
         // Have to use the fully qualified syntax because egraph has a method called serailize
-        Serialize::serialize(egraph, &mut buf).expect("Failed to serialize the egraph in Flexbuffer");
-        
+        Serialize::serialize(egraph, &mut buf)
+            .expect("Failed to serialize the egraph in Flexbuffer");
+
         timeline.evts.push(EgraphEvent {
             sexp_idx: 0,
             evt: END,
@@ -2704,7 +2705,8 @@ impl TimedEgraph {
             .with_context(|| format!("failed to create file {}", path.display()))?;
         //serde_json::to_writer(BufWriter::new(file), &value)
         //    .context("Failed to write value to file")?;
-        file.write_all(buf.view()).context("Failed to write value to file")?;
+        file.write_all(buf.view())
+            .context("Failed to write value to file")?;
 
         timeline.evts.push(EgraphEvent {
             sexp_idx: 1,
@@ -2732,7 +2734,8 @@ impl TimedEgraph {
         //let value: serde_json::Value =
         //    serde_json::from_reader(reader).context("Failed to read json from file")?;
         let mut buf = Vec::new();
-        file.read_to_end(&mut buf).context("Failed to read Flatbuffer from file")?;
+        file.read_to_end(&mut buf)
+            .context("Failed to read Flatbuffer from file")?;
 
         timeline.evts.push(EgraphEvent {
             sexp_idx: 0,

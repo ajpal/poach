@@ -92,7 +92,7 @@ impl Display for RunMode {
                 RunMode::NoIO => "no-io",
                 RunMode::Extract => "extract",
                 RunMode::Mine => "mine",
-                RunMode::SizeReport => "size-report"
+                RunMode::SizeReport => "size-report",
             }
         )
     }
@@ -658,13 +658,14 @@ fn poach(
             )
         }
         RunMode::SizeReport => process_files(
-                &files,
-                out_dir,
-                initial_egraph.as_deref(),
-                |egg_file, _, timed_egraph| {
-                    timed_egraph.run_from_file(egg_file)?;
-                    timed_egraph.print_size_report()
-                }),
+            &files,
+            out_dir,
+            initial_egraph.as_deref(),
+            |egg_file, _, timed_egraph| {
+                timed_egraph.run_from_file(egg_file)?;
+                timed_egraph.print_size_report()
+            },
+        ),
     }
 }
 
