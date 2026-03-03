@@ -22,9 +22,8 @@ def run_cmd(cmd, msg = "", dry_run = False):
   if not dry_run:
     subprocess.run(cmd, check = True)
 
-def run_poach(in_dir, out_dir, run_mode, extra_args = None, dry_run = False):
+def run_poach(in_dir, out_dir, run_mode, extra_args = [], dry_run = False):
   prefix = "[DRY_RUN]" if dry_run else "[RUN]"
-  extra_args = [] if extra_args is None else extra_args
   cmd = [
     "cargo",
     "run",
@@ -40,9 +39,6 @@ def run_poach(in_dir, out_dir, run_mode, extra_args = None, dry_run = False):
   print(f"{prefix} {' '.join(cmd)}")
   if not dry_run:
     subprocess.run(cmd, check = True)
-
-def benchmark_output_file(tmp_dir, benchmark_name, suffix):
-  return tmp_dir / f"{benchmark_name}-{suffix}.json"
 
 def add_benchmark_data(aggregator, timeline_file, benchmark_key):
   if timeline_file.exists():
@@ -84,7 +80,7 @@ if __name__ == "__main__":
   timeline_suites = ["easteregg", "herbie-hamming", "herbie-math-rewrite", "herbie-math-taylor"]
   for suite in timeline_suites:
     for benchmark in benchmark_files(resource_dir / "test-files" / suite):
-      timeline_file = benchmark_output_file(tmp_dir, benchmark.stem, "timeline")
+      timeline_file = tmp_dir / f"{benchmark.stem}-timeline.json"
       run_poach(benchmark, tmp_dir, "timeline-only")
       add_benchmark_data(aggregator, timeline_file, f"{suite}/timeline/{benchmark.stem}/timeline.json")
       cleanup_benchmark_files(timeline_file, tmp_dir / "summary.json")
@@ -92,7 +88,7 @@ if __name__ == "__main__":
   no_io_suites = ["easteregg", "herbie-hamming", "herbie-math-rewrite"] # herbie-math-taylor runs out of memory
   for suite in no_io_suites:
     for benchmark in benchmark_files(resource_dir / "test-files" / suite):
-      timeline_file = benchmark_output_file(tmp_dir, benchmark.stem, "timeline")
+      timeline_file = tmp_dir / f"{benchmark.stem}-timeline.json"
       run_poach(benchmark, tmp_dir, "no-io")
       add_benchmark_data(aggregator, timeline_file, f"{suite}/no-io/{benchmark.stem}/timeline.json")
       cleanup_benchmark_files(timeline_file, tmp_dir / "summary.json")
@@ -107,28 +103,28 @@ if __name__ == "__main__":
   ]
   for benchmark_name, run_mode in test_modes:
     for benchmark in benchmark_files(top_dir / "tests", recursive = True):
-      timeline_file = benchmark_output_file(tmp_dir, benchmark.stem, "timeline")
+      timeline_file = tmp_dir / f"{benchmark.stem}-timeline.json"
       run_poach(benchmark, tmp_dir, run_mode)
       add_benchmark_data(aggregator, timeline_file, f"tests/{benchmark_name}/{benchmark.stem}/timeline.json")
       extra_files = {
-        "sequential-round-trip": [benchmark_output_file(tmp_dir, benchmark.stem, "serialize1")],
+        "sequential-round-trip": [tmp_dir / f"{benchmark.stem}-serialize1.json"],
         "old-serialize": [
-          benchmark_output_file(tmp_dir, benchmark.stem, "serialize-poach"),
-          benchmark_output_file(tmp_dir, benchmark.stem, "serialize-old"),
+          tmp_dir / f"{benchmark.stem}-serialize-poach.json",
+          tmp_dir / f"{benchmark.stem}-serialize-old.json",
         ],
       }.get(run_mode, [])
       cleanup_benchmark_files(timeline_file, tmp_dir / "summary.json", *extra_files)
 
   # Mined POACH Experiment
   # precompute
-  mega_serialize_file = benchmark_output_file(tmp_dir, "mega-easteregg", "serialize")
-  mega_timeline_file = benchmark_output_file(tmp_dir, "mega-easteregg", "timeline")
+  mega_serialize_file = tmp_dir / "mega-easteregg-serialize.json"
+  mega_timeline_file = tmp_dir / "mega-easteregg-timeline.json"
   run_poach(resource_dir / "mega-easteregg.egg", tmp_dir, "serialize")
   add_benchmark_data(aggregator, mega_timeline_file, "easteregg/serialize/mega-easteregg/timeline.json")
   cleanup_benchmark_files(mega_timeline_file, tmp_dir / "summary.json")
   for benchmark in benchmark_files(resource_dir / "test-files" / "easteregg"):
-    timeline_file = benchmark_output_file(tmp_dir, benchmark.stem, "timeline")
-    serialize_file = benchmark_output_file(tmp_dir, benchmark.stem, "serialize")
+    timeline_file = tmp_dir / f"{benchmark.stem}-timeline.json"
+    serialize_file = tmp_dir / f"{benchmark.stem}-serialize.json"
     run_poach(benchmark, tmp_dir, "serialize")
     add_benchmark_data(aggregator, timeline_file, f"easteregg/serialize/{benchmark.stem}/timeline.json")
     cleanup_benchmark_files(timeline_file, tmp_dir / "summary.json")
