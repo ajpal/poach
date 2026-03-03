@@ -279,6 +279,10 @@ impl Table for DisplacedTable {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
     fn spec(&self) -> TableSpec {
         let mut uncacheable_columns = DenseIdMap::default();
         // The second column of this table is determined dynamically by the union-find.
@@ -880,6 +884,10 @@ impl Table for DisplacedTableWithProvenance {
         Box::new(self.clone())
     }
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
     fn clear(&mut self) {

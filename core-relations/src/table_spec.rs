@@ -184,6 +184,9 @@ pub trait Table: Any + Send + Sync {
     /// `self`.
     fn as_any(&self) -> &dyn Any;
 
+    /// A mutable variant of [`Table::as_any`] for downcasting.
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+
     /// The schema of the table.
     ///
     /// These are immutable properties of the table; callers can assume they
@@ -570,6 +573,10 @@ impl WrappedTable {
             inner: self.inner.dyn_clone(),
             wrapper: self.wrapper.dyn_clone(),
         }
+    }
+
+    pub fn as_any_mut(&mut self) -> &mut dyn Any {
+        self.inner.as_any_mut()
     }
 
     pub(crate) fn as_ref(&self) -> WrappedTableRef<'_> {

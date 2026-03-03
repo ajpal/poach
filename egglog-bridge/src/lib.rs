@@ -768,6 +768,7 @@ impl EGraph {
             incremental_rebuild_rules: Default::default(),
             nonincremental_rebuild_rule: RuleId::new(!0),
             default_val: default,
+            merge: merge.clone(),
             can_subsume,
             name,
         });
@@ -1139,9 +1140,31 @@ impl EGraph {
         let funcs = self
             .funcs
             .iter()
-            .map(|(func, info)| (func, info.schema.clone()))
+            .map(|(func, info)| {
+                (
+                    func,
+                    info.table,
+                    info.schema.clone(),
+                    info.can_subsume,
+                    info.name.clone(),
+                    info.merge.clone(),
+                )
+            })
             .collect::<Vec<_>>();
-        for (func, schema) in funcs {
+        for (func, table_id, schema, can_subsume, name, merge) in funcs {
+            let schema_math = SchemaMath {
+                tracing: self.tracing,
+                subsume: can_subsume,
+                func_cols: schema.len(),
+            };
+            let merge_fn = merge.to_callback(schema_math, &name, self);
+            let table = self
+                .db
+                .get_table_mut(table_id)
+                .as_any_mut()
+                .downcast_mut::<SortedWritesTable>()
+                .expect("function tables must use SortedWritesTable");
+            table.set_merge(merge_fn);
             let incremental_rebuild_rules = self.incremental_rebuild_rules(func, &schema);
             let nonincremental_rebuild_rule = self.nonincremental_rebuild(func, &schema);
             let info = &mut self.funcs[func];
@@ -1178,6 +1201,7 @@ struct FunctionInfo {
     incremental_rebuild_rules: Vec<RuleId>,
     nonincremental_rebuild_rule: RuleId,
     default_val: DefaultVal,
+    merge: MergeFn,
     can_subsume: bool,
     name: Arc<str>,
 }
@@ -1200,6 +1224,7 @@ pub enum DefaultVal {
 }
 
 /// How to resolve FD conflicts for a table.
+#[derive(Clone, Serialize, Deserialize)]
 pub enum MergeFn {
     /// Panic if the old and new values don't match.
     AssertEq,
