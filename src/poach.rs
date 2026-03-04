@@ -67,8 +67,10 @@ enum RunMode {
 
     // Requires initial-egraph to be provided via Args
     // For each egg file under the input path,
-    //      Deserialize the initial egraph
-    //      Run the egglog program, skipping declarations of Sorts and Rules
+    //      Run the egglog program from a fresh egraph and record extract outputs.
+    //      Deserialize the initial egraph.
+    //      Run the egglog program, skipping declarations of Sorts and Rules.
+    //      Compare extract outputs between the two runs.
     //      Save the completed timeline, for consumption by the nightly frontend
     Mine,
 }
@@ -467,6 +469,25 @@ fn poach(
                 out_dir,
                 initial_egraph.as_deref(),
                 |egg_file, out_dir, timed_egraph| {
+                    let extract_outputs = |outputs: Vec<CommandOutput>| {
+                        outputs
+                            .into_iter()
+                            .filter(|x| {
+                                matches!(
+                                    x,
+                                    CommandOutput::ExtractBest(_, _, _)
+                                        | CommandOutput::ExtractVariants(_, _)
+                                        | CommandOutput::MultiExtractVariants(_, _)
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                    };
+
+                    // First, run the file on a blank e-graph and track extracts
+                    let mut fresh_egraph = TimedEgraph::new();
+                    let outputs = fresh_egraph.run_from_file(egg_file)?;
+                    let fresh_extracts = extract_outputs(outputs);
+
                     // Namespace to avoid shadowing
                     #[derive(Default)]
                     struct Namespace {
@@ -478,7 +499,7 @@ fn poach(
                             if self.map.contains_key(&name) {
                                 panic!("duplicate variable names")
                             } else {
-                                let namespaced = format!("@@{name}");
+                                let namespaced = format!("{name}@@");
                                 self.map.insert(name.clone(), namespaced.clone());
                                 namespaced
                             }
@@ -636,7 +657,8 @@ fn poach(
                         })
                         .unzip();
 
-                    timed_egraph.run_program_with_timeline(
+                    // Run program on the mined e-graph
+                    let mined_outputs = timed_egraph.run_program_with_timeline(
                         filtered_cmds,
                         &filtered_sexps
                             .iter()
@@ -644,6 +666,10 @@ fn poach(
                             .collect::<Vec<_>>()
                             .join("\n"),
                     )?;
+
+                    let mined_extracts = extract_outputs(mined_outputs);
+
+                    compare_extracts(&fresh_extracts, &mined_extracts)?;
 
                     timed_egraph.write_timeline(out_dir)?;
 
