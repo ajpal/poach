@@ -53,3 +53,19 @@ function getCmdType(cmd) {
     return "other";
   }
 }
+
+function aggregateTimelinesByCommand(timelines) {
+  const times = {
+    ...Object.fromEntries(CMDS.map((cmd) => [cmd, []])),
+    other: [],
+  };
+
+  (timelines || []).forEach(({ events, sexps }) => {
+    (events || []).forEach((timeMicros, idx) => {
+      const cmd = getCmd((sexps || [])[idx] || "");
+      times[getCmdType(cmd)].push(timeMicros / 1000);
+    });
+  });
+
+  return times;
+}
