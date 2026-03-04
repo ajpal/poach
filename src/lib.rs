@@ -2497,9 +2497,10 @@ impl TimedEgraph {
         self.egraphs.iter().map(|x| x).collect()
     }
 
-    pub fn write_timeline(&self, dir: &PathBuf) -> Result<(), serde_json::Error> {
-        fs::create_dir_all(dir).expect("Failed to create out dir");
-        let path = dir.join("timeline.json");
+    pub fn write_timeline(&self, path: &Path) -> Result<(), serde_json::Error> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("Failed to create out dir");
+        }
         let file = File::create(&path).expect("Failed to create timeline.json");
         serde_json::to_writer_pretty(BufWriter::new(file), &self.timeline)
     }

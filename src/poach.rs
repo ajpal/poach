@@ -10,7 +10,7 @@ use hashbrown::HashMap;
 use serde::Serialize;
 
 use std::fmt::{Debug, Display};
-use std::fs::{self, create_dir_all, read_to_string, File};
+use std::fs::{self, read_to_string, File};
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
@@ -140,11 +140,19 @@ fn check_idempotent(p1: &PathBuf, p2: &PathBuf, name: &str, out_dir: &PathBuf) {
     .expect(&format!("failed to parse {}", p2.display()));
 
     if let Some(diff) = serde_json_diff::values(json1, json2) {
-        let file = fs::File::create(out_dir.join("diff.json")).expect("Failed to create diff file");
+        let file = fs::File::create(out_dir.join(format!("{name}-diff.json")))
+            .expect("Failed to create diff file");
         serde_json::to_writer_pretty(BufWriter::new(file), &diff)
             .expect("failed to serialize diff");
         panic!("Diff for {}", name)
     }
+}
+
+fn benchmark_name(egg_file: &Path) -> &str {
+    egg_file
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("unknown")
 }
 
 fn process_files<F>(
@@ -163,21 +171,18 @@ where
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("unknown");
-        let out_dir = out_dir.join(file.file_stem().unwrap().to_str().unwrap());
-
-        create_dir_all(&out_dir).expect("Failed to create out dir");
 
         let mut timed_egraph = if let Some(path) = initial_egraph {
             if path.is_file() {
                 TimedEgraph::new_from_file(path)
             } else {
-                TimedEgraph::new_from_file(&path.join(format!("{name}/serialize.json")))
+                TimedEgraph::new_from_file(&path.join(format!("{name}-serialize.json")))
             }
         } else {
             TimedEgraph::new()
         };
 
-        match f(file, &out_dir, &mut timed_egraph) {
+        match f(file, out_dir, &mut timed_egraph) {
             Ok(_) => {
                 successes.push(name.to_string());
                 println!("[{}/{}] {} : SUCCESS", idx + 1, files.len(), name)
@@ -249,8 +254,9 @@ fn poach(
             out_dir,
             initial_egraph.as_deref(),
             |egg_file, out_dir, timed_egraph| {
+                let name = benchmark_name(egg_file);
                 timed_egraph.run_from_file(egg_file)?;
-                timed_egraph.write_timeline(out_dir)?;
+                timed_egraph.write_timeline(&out_dir.join(format!("{name}-timeline.json")))?;
 
                 Ok(())
             },
@@ -261,9 +267,10 @@ fn poach(
             out_dir,
             initial_egraph.as_deref(),
             |egg_file, out_dir, timed_egraph| {
+                let name = benchmark_name(egg_file);
                 timed_egraph.run_from_file(egg_file)?;
-                timed_egraph.to_file(&out_dir.join("serialize.json"))?;
-                timed_egraph.write_timeline(out_dir)?;
+                timed_egraph.to_file(&out_dir.join(format!("{name}-serialize.json")))?;
+                timed_egraph.write_timeline(&out_dir.join(format!("{name}-timeline.json")))?;
                 Ok(())
             },
         ),
@@ -273,8 +280,9 @@ fn poach(
             out_dir,
             initial_egraph.as_deref(),
             |egg_file, out_dir: &PathBuf, timed_egraph| {
+                let name = benchmark_name(egg_file);
                 timed_egraph.run_from_file(egg_file)?;
-                let s1 = out_dir.join("serialize1.json");
+                let s1 = out_dir.join(format!("{name}-serialize1.json"));
 
                 timed_egraph
                     .to_file(&s1)
@@ -288,7 +296,7 @@ fn poach(
 
                 check_egraph_size(&timed_egraph)?;
 
-                timed_egraph.write_timeline(out_dir)?;
+                timed_egraph.write_timeline(&out_dir.join(format!("{name}-timeline.json")))?;
                 Ok(())
             },
         ),
@@ -298,14 +306,11 @@ fn poach(
             out_dir,
             initial_egraph.as_deref(),
             |egg_file, out_dir, timed_egraph| {
-                let name = egg_file
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("unknown");
+                let name = benchmark_name(egg_file);
                 timed_egraph.run_from_file(egg_file)?;
-                let s1 = out_dir.join("serialize1.json");
-                let s2 = out_dir.join("serialize2.json");
-                let s3 = out_dir.join("serialize3.json");
+                let s1 = out_dir.join(format!("{name}-serialize1.json"));
+                let s2 = out_dir.join(format!("{name}-serialize2.json"));
+                let s3 = out_dir.join(format!("{name}-serialize3.json"));
 
                 timed_egraph
                     .to_file(&s1)
@@ -333,9 +338,9 @@ fn poach(
 
                 check_egraph_number(&timed_egraph, 4)?;
                 check_egraph_size(&timed_egraph)?;
-                check_idempotent(&s2, &s3, name, &out_dir);
+                check_idempotent(&s2, &s3, name, out_dir);
 
-                timed_egraph.write_timeline(out_dir)?;
+                timed_egraph.write_timeline(&out_dir.join(format!("{name}-timeline.json")))?;
                 Ok(())
             },
         ),
@@ -345,17 +350,18 @@ fn poach(
             out_dir,
             initial_egraph.as_deref(),
             |egg_file, out_dir, timed_egraph| {
+                let name = benchmark_name(egg_file);
                 timed_egraph.run_from_file(egg_file)?;
 
                 timed_egraph
-                    .to_file(&out_dir.join("serialize-poach.json"))
+                    .to_file(&out_dir.join(format!("{name}-serialize-poach.json")))
                     .context("failed to write poach.json")?;
 
                 timed_egraph
-                    .old_serialize_egraph(&out_dir.join("serialize-old.json"))
+                    .old_serialize_egraph(&out_dir.join(format!("{name}-serialize-old.json")))
                     .context("Failed to serialize old.json")?;
 
-                timed_egraph.write_timeline(out_dir)?;
+                timed_egraph.write_timeline(&out_dir.join(format!("{name}-timeline.json")))?;
                 Ok(())
             },
         ),
@@ -365,6 +371,7 @@ fn poach(
             out_dir,
             initial_egraph.as_deref(),
             |egg_file, out_dir, timed_egraph| {
+                let name = benchmark_name(egg_file);
                 timed_egraph.run_from_file(egg_file)?;
 
                 let value = timed_egraph
@@ -379,7 +386,7 @@ fn poach(
 
                 check_egraph_size(&timed_egraph)?;
 
-                timed_egraph.write_timeline(out_dir)?;
+                timed_egraph.write_timeline(&out_dir.join(format!("{name}-timeline.json")))?;
 
                 Ok(())
             },
@@ -390,6 +397,7 @@ fn poach(
             out_dir,
             initial_egraph.as_deref(),
             |egg_file, out_dir, timed_egraph| {
+                let name = benchmark_name(egg_file);
                 let initial_outputs = timed_egraph.run_from_file(egg_file)?;
 
                 let initial_extracts: Vec<CommandOutput> = initial_outputs
@@ -451,7 +459,7 @@ fn poach(
 
                 compare_extracts(&initial_extracts, &final_extracts)?;
 
-                timed_egraph.write_timeline(out_dir)?;
+                timed_egraph.write_timeline(&out_dir.join(format!("{name}-timeline.json")))?;
 
                 Ok(())
             },
@@ -467,6 +475,7 @@ fn poach(
                 out_dir,
                 initial_egraph.as_deref(),
                 |egg_file, out_dir, timed_egraph| {
+                    let name = benchmark_name(egg_file);
                     // Namespace to avoid shadowing
                     #[derive(Default)]
                     struct Namespace {
@@ -645,7 +654,7 @@ fn poach(
                             .join("\n"),
                     )?;
 
-                    timed_egraph.write_timeline(out_dir)?;
+                    timed_egraph.write_timeline(&out_dir.join(format!("{name}-timeline.json")))?;
 
                     Ok(())
                 },
@@ -664,7 +673,7 @@ fn main() {
     let input_path = args.input_path.clone();
     let output_dir = args.output_dir;
 
-    create_dir_all(&output_dir).expect("Failed to create output directory");
+    fs::create_dir_all(&output_dir).expect("Failed to create output directory");
 
     let entries = if input_path.is_file() {
         if input_path.extension().and_then(|s| s.to_str()) == Some("egg") {
