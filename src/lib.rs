@@ -2591,6 +2591,17 @@ impl TimedEgraph {
         Ok(outputs)
     }
 
+    pub fn run_from_string(&mut self, program_text: &str) -> Result<Vec<CommandOutput>> {
+        let parsed_commands = self
+            .egraphs
+            .last_mut()
+            .expect("There are no egraphs")
+            .parser
+            .get_program_from_string(None, program_text)?;
+
+        Ok(self.run_program_with_timeline(parsed_commands, program_text)?)
+    }
+
     pub fn run_program_with_timeline(
         &mut self,
         program: Vec<Command>,

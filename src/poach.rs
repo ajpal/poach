@@ -696,3 +696,43 @@ fn main() {
         File::create(output_dir.join("summary.json")).expect("Failed to create summary.json");
     serde_json::to_writer_pretty(BufWriter::new(file), &out).expect("failed to write summary.json");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn run_rules_after_deserialize() {
+        let mut timed_egraph = TimedEgraph::new();
+        let program = r#"
+            (function fib (i64) i64 :no-merge)
+            (set (fib 0) 0)
+            (set (fib 1) 1)
+
+            (rule ((= f0 (fib x))
+                   (= f1 (fib (+ x 1))))
+                  ((set (fib (+ x 2)) (+ f0 f1))))
+
+            (run 2)
+
+            (check (= (fib 3) 2))
+            (fail (check (= (fib 4) 3)))
+        "#;
+
+        let res = timed_egraph.run_from_string(program);
+        assert!(res.is_ok());
+
+        // round trip serialize
+        let v = timed_egraph.to_value().expect("failed to serialize");
+        timed_egraph.from_value(v).expect("failed to deserialize");
+
+        let second_run = r#"
+            (fail (check (= (fib 4) 3)))
+            (run 1)
+            (check (= (fib 4) 3))
+        "#;
+
+        let res2 = timed_egraph.run_from_string(second_run);
+        assert!(res2.is_ok());
+    }
+}
