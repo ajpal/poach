@@ -1,5 +1,5 @@
 function initialize() {
-  Promise.all([initializeGlobalData(), loadMineExtracts()])
+  Promise.all([initializeGlobalData(), loadMineData()])
     .then(initializeCharts)
     .then(() => {
       plotMine();
@@ -7,53 +7,48 @@ function initialize() {
     });
 }
 
-function loadMineExtracts() {
-  return fetch("data/mine-extracts.json")
+function loadMineData() {
+  return fetch("data/mine-data.json")
     .then((response) => response.json())
     .then((data) => {
-      GLOBAL_DATA.mineExtracts = data;
+      GLOBAL_DATA.mineData = data;
     })
     .catch((error) => {
-      console.error("Failed to load mine-extracts.json", error);
-      GLOBAL_DATA.mineExtracts = {};
+      console.error("Failed to load mine-data.json", error);
+      GLOBAL_DATA.mineData = {};
     });
 }
 
 function plotMine() {
-  const mega_mined = GLOBAL_DATA.data.easteregg["mine-mega"];
-  const indiv_mined = GLOBAL_DATA.data.easteregg["mine-indiv"];
-  const baseline = GLOBAL_DATA.data.easteregg.timeline;
-
   if (GLOBAL_DATA.minedChart === null) {
     return;
   }
 
-  const benchmarks = Object.keys(baseline);
-
-  const data = {};
-
-  benchmarks.forEach((b) => {
-    data[b] = {};
-
-    data[b].baseline = benchmarkTotalTime(baseline[b]);
-    data[b].mega_mined = benchmarkTotalTime(mega_mined[b]);
-    data[b].indiv_mined = benchmarkTotalTime(indiv_mined[b]);
-  });
+  const benchmarks = Object.keys(GLOBAL_DATA.mineData).sort();
 
   GLOBAL_DATA.minedChart.data = {
     labels: benchmarks,
     datasets: [
       {
         label: "baseline",
-        data: Object.values(data).map((d) => d.baseline),
+        data: benchmarks.map((b) =>
+          runtimeMsFromTimelines(
+            GLOBAL_DATA.mineData[b].baseline_timeline,
+            new Set(["serialize", "write"]),
+          ),
+        ),
       },
       {
         label: "mined (mega)",
-        data: Object.values(data).map((d) => d.mega_mined),
+        data: benchmarks.map((b) =>
+          runtimeMsFromTimelines(GLOBAL_DATA.mineData[b].mine_mega_timeline),
+        ),
       },
       {
         label: "mined (indiv)",
-        data: Object.values(data).map((d) => d.indiv_mined),
+        data: benchmarks.map((b) =>
+          runtimeMsFromTimelines(GLOBAL_DATA.mineData[b].mine_indiv_timeline),
+        ),
       },
     ],
   };
@@ -67,10 +62,10 @@ function renderMineSummaryTable() {
     return;
   }
 
-  const summaries = GLOBAL_DATA.mineExtracts["mine-mega"] || {};
-  const rows = Object.entries(summaries)
+  const rows = Object.entries(GLOBAL_DATA.mineData)
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([benchmarkName, entries]) => {
+    .map(([benchmarkName, data]) => {
+      const entries = data.mine_mega_extracts || [];
       const extractCount = entries.length;
       const initialTotal = entries.reduce(
         (sum, entry) => sum + entry.initial_cost,
@@ -83,17 +78,32 @@ function renderMineSummaryTable() {
       const avgInitialCost =
         extractCount === 0 ? 0 : initialTotal / extractCount;
       const avgFinalCost = extractCount === 0 ? 0 : finalTotal / extractCount;
-      const avgCostDifference = avgInitialCost - avgFinalCost;
       return `
         <tr>
           <td>${benchmarkName}</td>
           <td>${extractCount}</td>
           <td>${avgInitialCost}</td>
           <td>${avgFinalCost}</td>
-          <td>${avgCostDifference}</td>
+          <td>${avgInitialCost - avgFinalCost}</d>
         </tr>
       `;
     });
 
   tableBody.innerHTML = rows.join("\n");
+}
+
+function runtimeMsFromTimelines(timelines, ignoredCmdTypes = new Set()) {
+  return (
+    aggregate(
+      (timelines || []).flatMap((timeline) =>
+        (timeline.events || [])
+          .map((timeMicros, i) => {
+            const cmdType = getCmdType(getCmd((timeline.sexps || [])[i] || ""));
+            return ignoredCmdTypes.has(cmdType) ? null : timeMicros;
+          })
+          .filter((timeMicros) => timeMicros !== null),
+      ),
+      "total",
+    ) / 1000
+  );
 }

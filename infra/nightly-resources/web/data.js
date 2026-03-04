@@ -59,7 +59,7 @@ function initializeGlobalData() {
   GLOBAL_DATA.extractChart = null;
   GLOBAL_DATA.differenceChart = null;
   GLOBAL_DATA.minedChart = null;
-  GLOBAL_DATA.mineExtracts = {};
+  GLOBAL_DATA.mineData = {};
 
   return fetch("data/data.json")
     .then((response) => response.json())
