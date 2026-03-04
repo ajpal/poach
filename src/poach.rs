@@ -102,10 +102,7 @@ struct Args {
     output_dir: PathBuf,
     run_mode: RunMode,
 
-    // If this is a single file, it will be used as the initial egraph for
-    // every file in the input_path directory
-    // If it is a directory, we will look for a file matching the name of each
-    // file in the input_path directory
+    // Path to an initial serialized egraph file to load before running each benchmark.
     #[arg(long)]
     initial_egraph: Option<PathBuf>,
 }
@@ -176,11 +173,7 @@ where
             .unwrap_or("unknown");
 
         let mut timed_egraph = if let Some(path) = initial_egraph {
-            if path.is_file() {
-                TimedEgraph::new_from_file(path)
-            } else {
-                TimedEgraph::new_from_file(&path.join(format!("{name}-serialize.json")))
-            }
+            TimedEgraph::new_from_file(path)
         } else {
             TimedEgraph::new()
         };

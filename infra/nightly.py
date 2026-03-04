@@ -45,13 +45,12 @@ def add_benchmark_data(aggregator, timeline_file, benchmark_key):
   if timeline_file.exists():
     aggregator.add_file(timeline_file, benchmark_key)
 
-def remove_file(path):
-  if path.exists():
-    path.unlink()
-
-def cleanup_benchmark_files(*paths):
-  for path in paths:
-    remove_file(path)
+def cleanup_benchmark_files(tmp_dir):
+  for path in tmp_dir.iterdir():
+    if path.is_dir():
+      shutil.rmtree(path)
+    else:
+      path.unlink()
 
 def benchmark_files(input_dir, recursive = False):
   pattern = "**/*.egg" if recursive else "*.egg"
@@ -64,7 +63,7 @@ def run_timeline_experiments(resource_dir, tmp_dir, aggregator):
       timeline_file = tmp_dir / f"{benchmark.stem}-timeline.json"
       run_poach(benchmark, tmp_dir, "timeline-only")
       add_benchmark_data(aggregator, timeline_file, f"{suite}/timeline/{benchmark.stem}/timeline.json")
-      cleanup_benchmark_files(timeline_file, tmp_dir / "summary.json")
+      cleanup_benchmark_files(tmp_dir)
 
 def run_no_io_experiments(resource_dir, tmp_dir, aggregator):
   no_io_suites = ["easteregg", "herbie-hamming", "herbie-math-rewrite"] # herbie-math-taylor runs out of memory
@@ -73,7 +72,7 @@ def run_no_io_experiments(resource_dir, tmp_dir, aggregator):
       timeline_file = tmp_dir / f"{benchmark.stem}-timeline.json"
       run_poach(benchmark, tmp_dir, "no-io")
       add_benchmark_data(aggregator, timeline_file, f"{suite}/no-io/{benchmark.stem}/timeline.json")
-      cleanup_benchmark_files(timeline_file, tmp_dir / "summary.json")
+      cleanup_benchmark_files(tmp_dir)
 
 def run_test_experiments(top_dir, tmp_dir, aggregator):
   test_modes = [
@@ -88,48 +87,39 @@ def run_test_experiments(top_dir, tmp_dir, aggregator):
       timeline_file = tmp_dir / f"{benchmark.stem}-timeline.json"
       run_poach(benchmark, tmp_dir, run_mode)
       add_benchmark_data(aggregator, timeline_file, f"tests/{benchmark_name}/{benchmark.stem}/timeline.json")
-      extra_files = {
-        "sequential-round-trip": [tmp_dir / f"{benchmark.stem}-serialize1.json"],
-        "old-serialize": [
-          tmp_dir / f"{benchmark.stem}-serialize-poach.json",
-          tmp_dir / f"{benchmark.stem}-serialize-old.json",
-        ],
-      }.get(run_mode, [])
-      cleanup_benchmark_files(timeline_file, tmp_dir / "summary.json", *extra_files)
+      cleanup_benchmark_files(tmp_dir)
 
 def run_mined_experiments(resource_dir, tmp_dir, aggregator):
   mine_extracts = {"mine-indiv": {}, "mine-mega": {}}
-  mega_serialize_file = tmp_dir / "mega-easteregg-serialize.json"
-  mega_timeline_file = tmp_dir / "mega-easteregg-timeline.json"
-  run_poach(resource_dir / "mega-easteregg.egg", tmp_dir, "serialize")
-  add_benchmark_data(aggregator, mega_timeline_file, "easteregg/serialize/mega-easteregg/timeline.json")
-  cleanup_benchmark_files(mega_timeline_file, tmp_dir / "summary.json")
+  mega_seed_dir = tmp_dir.parent / "cache"
+  mega_seed_dir.mkdir(exist_ok = True)
+  mega_serialize_file = mega_seed_dir / "mega-easteregg-serialize.json"
+  mega_timeline_file = mega_seed_dir / "mega-easteregg-timeline.json"
+  run_poach(resource_dir / "mega-easteregg.egg", mega_seed_dir, "serialize")
+
   for benchmark in benchmark_files(resource_dir / "test-files" / "easteregg"):
     timeline_file = tmp_dir / f"{benchmark.stem}-timeline.json"
-    serialize_file = tmp_dir / f"{benchmark.stem}-serialize.json"
-    run_poach(benchmark, tmp_dir, "serialize")
-    add_benchmark_data(aggregator, timeline_file, f"easteregg/serialize/{benchmark.stem}/timeline.json")
-    cleanup_benchmark_files(timeline_file, tmp_dir / "summary.json")
-
-    run_poach(benchmark, tmp_dir, "mine",
-      ["--initial-egraph=" + str(tmp_dir)])
     mine_extract_file = tmp_dir / "mine-extracts.json"
-    if mine_extract_file.exists():
-      with open(mine_extract_file) as file:
-        mine_extracts["mine-indiv"].update(json.load(file))
-    add_benchmark_data(aggregator, timeline_file, f"easteregg/mine-indiv/{benchmark.stem}/timeline.json")
-    cleanup_benchmark_files(timeline_file, serialize_file, mine_extract_file, tmp_dir / "summary.json")
 
+    # First, make sure we have a serialized e-graph for the benchmark
+    run_poach(benchmark, tmp_dir, "serialize")
+
+    # Mine Individual: Run the file starting from the serialized e-graph for the benchmark
+    run_poach(benchmark, tmp_dir, "mine",
+      ["--initial-egraph=" + str(tmp_dir / f"{benchmark.stem}-serialize.json")])
+    with open(mine_extract_file) as file:
+      mine_extracts["mine-indiv"].update(json.load(file))
+    add_benchmark_data(aggregator, timeline_file, f"easteregg/mine-indiv/{benchmark.stem}/timeline.json")
+
+    # Mine Mega: Run the file starting from the mega e-graph for all of easteregg
     run_poach(benchmark, tmp_dir, "mine",
       ["--initial-egraph=" + str(mega_serialize_file)])
-    if mine_extract_file.exists():
-      with open(mine_extract_file) as file:
-        mine_extracts["mine-mega"].update(json.load(file))
+    with open(mine_extract_file) as file:
+      mine_extracts["mine-mega"].update(json.load(file))
     add_benchmark_data(aggregator, timeline_file, f"easteregg/mine-mega/{benchmark.stem}/timeline.json")
-    cleanup_benchmark_files(timeline_file, mine_extract_file, tmp_dir / "summary.json")
+    cleanup_benchmark_files(tmp_dir)
 
   transform.save_json(aggregator.output_dir / "mine-extracts.json", mine_extracts)
-  cleanup_benchmark_files(mega_serialize_file, tmp_dir / "summary.json")
 
 if __name__ == "__main__":
   print("Beginning poach nightly")
