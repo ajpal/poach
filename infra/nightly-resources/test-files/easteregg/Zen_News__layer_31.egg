@@ -113,4 +113,4 @@
   ;; (repeat 1 (run simp))
   (saturate (run opt)))
 
-(multi-extract 0 $test)
+(multi-extract 1 $test)
