@@ -5,12 +5,12 @@ use std::{
     mem::{self, MaybeUninit},
     ops::Deref,
     sync::{
-        Mutex,
         atomic::{AtomicUsize, Ordering},
+        Mutex,
     },
 };
 
-use serde::{Deserialize, Deserializer, Serialize, ser::SerializeSeq};
+use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize};
 
 use crate::{MutexReader, ReadOptimizedLock};
 

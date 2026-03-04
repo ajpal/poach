@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use linux_perf_data::linux_perf_event_reader::{EventRecord, SamplingPolicy};
 use linux_perf_data::{PerfFileReader, PerfFileRecord};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
@@ -71,6 +71,8 @@ struct BenchmarkSummary {
     suite: String,
     benchmark: String,
     file: String,
+    final_num_tuples: Option<u64>,
+    final_num_eclasses: Option<u64>,
     sample_record_count: u64,
     parsed_event_record_count: u64,
     root: MetricSummary,
@@ -109,6 +111,12 @@ struct SuiteAccumulator {
     root_period: u64,
     callee_samples: Vec<u64>,
     callee_periods: Vec<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct EgraphSizeSidecar {
+    final_num_tuples: Option<u64>,
+    final_num_eclasses: Option<u64>,
 }
 
 fn find_perf_files(perf_dir: &Path) -> Vec<PathBuf> {
@@ -164,6 +172,43 @@ fn benchmark_identity(perf_dir: &Path, perf_data_path: &Path) -> Result<(String,
     let benchmark = benchmark_segments.join("/");
     let benchmark_key = format!("{suite}/{benchmark}");
     Ok((suite, benchmark, benchmark_key))
+}
+
+fn egraph_size_sidecar_path(perf_data_path: &Path) -> Option<PathBuf> {
+    let file_name = perf_data_path.file_name()?.to_str()?;
+    let benchmark_base = file_name.strip_suffix(".perf.data")?;
+    Some(perf_data_path.with_file_name(format!("{benchmark_base}.egraph-size.json")))
+}
+
+fn read_egraph_size_sidecar(perf_data_path: &Path) -> Option<EgraphSizeSidecar> {
+    let sidecar_path = egraph_size_sidecar_path(perf_data_path)?;
+    if !sidecar_path.is_file() {
+        return None;
+    }
+
+    let sidecar_file = match File::open(&sidecar_path) {
+        Ok(file) => file,
+        Err(err) => {
+            eprintln!(
+                "WARNING: could not open size sidecar {}: {}",
+                sidecar_path.display(),
+                err
+            );
+            return None;
+        }
+    };
+
+    match serde_json::from_reader(BufReader::new(sidecar_file)) {
+        Ok(parsed) => Some(parsed),
+        Err(err) => {
+            eprintln!(
+                "WARNING: could not parse size sidecar {}: {}",
+                sidecar_path.display(),
+                err
+            );
+            None
+        }
+    }
 }
 
 fn sampling_policy_to_parts(policy: SamplingPolicy) -> (Option<u64>, String) {
@@ -431,6 +476,10 @@ fn main() -> Result<()> {
         let (suite, benchmark, benchmark_key) = benchmark_identity(&args.perf_dir, perf_file)?;
         let (sample_record_count, parsed_event_record_count, file_meta) =
             count_sample_records_and_meta(perf_file)?;
+        let (final_num_tuples, final_num_eclasses) = match read_egraph_size_sidecar(perf_file) {
+            Some(size) => (size.final_num_tuples, size.final_num_eclasses),
+            None => (None, None),
+        };
         let focus = analyze_function_focus_with_perf_script(
             perf_file,
             &args.root_symbol,
@@ -478,6 +527,8 @@ fn main() -> Result<()> {
                 suite: suite.clone(),
                 benchmark,
                 file: perf_file.display().to_string(),
+                final_num_tuples,
+                final_num_eclasses,
                 sample_record_count,
                 parsed_event_record_count,
                 root,

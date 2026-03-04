@@ -104,6 +104,8 @@ function normalizeLegacySummary(rawSummary) {
       suite: identity.suite,
       benchmark: identity.benchmark,
       file: entry.file ?? "",
+      final_num_tuples: null,
+      final_num_eclasses: null,
       sample_record_count: entry.sample_record_count ?? 0,
       parsed_event_record_count: entry.parsed_event_record_count ?? 0,
       root: {
@@ -340,6 +342,8 @@ function renderBenchmarksTable(summary) {
       <tr>
         <th class="cell-text">Benchmark</th>
         <th class="cell-text">Suite</th>
+        <th>Tuples</th>
+        <th>Eclasses</th>
         <th>All samples</th>
         <th>All est.</th>
         <th>Root samples</th>
@@ -358,6 +362,8 @@ function renderBenchmarksTable(summary) {
             <tr>
               <td class="cell-text">${benchmarkKey}</td>
               <td class="cell-text">${benchmark.suite}</td>
+              <td>${formatNumber(benchmark.final_num_tuples)}</td>
+              <td>${formatNumber(benchmark.final_num_eclasses)}</td>
               <td>${formatNumber(allSamples)}</td>
               <td>${formatMs(allEstimatedMs)}</td>
               <td>${formatNumber(rootSamples)}</td>

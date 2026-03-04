@@ -6,7 +6,7 @@ use crate::{
 };
 use fixedbitset::FixedBitSet;
 use serde::{Deserialize, Serialize};
-use smallvec::{SmallVec, smallvec};
+use smallvec::{smallvec, SmallVec};
 
 use crate::{
     common::{HashMap, HashSet, IndexSet},

@@ -15,6 +15,31 @@ use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
+fn write_final_egraph_size(path: &Path, timed_egraph: &TimedEgraph) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        create_dir_all(parent)
+            .with_context(|| format!("failed to create directory {}", parent.display()))?;
+    }
+
+    #[derive(Serialize)]
+    struct FinalEgraphSize {
+        final_num_tuples: usize,
+        final_num_eclasses: usize,
+    }
+
+    let file = File::create(path)
+        .with_context(|| format!("failed to create final egraph size file {}", path.display()))?;
+    let writer = BufWriter::new(file);
+    let payload = FinalEgraphSize {
+        final_num_tuples: timed_egraph.num_tuples(),
+        final_num_eclasses: timed_egraph.num_eclasses(),
+    };
+    serde_json::to_writer_pretty(writer, &payload)
+        .with_context(|| format!("failed to write final egraph size file {}", path.display()))?;
+
+    Ok(())
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ValueEnum, Debug)]
 enum RunMode {
     // For each egg file under the input path,
@@ -105,6 +130,13 @@ struct Args {
     // file in the input_path directory
     #[arg(long)]
     initial_egraph: Option<PathBuf>,
+
+    // Record final egraph size after each successful run.
+    // If input_path is a file, this should be a file path.
+    // If input_path is a directory, this should be a directory where
+    // per-input size files will be created.
+    #[arg(long)]
+    record_size: Option<PathBuf>,
 }
 
 fn check_egraph_number(egraph: &TimedEgraph, expected: usize) -> Result<()> {
@@ -147,10 +179,28 @@ fn check_idempotent(p1: &PathBuf, p2: &PathBuf, name: &str, out_dir: &PathBuf) {
     }
 }
 
+fn record_size_output_path(
+    record_size_path: &Path,
+    file: &Path,
+    input_is_single_file: bool,
+) -> PathBuf {
+    if input_is_single_file {
+        return record_size_path.to_path_buf();
+    }
+
+    let mut safe = file.to_string_lossy().replace('\\', "/").replace('/', "__");
+    if safe.ends_with(".egg") {
+        safe.truncate(safe.len() - ".egg".len());
+    }
+    record_size_path.join(format!("{safe}.egraph-size.json"))
+}
+
 fn process_files<F>(
     files: &[PathBuf],
     out_dir: &PathBuf,
     initial_egraph: Option<&Path>,
+    record_size_path: Option<&Path>,
+    input_is_single_file: bool,
     mut f: F,
 ) -> (Vec<String>, Vec<(String, String)>)
 where
@@ -179,6 +229,15 @@ where
 
         match f(file, &out_dir, &mut timed_egraph) {
             Ok(_) => {
+                if let Some(record_size_path) = record_size_path {
+                    let size_out_path =
+                        record_size_output_path(record_size_path, file, input_is_single_file);
+                    if let Err(e) = write_final_egraph_size(&size_out_path, &timed_egraph) {
+                        failures.push((name.to_string(), format!("{}", e)));
+                        println!("[{}/{}] {} : FAILURE {}", idx + 1, files.len(), name, e);
+                        continue;
+                    }
+                }
                 successes.push(name.to_string());
                 println!("[{}/{}] {} : SUCCESS", idx + 1, files.len(), name)
             }
@@ -242,12 +301,16 @@ fn poach(
     out_dir: &PathBuf,
     run_mode: RunMode,
     initial_egraph: Option<PathBuf>,
+    record_size_path: Option<PathBuf>,
+    input_is_single_file: bool,
 ) -> (Vec<String>, Vec<(String, String)>) {
     match run_mode {
         RunMode::TimelineOnly => process_files(
             &files,
             out_dir,
             initial_egraph.as_deref(),
+            record_size_path.as_deref(),
+            input_is_single_file,
             |egg_file, out_dir, timed_egraph| {
                 timed_egraph.run_from_file(egg_file)?;
                 timed_egraph.write_timeline(out_dir)?;
@@ -260,6 +323,8 @@ fn poach(
             &files,
             out_dir,
             initial_egraph.as_deref(),
+            record_size_path.as_deref(),
+            input_is_single_file,
             |egg_file, out_dir, timed_egraph| {
                 timed_egraph.run_from_file(egg_file)?;
                 timed_egraph.to_file(&out_dir.join("serialize.json"))?;
@@ -272,6 +337,8 @@ fn poach(
             &files,
             out_dir,
             initial_egraph.as_deref(),
+            record_size_path.as_deref(),
+            input_is_single_file,
             |egg_file, out_dir: &PathBuf, timed_egraph| {
                 timed_egraph.run_from_file(egg_file)?;
                 let s1 = out_dir.join("serialize1.json");
@@ -297,6 +364,8 @@ fn poach(
             &files,
             out_dir,
             initial_egraph.as_deref(),
+            record_size_path.as_deref(),
+            input_is_single_file,
             |egg_file, out_dir, timed_egraph| {
                 let name = egg_file
                     .file_name()
@@ -344,6 +413,8 @@ fn poach(
             &files,
             out_dir,
             initial_egraph.as_deref(),
+            record_size_path.as_deref(),
+            input_is_single_file,
             |egg_file, out_dir, timed_egraph| {
                 timed_egraph.run_from_file(egg_file)?;
 
@@ -364,6 +435,8 @@ fn poach(
             &files,
             out_dir,
             initial_egraph.as_deref(),
+            record_size_path.as_deref(),
+            input_is_single_file,
             |egg_file, out_dir, timed_egraph| {
                 timed_egraph.run_from_file(egg_file)?;
 
@@ -389,6 +462,8 @@ fn poach(
             &files,
             out_dir,
             initial_egraph.as_deref(),
+            record_size_path.as_deref(),
+            input_is_single_file,
             |egg_file, out_dir, timed_egraph| {
                 let initial_outputs = timed_egraph.run_from_file(egg_file)?;
 
@@ -466,6 +541,8 @@ fn poach(
                 &files,
                 out_dir,
                 initial_egraph.as_deref(),
+                record_size_path.as_deref(),
+                input_is_single_file,
                 |egg_file, out_dir, timed_egraph| {
                     // Namespace to avoid shadowing
                     #[derive(Default)]
@@ -666,7 +743,9 @@ fn main() {
 
     create_dir_all(&output_dir).expect("Failed to create output directory");
 
-    let entries = if input_path.is_file() {
+    let input_is_single_file = input_path.is_file();
+
+    let entries = if input_is_single_file {
         if input_path.extension().and_then(|s| s.to_str()) == Some("egg") {
             vec![input_path]
         } else {
@@ -685,7 +764,14 @@ fn main() {
         panic!("Input path is neither file nor directory: {:?}", input_path);
     };
 
-    let (success, failure) = poach(entries, &output_dir, args.run_mode, args.initial_egraph);
+    let (success, failure) = poach(
+        entries,
+        &output_dir,
+        args.run_mode,
+        args.initial_egraph,
+        args.record_size,
+        input_is_single_file,
+    );
     #[derive(Serialize)]
     struct Output {
         success: Vec<String>,

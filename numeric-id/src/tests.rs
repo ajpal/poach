@@ -1,4 +1,4 @@
-use crate::{DenseIdMap, IdVec, NumericId, define_id};
+use crate::{define_id, DenseIdMap, IdVec, NumericId};
 
 define_id!(pub(crate) Id, u32, "a unique id");
 

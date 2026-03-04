@@ -1868,6 +1868,42 @@ impl EGraph {
             .sum()
     }
 
+    /// Get the number of canonical e-classes currently represented in the e-graph.
+    ///
+    /// This counts unique canonical IDs across all non-subsumed rows whose output sort is an
+    /// e-class sort.
+    pub fn num_eclasses(&self) -> usize {
+        let mut eclasses: HashSet<Value> = Default::default();
+
+        for function in self.functions.values() {
+            if !function.schema.output.is_eq_sort() {
+                continue;
+            }
+
+            self.backend.for_each(function.backend_id, |row| {
+                if row.subsumed {
+                    return;
+                }
+                eclasses.insert(*(row.vals.last().unwrap()));
+            });
+
+            // let output_sort = &function.schema.output;
+            // let output_col = function.schema.input.len();
+
+            // self.backend.for_each(function.backend_id, |row| {
+            //     if row.subsumed {
+            //         return;
+            //     }
+
+            //     let output_val = row.vals[output_col];
+            //     let canonical = self.get_canonical_value(output_val, output_sort);
+            //     eclasses.insert(canonical);
+            // });
+        }
+
+        eclasses.len()
+    }
+
     /// Returns a sort based on the type.
     pub fn get_sort<S: Sort>(&self) -> Arc<S> {
         self.type_info.get_sort()
@@ -2782,6 +2818,13 @@ impl TimedEgraph {
             .last()
             .expect("there are no egraphs")
             .num_tuples()
+    }
+
+    pub fn num_eclasses(&self) -> usize {
+        self.egraphs
+            .last()
+            .expect("there are no egraphs")
+            .num_eclasses()
     }
 }
 

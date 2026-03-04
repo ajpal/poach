@@ -23,10 +23,16 @@ fi
 
 base=$(basename "$EGG_FILE" .egg)
 out_perf="$OUT_DIR/$base.perf.data"
+out_size="$OUT_DIR/$base.egraph-size.json"
+timeline_out="$REPO_ROOT/nightly/raw/perf-timeline"
 poach_bin="$REPO_ROOT/target/profiling/poach"
 
 echo "Recording perf data for $EGG_FILE"
 
-perf record -o "$out_perf" -F 9999 --call-graph fp -- "$poach_bin" "$EGG_FILE" nightly/raw/perf timeline-only
+mkdir -p "$timeline_out"
+
+perf record -o "$out_perf" -F 9999 --call-graph fp -- \
+  "$poach_bin" "$EGG_FILE" --record-size "$out_size" "$timeline_out" timeline-only
 
 echo "Wrote $out_perf"
+echo "Wrote $out_size"

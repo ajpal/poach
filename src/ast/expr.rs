@@ -7,7 +7,7 @@ use std::hash::Hasher;
 
 use crate::ast::CorrespondingVar;
 use crate::core::ResolvedCall;
-use crate::{ArcSort, sort};
+use crate::{sort, ArcSort};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResolvedVar {
