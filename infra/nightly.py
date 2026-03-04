@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 import transform
 import glob
+import json
 
 ###############################################################################
 # IMPORTANT:
@@ -97,6 +98,7 @@ def run_test_experiments(top_dir, tmp_dir, aggregator):
       cleanup_benchmark_files(timeline_file, tmp_dir / "summary.json", *extra_files)
 
 def run_mined_experiments(resource_dir, tmp_dir, aggregator):
+  mine_extracts = {"mine-indiv": {}, "mine-mega": {}}
   mega_serialize_file = tmp_dir / "mega-easteregg-serialize.json"
   mega_timeline_file = tmp_dir / "mega-easteregg-timeline.json"
   run_poach(resource_dir / "mega-easteregg.egg", tmp_dir, "serialize")
@@ -111,14 +113,22 @@ def run_mined_experiments(resource_dir, tmp_dir, aggregator):
 
     run_poach(benchmark, tmp_dir, "mine",
       ["--initial-egraph=" + str(tmp_dir)])
+    mine_extract_file = tmp_dir / "mine-extracts.json"
+    if mine_extract_file.exists():
+      with open(mine_extract_file) as file:
+        mine_extracts["mine-indiv"].update(json.load(file))
     add_benchmark_data(aggregator, timeline_file, f"easteregg/mine-indiv/{benchmark.stem}/timeline.json")
-    cleanup_benchmark_files(timeline_file, serialize_file, tmp_dir / "summary.json")
+    cleanup_benchmark_files(timeline_file, serialize_file, mine_extract_file, tmp_dir / "summary.json")
 
     run_poach(benchmark, tmp_dir, "mine",
       ["--initial-egraph=" + str(mega_serialize_file)])
+    if mine_extract_file.exists():
+      with open(mine_extract_file) as file:
+        mine_extracts["mine-mega"].update(json.load(file))
     add_benchmark_data(aggregator, timeline_file, f"easteregg/mine-mega/{benchmark.stem}/timeline.json")
-    cleanup_benchmark_files(timeline_file, tmp_dir / "summary.json")
+    cleanup_benchmark_files(timeline_file, mine_extract_file, tmp_dir / "summary.json")
 
+  transform.save_json(aggregator.output_dir / "mine-extracts.json", mine_extracts)
   cleanup_benchmark_files(mega_serialize_file, tmp_dir / "summary.json")
 
 if __name__ == "__main__":

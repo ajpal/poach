@@ -1,5 +1,22 @@
 function initialize() {
-  initializeGlobalData().then(initializeCharts).then(plotMine);
+  Promise.all([initializeGlobalData(), loadMineExtracts()])
+    .then(initializeCharts)
+    .then(() => {
+      plotMine();
+      renderMineSummaryTable();
+    });
+}
+
+function loadMineExtracts() {
+  return fetch("data/mine-extracts.json")
+    .then((response) => response.json())
+    .then((data) => {
+      GLOBAL_DATA.mineExtracts = data;
+    })
+    .catch((error) => {
+      console.error("Failed to load mine-extracts.json", error);
+      GLOBAL_DATA.mineExtracts = {};
+    });
 }
 
 function plotMine() {
@@ -42,4 +59,41 @@ function plotMine() {
   };
 
   GLOBAL_DATA.minedChart.update();
+}
+
+function renderMineSummaryTable() {
+  const tableBody = document.getElementById("mine-summary-body");
+  if (!tableBody) {
+    return;
+  }
+
+  const summaries = GLOBAL_DATA.mineExtracts["mine-mega"] || {};
+  const rows = Object.entries(summaries)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([benchmarkName, entries]) => {
+      const extractCount = entries.length;
+      const initialTotal = entries.reduce(
+        (sum, entry) => sum + entry.initial_cost,
+        0,
+      );
+      const finalTotal = entries.reduce(
+        (sum, entry) => sum + entry.final_cost,
+        0,
+      );
+      const avgInitialCost =
+        extractCount === 0 ? 0 : initialTotal / extractCount;
+      const avgFinalCost = extractCount === 0 ? 0 : finalTotal / extractCount;
+      const avgCostDifference = avgInitialCost - avgFinalCost;
+      return `
+        <tr>
+          <td>${benchmarkName}</td>
+          <td>${extractCount}</td>
+          <td>${avgInitialCost}</td>
+          <td>${avgFinalCost}</td>
+          <td>${avgCostDifference}</td>
+        </tr>
+      `;
+    });
+
+  tableBody.innerHTML = rows.join("\n");
 }
