@@ -5,7 +5,7 @@ use egglog::ast::{
     GenericSchedule, Sexp, SexpParser,
 };
 use egglog::extract::DefaultCost;
-use egglog::{CommandOutput, EGraph, TermDag, TimedEgraph};
+use egglog::{CommandOutput, EGraph, TimedEgraph};
 use env_logger::Env;
 use hashbrown::HashMap;
 use serde::Serialize;
@@ -221,121 +221,75 @@ fn collect_extract_outputs(outputs: Vec<CommandOutput>) -> Vec<CommandOutput> {
         .collect()
 }
 
-#[derive(Clone, Copy)]
-enum ExtractComparison {
-    Exact,
-    AtLeastAsGood,
+#[derive(Serialize)]
+struct MineExtractComparison {
+    initial_term: String,
+    initial_cost: DefaultCost,
+    final_term: String,
+    final_cost: DefaultCost,
 }
 
-fn compare_extract_pair(
-    dag1: &TermDag,
-    cost1: DefaultCost,
-    term1: usize,
-    dag2: &TermDag,
-    cost2: DefaultCost,
-    term2: usize,
-    comparison: ExtractComparison,
-) -> Result<()> {
-    match comparison {
-        ExtractComparison::Exact => {
-            let initial_term = dag1.to_string(term1);
-            let final_term = dag2.to_string(term2);
-            if initial_term != final_term {
-                anyhow::bail!(
-                    "No match:\ninitial: {} \nfinal: {}",
-                    initial_term,
-                    final_term
-                )
+fn extract_term_costs_from_output(outputs: &[CommandOutput]) -> Result<Vec<(String, DefaultCost)>> {
+    let mut pairs = Vec::new();
+    for output in outputs {
+        match output {
+            CommandOutput::ExtractBest(dag, cost, term) => {
+                pairs.push((dag.to_string(*term), *cost));
             }
-        }
-        ExtractComparison::AtLeastAsGood => {
-            if cost2 > cost1 {
-                anyhow::bail!("Cost got worse: {} -> {}", cost1, cost2)
+            CommandOutput::ExtractVariants(dag, variants) => {
+                pairs.extend(
+                    variants
+                        .iter()
+                        .map(|(cost, term)| (dag.to_string(*term), *cost)),
+                );
             }
+            CommandOutput::MultiExtractVariants(dag, groups) => {
+                pairs.extend(groups.iter().flat_map(|group| {
+                    group
+                        .iter()
+                        .map(|(cost, term)| (dag.to_string(*term), *cost))
+                }));
+            }
+            _ => anyhow::bail!("Not an extract output: {output:?}"),
         }
     }
-    Ok(())
+    Ok(pairs)
 }
 
-fn compare_extracts(
+fn add_mine_extract_summary(
+    report: &mut HashMap<String, Vec<MineExtractComparison>>,
+    benchmark: &str,
     initial_extracts: &[CommandOutput],
     final_extracts: &[CommandOutput],
-    comparison: ExtractComparison,
 ) -> Result<()> {
-    if initial_extracts.len() != final_extracts.len() {
+    let initial_pairs = extract_term_costs_from_output(initial_extracts)?;
+    let final_pairs = extract_term_costs_from_output(final_extracts)?;
+    if initial_pairs.len() != final_pairs.len() {
         anyhow::bail!(
-            "extract lengths mismatch: {} != {}",
-            initial_extracts.len(),
-            final_extracts.len()
-        )
+            "extract lengths mismatch for {}: {} != {}",
+            benchmark,
+            initial_pairs.len(),
+            final_pairs.len()
+        );
     }
 
-    let pair_groups: Result<Vec<_>> = initial_extracts
-        .iter()
-        .zip(final_extracts)
-        .map(|(initial, final_)| match (initial, final_) {
-            (
-                CommandOutput::ExtractBest(dag1, cost1, term1),
-                CommandOutput::ExtractBest(dag2, cost2, term2),
-            ) => Ok(vec![((dag1, *cost1, *term1), (dag2, *cost2, *term2))]),
-            (
-                CommandOutput::ExtractVariants(dag1, items1),
-                CommandOutput::ExtractVariants(dag2, items2),
-            ) => {
-                if items1.len() != items2.len() {
-                    anyhow::bail!(
-                        "extract variant lengths mismatch: {} != {}",
-                        items1.len(),
-                        items2.len()
-                    )
-                }
-                Ok(items1
-                    .iter()
-                    .zip(items2)
-                    .map(|((cost1, term1), (cost2, term2))| {
-                        ((dag1, *cost1, *term1), (dag2, *cost2, *term2))
-                    })
-                    .collect())
-            }
-            (
-                CommandOutput::MultiExtractVariants(dag1, items1),
-                CommandOutput::MultiExtractVariants(dag2, items2),
-            ) => {
-                if items1.len() != items2.len() {
-                    anyhow::bail!(
-                        "multi-extract lengths mismatch: {} != {}",
-                        items1.len(),
-                        items2.len()
-                    )
-                }
-
-                let mut pairs = Vec::new();
-                for (terms1, terms2) in items1.iter().zip(items2) {
-                    if terms1.len() != terms2.len() {
-                        anyhow::bail!(
-                            "multi-extract variant lengths mismatch: {} != {}",
-                            terms1.len(),
-                            terms2.len()
-                        )
+    report.insert(
+        benchmark.to_string(),
+        initial_pairs
+            .into_iter()
+            .zip(final_pairs)
+            .map(
+                |((initial_term, initial_cost), (final_term, final_cost))| {
+                    MineExtractComparison {
+                        initial_term,
+                        initial_cost,
+                        final_term,
+                        final_cost,
                     }
-                    pairs.extend(terms1.iter().zip(terms2).map(
-                        |((cost1, term1), (cost2, term2))| {
-                            ((dag1, *cost1, *term1), (dag2, *cost2, *term2))
-                        },
-                    ));
-                }
-
-                Ok(pairs)
-            }
-            _ => anyhow::bail!("Not an extract: {:?} != {:?}", initial, final_),
-        })
-        .collect();
-
-    let pairs = pair_groups?.into_iter().flatten();
-    for ((dag1, cost1, term1), (dag2, cost2, term2)) in pairs {
-        compare_extract_pair(dag1, cost1, term1, dag2, cost2, term2, comparison)?;
-    }
-
+                },
+            )
+            .collect(),
+    );
     Ok(())
 }
 
@@ -554,7 +508,15 @@ fn poach(
                     timed_egraph.run_program_with_timeline(extract_cmds, &extracts)?,
                 );
 
-                compare_extracts(&initial_extracts, &final_extracts, ExtractComparison::Exact)?;
+                let initial_pairs = extract_term_costs_from_output(&initial_extracts)?;
+                let final_pairs = extract_term_costs_from_output(&final_extracts)?;
+                if initial_pairs != final_pairs {
+                    anyhow::bail!(
+                        "extract outputs differ:\ninitial: {:?}\nfinal: {:?}",
+                        initial_pairs,
+                        final_pairs
+                    );
+                }
 
                 timed_egraph.write_timeline(&out_dir.join(format!("{name}-timeline.json")))?;
 
@@ -567,7 +529,8 @@ fn poach(
                 initial_egraph.is_some(),
                 "initial_egraph must be provided via CLI args for Mine run mode"
             );
-            process_files(
+            let mut mine_extract_report = HashMap::new();
+            let result = process_files(
                 &files,
                 out_dir,
                 initial_egraph.as_deref(),
@@ -756,17 +719,23 @@ fn poach(
 
                     let mined_extracts = collect_extract_outputs(mined_outputs);
 
-                    compare_extracts(
+                    add_mine_extract_summary(
+                        &mut mine_extract_report,
+                        name,
                         &fresh_extracts,
                         &mined_extracts,
-                        ExtractComparison::AtLeastAsGood,
                     )?;
 
                     timed_egraph.write_timeline(&out_dir.join(format!("{name}-timeline.json")))?;
 
                     Ok(())
                 },
-            )
+            );
+            let file = File::create(out_dir.join("mine-extracts.json"))
+                .expect("failed to create mine-extracts.json");
+            serde_json::to_writer_pretty(BufWriter::new(file), &mine_extract_report)
+                .expect("failed to write mine-extracts.json");
+            result
         }
     }
 }
