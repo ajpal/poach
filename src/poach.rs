@@ -256,41 +256,76 @@ fn extract_term_costs_from_output(outputs: &[CommandOutput]) -> Result<Vec<(Stri
     Ok(pairs)
 }
 
-fn add_mine_extract_summary(
-    report: &mut HashMap<String, Vec<MineExtractComparison>>,
-    benchmark: &str,
-    initial_extracts: &[CommandOutput],
-    final_extracts: &[CommandOutput],
-) -> Result<()> {
-    let initial_pairs = extract_term_costs_from_output(initial_extracts)?;
-    let final_pairs = extract_term_costs_from_output(final_extracts)?;
-    if initial_pairs.len() != final_pairs.len() {
-        anyhow::bail!(
-            "extract lengths mismatch for {}: {} != {}",
-            benchmark,
-            initial_pairs.len(),
-            final_pairs.len()
-        );
+#[derive(Default)]
+struct Namespace {
+    map: HashMap<String, String>,
+}
+
+impl Namespace {
+    fn add(&mut self, name: String) -> String {
+        if self.map.contains_key(&name) {
+            panic!("duplicate variable names")
+        } else {
+            let namespaced = format!("{name}@@");
+            self.map.insert(name.clone(), namespaced.clone());
+            namespaced
+        }
     }
 
-    report.insert(
-        benchmark.to_string(),
-        initial_pairs
-            .into_iter()
-            .zip(final_pairs)
-            .map(
-                |((initial_term, initial_cost), (final_term, final_cost))| {
-                    MineExtractComparison {
-                        initial_term,
-                        initial_cost,
-                        final_term,
-                        final_cost,
-                    }
+    fn get(&self, name: String) -> String {
+        self.map.get(&name).unwrap_or(&name).to_string()
+    }
+
+    fn replace_expr(&self, expr: GenericExpr<String, String>) -> GenericExpr<String, String> {
+        match expr {
+            GenericExpr::Var(span, n) => GenericExpr::Var(span, self.get(n)),
+            GenericExpr::Call(span, h, generic_exprs) => GenericExpr::Call(
+                span,
+                self.get(h),
+                generic_exprs
+                    .into_iter()
+                    .map(|x| self.replace_expr(x))
+                    .collect(),
+            ),
+            GenericExpr::Lit(span, literal) => GenericExpr::Lit(span, literal),
+        }
+    }
+
+    fn replace_fact(&self, fact: GenericFact<String, String>) -> GenericFact<String, String> {
+        match fact {
+            GenericFact::Eq(span, e1, e2) => {
+                GenericFact::Eq(span, self.replace_expr(e1), self.replace_expr(e2))
+            }
+            GenericFact::Fact(e) => GenericFact::Fact(self.replace_expr(e)),
+        }
+    }
+
+    fn replace_sched(
+        &self,
+        schedule: GenericSchedule<String, String>,
+    ) -> GenericSchedule<String, String> {
+        match schedule {
+            GenericSchedule::Saturate(span, sched) => {
+                GenericSchedule::Saturate(span, Box::new(self.replace_sched(*sched)))
+            }
+            GenericSchedule::Repeat(span, n, sched) => {
+                GenericSchedule::Repeat(span, n, Box::new(self.replace_sched(*sched)))
+            }
+            GenericSchedule::Run(span, config) => GenericSchedule::Run(
+                span,
+                GenericRunConfig {
+                    ruleset: config.ruleset,
+                    until: config
+                        .until
+                        .map(|facts| facts.into_iter().map(|f| self.replace_fact(f)).collect()),
                 },
-            )
-            .collect(),
-    );
-    Ok(())
+            ),
+            GenericSchedule::Sequence(span, scheds) => GenericSchedule::Sequence(
+                span,
+                scheds.into_iter().map(|x| self.replace_sched(x)).collect(),
+            ),
+        }
+    }
 }
 
 fn poach(
@@ -529,7 +564,7 @@ fn poach(
                 initial_egraph.is_some(),
                 "initial_egraph must be provided via CLI args for Mine run mode"
             );
-            let mut mine_extract_report = HashMap::new();
+            let mut extract_report: HashMap<String, Vec<MineExtractComparison>> = HashMap::new();
             let result = process_files(
                 &files,
                 out_dir,
@@ -541,96 +576,6 @@ fn poach(
                         collect_extract_outputs(fresh_egraph.run_from_file(egg_file)?);
 
                     let name = benchmark_name(egg_file);
-                    // Namespace to avoid shadowing
-                    #[derive(Default)]
-                    struct Namespace {
-                        map: HashMap<String, String>,
-                    }
-
-                    impl Namespace {
-                        fn add(&mut self, name: String) -> String {
-                            if self.map.contains_key(&name) {
-                                panic!("duplicate variable names")
-                            } else {
-                                let namespaced = format!("{name}@@");
-                                self.map.insert(name.clone(), namespaced.clone());
-                                namespaced
-                            }
-                        }
-
-                        fn get(&self, name: String) -> String {
-                            self.map.get(&name).unwrap_or(&name).to_string()
-                        }
-
-                        fn replace_expr(
-                            &self,
-                            expr: GenericExpr<String, String>,
-                        ) -> GenericExpr<String, String> {
-                            match expr {
-                                GenericExpr::Var(span, n) => GenericExpr::Var(span, self.get(n)),
-                                GenericExpr::Call(span, h, generic_exprs) => GenericExpr::Call(
-                                    span,
-                                    self.get(h),
-                                    generic_exprs
-                                        .into_iter()
-                                        .map(|x| self.replace_expr(x))
-                                        .collect(),
-                                ),
-                                GenericExpr::Lit(span, literal) => GenericExpr::Lit(span, literal),
-                            }
-                        }
-
-                        fn replace_fact(
-                            &self,
-                            fact: GenericFact<String, String>,
-                        ) -> GenericFact<String, String> {
-                            match fact {
-                                GenericFact::Eq(span, e1, e2) => GenericFact::Eq(
-                                    span,
-                                    self.replace_expr(e1),
-                                    self.replace_expr(e2),
-                                ),
-                                GenericFact::Fact(e) => GenericFact::Fact(self.replace_expr(e)),
-                            }
-                        }
-
-                        fn replace_sched(
-                            &self,
-                            schedule: GenericSchedule<String, String>,
-                        ) -> GenericSchedule<String, String> {
-                            match schedule {
-                                GenericSchedule::Saturate(span, sched) => {
-                                    GenericSchedule::Saturate(
-                                        span,
-                                        Box::new(self.replace_sched(*sched)),
-                                    )
-                                }
-                                GenericSchedule::Repeat(span, n, sched) => GenericSchedule::Repeat(
-                                    span,
-                                    n,
-                                    Box::new(self.replace_sched(*sched)),
-                                ),
-                                GenericSchedule::Run(span, config) => GenericSchedule::Run(
-                                    span,
-                                    GenericRunConfig {
-                                        ruleset: config.ruleset,
-                                        until: config.until.map(|facts| {
-                                            facts
-                                                .into_iter()
-                                                .map(|f| self.replace_fact(f))
-                                                .collect()
-                                        }),
-                                    },
-                                ),
-                                GenericSchedule::Sequence(span, scheds) => {
-                                    GenericSchedule::Sequence(
-                                        span,
-                                        scheds.into_iter().map(|x| self.replace_sched(x)).collect(),
-                                    )
-                                }
-                            }
-                        }
-                    }
                     let mut namespace = Namespace::default();
 
                     let program_string = &read_to_string(egg_file)?;
@@ -719,12 +664,31 @@ fn poach(
 
                     let mined_extracts = collect_extract_outputs(mined_outputs);
 
-                    add_mine_extract_summary(
-                        &mut mine_extract_report,
-                        name,
-                        &fresh_extracts,
-                        &mined_extracts,
-                    )?;
+                    let initial_pairs = extract_term_costs_from_output(&fresh_extracts)?;
+                    let final_pairs = extract_term_costs_from_output(&mined_extracts)?;
+                    if initial_pairs.len() != final_pairs.len() {
+                        anyhow::bail!(
+                            "extract lengths mismatch for {}: {} != {}",
+                            name,
+                            initial_pairs.len(),
+                            final_pairs.len()
+                        );
+                    }
+                    extract_report.insert(
+                        name.to_string(),
+                        initial_pairs
+                            .into_iter()
+                            .zip(final_pairs)
+                            .map(|((initial_term, initial_cost), (final_term, final_cost))| {
+                                MineExtractComparison {
+                                    initial_term,
+                                    initial_cost,
+                                    final_term,
+                                    final_cost,
+                                }
+                            })
+                            .collect(),
+                    );
 
                     timed_egraph.write_timeline(&out_dir.join(format!("{name}-timeline.json")))?;
 
@@ -733,7 +697,7 @@ fn poach(
             );
             let file = File::create(out_dir.join("mine-extracts.json"))
                 .expect("failed to create mine-extracts.json");
-            serde_json::to_writer_pretty(BufWriter::new(file), &mine_extract_report)
+            serde_json::to_writer_pretty(BufWriter::new(file), &extract_report)
                 .expect("failed to write mine-extracts.json");
             result
         }
