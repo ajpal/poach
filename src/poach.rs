@@ -676,7 +676,6 @@ fn main() {
         WalkDir::new(input_path)
             .into_iter()
             .filter_map(|entry| entry.ok())
-            .filter(|entry| !entry.path().to_string_lossy().contains("fail"))
             .filter(|entry| entry.file_type().is_file())
             .filter(|entry| entry.path().extension().and_then(|s| s.to_str()) == Some("egg"))
             .map(|entry| entry.path().to_path_buf())
