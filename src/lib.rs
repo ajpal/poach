@@ -373,9 +373,9 @@ pub enum CommandOutput {
     /// The best function found after extracting
     ExtractBest(TermDag, DefaultCost, TermId),
     /// The variants of a function found after extracting
-    ExtractVariants(TermDag, Vec<TermId>),
+    ExtractVariants(TermDag, Vec<(DefaultCost, TermId)>),
     /// The variants of multiple functions found after extracting
-    MultiExtractVariants(TermDag, Vec<Vec<TermId>>),
+    MultiExtractVariants(TermDag, Vec<Vec<(DefaultCost, TermId)>>),
     /// The report from all runs
     OverallStatistics(RunReport),
     /// A printed function and all its values
@@ -402,7 +402,7 @@ impl std::fmt::Display for CommandOutput {
             }
             CommandOutput::ExtractVariants(termdag, terms) => {
                 writeln!(f, "(")?;
-                for expr in terms {
+                for (_, expr) in terms {
                     writeln!(f, "   {}", termdag.to_string(*expr))?;
                 }
                 writeln!(f, ")")
@@ -411,7 +411,7 @@ impl std::fmt::Display for CommandOutput {
                 writeln!(f, "(")?;
                 for variants in terms {
                     writeln!(f, "   (")?;
-                    for expr in variants {
+                    for (_, expr) in variants {
                         writeln!(f, "      {}", termdag.to_string(*expr))?;
                     }
                     writeln!(f, "   )")?;
@@ -1507,11 +1507,7 @@ impl EGraph {
                     if n < 0 {
                         panic!("Cannot extract negative number of variants");
                     }
-                    let terms: Vec<TermId> = extractor
-                        .extract_variants(self, &mut termdag, x, n as usize)
-                        .iter()
-                        .map(|e| e.1)
-                        .collect();
+                    let terms = extractor.extract_variants(self, &mut termdag, x, n as usize);
                     if log_enabled!(Level::Info) {
                         let expr_str = expr.to_string();
                         log::info!("extracted {} variants for {expr_str}", terms.len());
@@ -1544,17 +1540,13 @@ impl EGraph {
                     .iter()
                     .zip(exprs.iter())
                     .map(|(x, expr)| {
-                        let variants: Vec<_> = extractor
-                            .extract_variants_with_sort(
-                                self,
-                                &mut termdag,
-                                *x,
-                                n as usize,
-                                expr.output_type(),
-                            )
-                            .iter()
-                            .map(|e| e.1.clone())
-                            .collect();
+                        let variants = extractor.extract_variants_with_sort(
+                            self,
+                            &mut termdag,
+                            *x,
+                            n as usize,
+                            expr.output_type(),
+                        );
                         if log_enabled!(Level::Info) {
                             let expr_str = expr.to_string();
                             log::info!("extracted {} variants for {expr_str}", variants.len());

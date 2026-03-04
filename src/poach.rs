@@ -4,6 +4,7 @@ use egglog::ast::{
     all_sexps, GenericAction, GenericCommand, GenericExpr, GenericFact, GenericRunConfig,
     GenericSchedule, Sexp, SexpParser,
 };
+use egglog::extract::DefaultCost;
 use egglog::{CommandOutput, EGraph, TermDag, TimedEgraph};
 use env_logger::Env;
 use hashbrown::HashMap;
@@ -228,18 +229,30 @@ enum ExtractComparison {
 
 fn compare_extract_pair(
     dag1: &TermDag,
-    term1: &usize,
+    cost1: DefaultCost,
+    term1: usize,
     dag2: &TermDag,
-    term2: &usize,
+    cost2: DefaultCost,
+    term2: usize,
+    comparison: ExtractComparison,
 ) -> Result<()> {
-    let initial_term = dag1.to_string(*term1);
-    let final_term = dag2.to_string(*term2);
-    if initial_term != final_term {
-        anyhow::bail!(
-            "No match:\ninitial: {} \nfinal: {}",
-            initial_term,
-            final_term
-        )
+    match comparison {
+        ExtractComparison::Exact => {
+            let initial_term = dag1.to_string(term1);
+            let final_term = dag2.to_string(term2);
+            if initial_term != final_term {
+                anyhow::bail!(
+                    "No match:\ninitial: {} \nfinal: {}",
+                    initial_term,
+                    final_term
+                )
+            }
+        }
+        ExtractComparison::AtLeastAsGood => {
+            if cost2 > cost1 {
+                anyhow::bail!("Cost got worse: {} -> {}", cost1, cost2)
+            }
+        }
     }
     Ok(())
 }
@@ -257,22 +270,14 @@ fn compare_extracts(
         )
     }
 
-    let pair_groups: Result<Vec<Vec<((&TermDag, &usize), (&TermDag, &usize))>>> = initial_extracts
+    let pair_groups: Result<Vec<_>> = initial_extracts
         .iter()
         .zip(final_extracts)
         .map(|(initial, final_)| match (initial, final_) {
             (
                 CommandOutput::ExtractBest(dag1, cost1, term1),
                 CommandOutput::ExtractBest(dag2, cost2, term2),
-            ) => match comparison {
-                ExtractComparison::Exact => Ok(vec![((dag1, term1), (dag2, term2))]),
-                ExtractComparison::AtLeastAsGood => {
-                    if cost1 < cost2 {
-                        anyhow::bail!("Cost got worse!");
-                    }
-                    Ok(vec![])
-                }
-            },
+            ) => Ok(vec![((dag1, *cost1, *term1), (dag2, *cost2, *term2))]),
             (
                 CommandOutput::ExtractVariants(dag1, items1),
                 CommandOutput::ExtractVariants(dag2, items2),
@@ -287,7 +292,9 @@ fn compare_extracts(
                 Ok(items1
                     .iter()
                     .zip(items2)
-                    .map(|(term1, term2)| ((dag1, term1), (dag2, term2)))
+                    .map(|((cost1, term1), (cost2, term2))| {
+                        ((dag1, *cost1, *term1), (dag2, *cost2, *term2))
+                    })
                     .collect())
             }
             (
@@ -311,12 +318,11 @@ fn compare_extracts(
                             terms2.len()
                         )
                     }
-                    pairs.extend(
-                        terms1
-                            .iter()
-                            .zip(terms2)
-                            .map(|(term1, term2)| ((dag1, term1), (dag2, term2))),
-                    );
+                    pairs.extend(terms1.iter().zip(terms2).map(
+                        |((cost1, term1), (cost2, term2))| {
+                            ((dag1, *cost1, *term1), (dag2, *cost2, *term2))
+                        },
+                    ));
                 }
 
                 Ok(pairs)
@@ -326,8 +332,8 @@ fn compare_extracts(
         .collect();
 
     let pairs = pair_groups?.into_iter().flatten();
-    for ((dag1, term1), (dag2, term2)) in pairs {
-        compare_extract_pair(dag1, term1, dag2, term2)?;
+    for ((dag1, cost1, term1), (dag2, cost2, term2)) in pairs {
+        compare_extract_pair(dag1, cost1, term1, dag2, cost2, term2, comparison)?;
     }
 
     Ok(())
