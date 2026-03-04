@@ -108,9 +108,9 @@
   (Draw (Empty) shape (Paint (Color 1.0 0.0 0.0 0.0) (SrcOver) style (IdFilter) i1) clip transform)
   :ruleset opt)
 
-(let test (Draw (SaveLayer (Draw (Empty) (Full) (Paint (Color 0.0 0.0 0.0 0.0) (Src) (Solid) (IdFilter) 0) (Full) (Matrix 1.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0)) (Draw (Draw (Empty) (Rect 1220.0 0.0 1256.0 36.0) (Paint (Color 0.7490196078431373 0.050980392156862744 0.06666666666666667 0.09019607843137255) (SrcOver) (Solid) (IdFilter) 6) (Intersect (Intersect (Full) (RRect 1220.0 0.0 1256.0 36.0 18.0 18.0 18.0 18.0)) (RRect 1221.0 1.0 1255.0 35.0 17.0 17.0 17.0 17.0)) (Matrix 1.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0)) (Path 8) (Paint (Color 0.14901960784313725 1.0 1.0 1.0) (SrcOver) (Solid) (IdFilter) 8) (Intersect (Full) (RRect 1220.0 0.0 1256.0 36.0 18.0 18.0 18.0 18.0)) (Matrix 1.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0)) (Paint (Color 1.0 0.0 0.0 0.0) (SrcOver) (Solid) (IdFilter) 3)) (Path 13) (Paint (Color 0.6 1.0 1.0 1.0) (SrcOver) (Solid) (IdFilter) 13) (Full) (Matrix 1.5 0.0 0.0 1226.0 0.0 1.5 0.0 6.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0)))
+(let $test (Draw (SaveLayer (Draw (Empty) (Full) (Paint (Color 0.0 0.0 0.0 0.0) (Src) (Solid) (IdFilter) 0) (Full) (Matrix 1.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0)) (Draw (Draw (Empty) (Rect 1220.0 0.0 1256.0 36.0) (Paint (Color 0.7490196078431373 0.050980392156862744 0.06666666666666667 0.09019607843137255) (SrcOver) (Solid) (IdFilter) 6) (Intersect (Intersect (Full) (RRect 1220.0 0.0 1256.0 36.0 18.0 18.0 18.0 18.0)) (RRect 1221.0 1.0 1255.0 35.0 17.0 17.0 17.0 17.0)) (Matrix 1.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0)) (Path 8) (Paint (Color 0.14901960784313725 1.0 1.0 1.0) (SrcOver) (Solid) (IdFilter) 8) (Intersect (Full) (RRect 1220.0 0.0 1256.0 36.0 18.0 18.0 18.0 18.0)) (Matrix 1.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0)) (Paint (Color 1.0 0.0 0.0 0.0) (SrcOver) (Solid) (IdFilter) 3)) (Path 13) (Paint (Color 0.6 1.0 1.0 1.0) (SrcOver) (Solid) (IdFilter) 13) (Full) (Matrix 1.5 0.0 0.0 1226.0 0.0 1.5 0.0 6.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0)))
 (run-schedule
   ;; (repeat 1 (run simp))
   (saturate (run opt)))
 
-(multi-extract 0 test)
+(multi-extract 0 $test)

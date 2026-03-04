@@ -108,9 +108,9 @@
   (Draw (Empty) shape (Paint (Color 1.0 0.0 0.0 0.0) (SrcOver) style (IdFilter) i1) clip transform)
   :ruleset opt)
 
-(let test (SaveLayer (Draw (Draw (Draw (Empty) (Full) (Paint (Color 0.0 0.0 0.0 0.0) (Src) (Solid) (IdFilter) 0) (Full) (Matrix 1.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0)) (RRect 182.0 12.0 1098.0 60.0 13.0 13.0 13.0 13.0) (Paint (Color 1.0 1.0 0.8 0.0) (SrcOver) (Stroke) (IdFilter) 3) (Full) (Matrix 1.0 0.0 0.0 -181.0 0.0 1.0 0.0 -11.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0)) (TextBlob 197.0 42.0 -0.219727 -14.0 128.075 4.0) (Paint (Color 1.0 0.4588235294117647 0.4588235294117647 0.4588235294117647) (SrcOver) (Solid) (IdFilter) 4) (Full) (Matrix 1.0 0.0 0.0 -181.0 0.0 1.0 0.0 -11.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0)) (Draw (Empty) (Path 9) (Paint (Color 1.0 0.0 0.0 0.0) (SrcOver) (Solid) (IdFilter) 9) (Intersect (Full) (Rect 0.0 0.0 32.0 32.0)) (Matrix 1.0 0.0 0.0 782.0 0.0 1.0 0.0 9.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0)) (Paint (Color 0.30196078431372547 0.0 0.0 0.0) (SrcOver) (Solid) (IdFilter) 5)))
+(let $test (SaveLayer (Draw (Draw (Draw (Empty) (Full) (Paint (Color 0.0 0.0 0.0 0.0) (Src) (Solid) (IdFilter) 0) (Full) (Matrix 1.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0)) (RRect 182.0 12.0 1098.0 60.0 13.0 13.0 13.0 13.0) (Paint (Color 1.0 1.0 0.8 0.0) (SrcOver) (Stroke) (IdFilter) 3) (Full) (Matrix 1.0 0.0 0.0 -181.0 0.0 1.0 0.0 -11.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0)) (TextBlob 197.0 42.0 -0.219727 -14.0 128.075 4.0) (Paint (Color 1.0 0.4588235294117647 0.4588235294117647 0.4588235294117647) (SrcOver) (Solid) (IdFilter) 4) (Full) (Matrix 1.0 0.0 0.0 -181.0 0.0 1.0 0.0 -11.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0)) (Draw (Empty) (Path 9) (Paint (Color 1.0 0.0 0.0 0.0) (SrcOver) (Solid) (IdFilter) 9) (Intersect (Full) (Rect 0.0 0.0 32.0 32.0)) (Matrix 1.0 0.0 0.0 782.0 0.0 1.0 0.0 9.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0)) (Paint (Color 0.30196078431372547 0.0 0.0 0.0) (SrcOver) (Solid) (IdFilter) 5)))
 (run-schedule
   ;; (repeat 1 (run simp))
   (saturate (run opt)))
 
-(multi-extract 0 test)
+(multi-extract 0 $test)
