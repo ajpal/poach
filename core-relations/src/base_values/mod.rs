@@ -7,11 +7,11 @@ use std::{
 };
 
 use hashbrown::HashMap;
-use num::{BigInt, Rational64, rational::Ratio};
-use serde::{Deserialize, Serialize, de, ser::SerializeStruct};
+use num::{rational::Ratio, BigInt, Rational64};
+use serde::{de, ser::SerializeStruct, Deserialize, Serialize};
 use serde_json::json;
 
-use crate::numeric_id::{DenseIdMap, NumericId, define_id};
+use crate::numeric_id::{define_id, DenseIdMap, NumericId};
 
 use crate::common::{InternTable, Value};
 
@@ -304,8 +304,9 @@ impl<T: Debug> Debug for Boxed<T> {
     }
 }
 
-impl<T: Hash + Eq + Debug + Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static>
-    BaseValue for Boxed<T>
+impl<
+        T: Hash + Eq + Debug + Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + 'static,
+    > BaseValue for Boxed<T>
 {
     fn type_id_string() -> String {
         format!("Boxed<{}>", std::any::type_name::<T>())
