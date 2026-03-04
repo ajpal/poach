@@ -4,7 +4,7 @@ use egglog::ast::{
     all_sexps, GenericAction, GenericCommand, GenericExpr, GenericFact, GenericRunConfig,
     GenericSchedule, Sexp, SexpParser,
 };
-use egglog::{CommandOutput, EGraph, TimedEgraph};
+use egglog::{CommandOutput, EGraph, TermDag, TimedEgraph};
 use env_logger::Env;
 use hashbrown::HashMap;
 use serde::Serialize;
@@ -206,39 +206,128 @@ where
     (successes, failures)
 }
 
+fn collect_extract_outputs(outputs: Vec<CommandOutput>) -> Vec<CommandOutput> {
+    outputs
+        .into_iter()
+        .filter(|output| {
+            matches!(
+                output,
+                CommandOutput::ExtractBest(_, _, _)
+                    | CommandOutput::ExtractVariants(_, _)
+                    | CommandOutput::MultiExtractVariants(_, _)
+            )
+        })
+        .collect()
+}
+
+#[derive(Clone, Copy)]
+enum ExtractComparison {
+    Exact,
+    AtLeastAsGood,
+}
+
+fn compare_extract_pair(
+    dag1: &TermDag,
+    term1: &usize,
+    dag2: &TermDag,
+    term2: &usize,
+) -> Result<()> {
+    let initial_term = dag1.to_string(*term1);
+    let final_term = dag2.to_string(*term2);
+    if initial_term != final_term {
+        anyhow::bail!(
+            "No match:\ninitial: {} \nfinal: {}",
+            initial_term,
+            final_term
+        )
+    }
+    Ok(())
+}
+
 fn compare_extracts(
     initial_extracts: &[CommandOutput],
     final_extracts: &[CommandOutput],
+    comparison: ExtractComparison,
 ) -> Result<()> {
     if initial_extracts.len() != final_extracts.len() {
-        anyhow::bail!("extract lengths mismatch")
+        anyhow::bail!(
+            "extract lengths mismatch: {} != {}",
+            initial_extracts.len(),
+            final_extracts.len()
+        )
     }
 
-    for (x, y) in initial_extracts.iter().zip(final_extracts) {
-        match (x, y) {
-            (CommandOutput::ExtractBest(_, _, term1), CommandOutput::ExtractBest(_, _, term2)) => {
-                if term1 != term2 {
-                    anyhow::bail!("No match : {:?} {:?}", x, y)
+    let pair_groups: Result<Vec<Vec<((&TermDag, &usize), (&TermDag, &usize))>>> = initial_extracts
+        .iter()
+        .zip(final_extracts)
+        .map(|(initial, final_)| match (initial, final_) {
+            (
+                CommandOutput::ExtractBest(dag1, cost1, term1),
+                CommandOutput::ExtractBest(dag2, cost2, term2),
+            ) => match comparison {
+                ExtractComparison::Exact => Ok(vec![((dag1, term1), (dag2, term2))]),
+                ExtractComparison::AtLeastAsGood => {
+                    if cost1 < cost2 {
+                        anyhow::bail!("Cost got worse!");
+                    }
+                    Ok(vec![])
                 }
+            },
+            (
+                CommandOutput::ExtractVariants(dag1, items1),
+                CommandOutput::ExtractVariants(dag2, items2),
+            ) => {
+                if items1.len() != items2.len() {
+                    anyhow::bail!(
+                        "extract variant lengths mismatch: {} != {}",
+                        items1.len(),
+                        items2.len()
+                    )
+                }
+                Ok(items1
+                    .iter()
+                    .zip(items2)
+                    .map(|(term1, term2)| ((dag1, term1), (dag2, term2)))
+                    .collect())
             }
             (
-                CommandOutput::ExtractVariants(_, terms1),
-                CommandOutput::ExtractVariants(_, terms2),
+                CommandOutput::MultiExtractVariants(dag1, items1),
+                CommandOutput::MultiExtractVariants(dag2, items2),
             ) => {
-                if terms1 != terms2 {
-                    anyhow::bail!("No match : {:?} {:?}", x, y)
+                if items1.len() != items2.len() {
+                    anyhow::bail!(
+                        "multi-extract lengths mismatch: {} != {}",
+                        items1.len(),
+                        items2.len()
+                    )
                 }
-            }
-            (
-                CommandOutput::MultiExtractVariants(_, items1),
-                CommandOutput::MultiExtractVariants(_, items2),
-            ) => {
-                if items1 != items2 {
-                    anyhow::bail!("No match : {:?} {:?}", x, y)
+
+                let mut pairs = Vec::new();
+                for (terms1, terms2) in items1.iter().zip(items2) {
+                    if terms1.len() != terms2.len() {
+                        anyhow::bail!(
+                            "multi-extract variant lengths mismatch: {} != {}",
+                            terms1.len(),
+                            terms2.len()
+                        )
+                    }
+                    pairs.extend(
+                        terms1
+                            .iter()
+                            .zip(terms2)
+                            .map(|(term1, term2)| ((dag1, term1), (dag2, term2))),
+                    );
                 }
+
+                Ok(pairs)
             }
-            _ => anyhow::bail!("No match : {:?} {:?}", x, y),
-        }
+            _ => anyhow::bail!("Not an extract: {:?} != {:?}", initial, final_),
+        })
+        .collect();
+
+    let pairs = pair_groups?.into_iter().flatten();
+    for ((dag1, term1), (dag2, term2)) in pairs {
+        compare_extract_pair(dag1, term1, dag2, term2)?;
     }
 
     Ok(())
@@ -270,7 +359,17 @@ fn poach(
             initial_egraph.as_deref(),
             |egg_file, out_dir, timed_egraph| {
                 let name = benchmark_name(egg_file);
-                timed_egraph.run_from_file(egg_file)?;
+                let outputs = timed_egraph.run_from_file(egg_file)?;
+                for output in outputs {
+                    if matches!(
+                        output,
+                        CommandOutput::ExtractBest(_, _, _)
+                            | CommandOutput::ExtractVariants(_, _)
+                            | CommandOutput::MultiExtractVariants(_, _)
+                    ) {
+                        print!("{output}");
+                    }
+                }
                 timed_egraph.to_file(&out_dir.join(format!("{name}-serialize.json")))?;
                 timed_egraph.write_timeline(&out_dir.join(format!("{name}-timeline.json")))?;
                 Ok(())
@@ -400,19 +499,8 @@ fn poach(
             initial_egraph.as_deref(),
             |egg_file, out_dir, timed_egraph| {
                 let name = benchmark_name(egg_file);
-                let initial_outputs = timed_egraph.run_from_file(egg_file)?;
-
-                let initial_extracts: Vec<CommandOutput> = initial_outputs
-                    .into_iter()
-                    .filter(|x| {
-                        matches!(
-                            x,
-                            CommandOutput::ExtractBest(_, _, _)
-                                | CommandOutput::ExtractVariants(_, _)
-                                | CommandOutput::MultiExtractVariants(_, _)
-                        )
-                    })
-                    .collect();
+                let initial_extracts =
+                    collect_extract_outputs(timed_egraph.run_from_file(egg_file)?);
 
                 let program_string = &read_to_string(egg_file)?;
 
@@ -456,10 +544,11 @@ fn poach(
 
                 check_egraph_number(&timed_egraph, 2)?;
 
-                let final_extracts =
-                    timed_egraph.run_program_with_timeline(extract_cmds, &extracts)?;
+                let final_extracts = collect_extract_outputs(
+                    timed_egraph.run_program_with_timeline(extract_cmds, &extracts)?,
+                );
 
-                compare_extracts(&initial_extracts, &final_extracts)?;
+                compare_extracts(&initial_extracts, &final_extracts, ExtractComparison::Exact)?;
 
                 timed_egraph.write_timeline(&out_dir.join(format!("{name}-timeline.json")))?;
 
@@ -477,24 +566,10 @@ fn poach(
                 out_dir,
                 initial_egraph.as_deref(),
                 |egg_file, out_dir, timed_egraph| {
-                    let extract_outputs = |outputs: Vec<CommandOutput>| {
-                        outputs
-                            .into_iter()
-                            .filter(|x| {
-                                matches!(
-                                    x,
-                                    CommandOutput::ExtractBest(_, _, _)
-                                        | CommandOutput::ExtractVariants(_, _)
-                                        | CommandOutput::MultiExtractVariants(_, _)
-                                )
-                            })
-                            .collect::<Vec<_>>()
-                    };
-
                     // First, run the file on a blank e-graph and track extracts
                     let mut fresh_egraph = TimedEgraph::new();
-                    let outputs = fresh_egraph.run_from_file(egg_file)?;
-                    let fresh_extracts = extract_outputs(outputs);
+                    let fresh_extracts =
+                        collect_extract_outputs(fresh_egraph.run_from_file(egg_file)?);
 
                     let name = benchmark_name(egg_file);
                     // Namespace to avoid shadowing
@@ -602,19 +677,16 @@ fn poach(
                     let (filtered_cmds, filtered_sexps): (Vec<_>, Vec<_>) = all_cmds
                         .into_iter()
                         .zip(all_sexps)
-                        .filter(|(c, _)| {
-                            match c {
-                                GenericCommand::Action(GenericAction::Let(..)) => true,
-                                egglog::ast::GenericCommand::Extract(..) => true,
-                                egglog::ast::GenericCommand::MultiExtract(..) => true,
-                                // TODO: Running rules on a deserialized egraph currently does not work
-                                // | egglog::ast::GenericCommand::RunSchedule(_)
-                                egglog::ast::GenericCommand::PrintOverallStatistics(..) => true,
-                                egglog::ast::GenericCommand::Check(..) => true,
-                                egglog::ast::GenericCommand::PrintFunction(..) => true,
-                                egglog::ast::GenericCommand::PrintSize(..) => true,
-                                _ => false,
-                            }
+                        .filter(|(c, _)| match c {
+                            GenericCommand::Action(GenericAction::Let(..)) => true,
+                            egglog::ast::GenericCommand::Extract(..) => true,
+                            egglog::ast::GenericCommand::MultiExtract(..) => true,
+                            egglog::ast::GenericCommand::RunSchedule(..) => true,
+                            egglog::ast::GenericCommand::PrintOverallStatistics(..) => true,
+                            egglog::ast::GenericCommand::Check(..) => true,
+                            egglog::ast::GenericCommand::PrintFunction(..) => true,
+                            egglog::ast::GenericCommand::PrintSize(..) => true,
+                            _ => false,
                         })
                         .map(|(cmd, sexp)| {
                             (
@@ -676,9 +748,13 @@ fn poach(
                             .join("\n"),
                     )?;
 
-                    let mined_extracts = extract_outputs(mined_outputs);
+                    let mined_extracts = collect_extract_outputs(mined_outputs);
 
-                    compare_extracts(&fresh_extracts, &mined_extracts)?;
+                    compare_extracts(
+                        &fresh_extracts,
+                        &mined_extracts,
+                        ExtractComparison::AtLeastAsGood,
+                    )?;
 
                     timed_egraph.write_timeline(&out_dir.join(format!("{name}-timeline.json")))?;
 
