@@ -1,5 +1,5 @@
 use egglog_bridge::{
-    ColumnTy, DefaultVal, EGraph, FunctionConfig, MergeFn, add_expressions, define_rule,
+    add_expressions, define_rule, ColumnTy, DefaultVal, EGraph, FunctionConfig, MergeFn,
 };
 use mimalloc::MiMalloc;
 use num_rational::Rational64;

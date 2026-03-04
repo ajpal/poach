@@ -6,11 +6,11 @@ use crate::numeric_id::NumericId;
 use rayon::prelude::*;
 
 use crate::{
-    ColumnId, ExecutionState, Offset, RowId, Subset, Table, TableId, TaggedRowBuffer, Value,
-    WrappedTable,
     hash_index::{ColumnIndex, Index},
     parallel_heuristics::parallelize_rebuild,
     table_spec::{Rebuilder, WrappedTableRef},
+    ColumnId, ExecutionState, Offset, RowId, Subset, Table, TableId, TaggedRowBuffer, Value,
+    WrappedTable,
 };
 
 use super::SortedWritesTable;
@@ -224,7 +224,7 @@ impl SortedWritesTable {
 fn incremental_rebuild(_uf_size: usize, _table_size: usize, _parallel: bool) -> bool {
     #[cfg(debug_assertions)]
     {
-        use rand::{Rng, rng};
+        use rand::{rng, Rng};
         rng().random::<bool>()
     }
     #[cfg(not(debug_assertions))]

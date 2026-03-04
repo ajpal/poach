@@ -23,12 +23,12 @@ use crate::core_relations::{
     ExternalFunction, ExternalFunctionId, MergeVal, Offset, PlanStrategy, SortedWritesTable,
     TableId, TaggedRowBuffer, Value, WrappedTable,
 };
-use crate::numeric_id::{DenseIdMap, DenseIdMapWithReuse, IdVec, NumericId, define_id};
+use crate::numeric_id::{define_id, DenseIdMap, DenseIdMapWithReuse, IdVec, NumericId};
 use egglog_core_relations as core_relations;
 use egglog_numeric_id as numeric_id;
 use egglog_reports::{IterationReport, ReportLevel, RuleSetReport};
 use hashbrown::HashMap;
-use indexmap::{IndexMap, IndexSet, map::Entry};
+use indexmap::{map::Entry, IndexMap, IndexSet};
 use log::info;
 use once_cell::sync::Lazy;
 pub use proof_format::{EqProofId, ProofStore, TermProofId};

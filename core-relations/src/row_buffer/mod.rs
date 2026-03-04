@@ -6,13 +6,13 @@ use std::{cell::Cell, mem, ops::Deref};
 use crate::numeric_id::NumericId;
 use egglog_concurrency::ParallelVecWriter;
 use rayon::iter::ParallelIterator;
-use serde::{Deserialize, Deserializer, Serialize, ser::SerializeStruct};
+use serde::{ser::SerializeStruct, Deserialize, Deserializer, Serialize};
 use smallvec::SmallVec;
 
 use crate::{
     common::Value,
     offsets::RowId,
-    pool::{Pooled, with_pool_set},
+    pool::{with_pool_set, Pooled},
 };
 
 #[cfg(test)]
