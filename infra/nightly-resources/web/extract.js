@@ -1,9 +1,43 @@
 function initializeExtract() {
-  initializeGlobalData().then(initializeCharts).then(plotExtract);
+  initializeGlobalData()
+    .then(initializeExtractOptions)  
+    .then(initializeCharts)
+    .then(plotExtract);
 }
 
+function initializeExtractOptions() {
+  const suiteElt = document.getElementById("suite");
+  Object.keys(GLOBAL_DATA.data).forEach((suite, idx) => {
+    const label = document.createElement("label");
+    const input = document.createElement("input");
+
+    input.type = "radio";
+    input.name = "suiteToggle";
+    input.value = suite;
+
+    if (idx === 0) {
+      input.checked = true; // select first run mode
+    }
+
+    label.appendChild(input);
+    label.append(" " + suite);
+
+    suiteElt.appendChild(label);
+  });
+}
+
+
 function plotExtract() {
-  const all_data = GLOBAL_DATA.data.tests.extract;
+
+  const suite = document.querySelector(
+    'input[name="suiteToggle"]:checked'
+  ).value;
+
+  if (!suite) {
+    return;
+  }
+
+  const all_data = GLOBAL_DATA.data[suite].extract;
 
   if (GLOBAL_DATA.extractChart === null) {
     return;
@@ -31,7 +65,7 @@ function plotExtract() {
     data[b].poachDeser = aggregate(all_data[b].deserialize, "total");
     data[b].poachTotal = data[b].poachDeser + data[b].poachExtract;
 
-    data[b].difference = data[b].poachTotal - data[b].vanillaTotal;
+    data[b].difference = data[b].vanillaTotal - data[b].poachTotal;
   });
 
   GLOBAL_DATA.differenceChart.data = {
@@ -41,17 +75,15 @@ function plotExtract() {
         label: "poach - vanilla",
         data: Object.values(data).map((d) => d.difference),
         backgroundColor: Object.values(data).map((d) => {
-          if (Math.abs(d.difference) > 25) {
-            return "gray";
-          } else {
-            return d.difference >= 0
-              ? "rgba(255, 99, 132, 0.7)"
-              : "rgba(54, 162, 235, 0.7)";
-          }
+          return d.difference >= 0
+            ? "rgba(54, 162, 235, 0.7)"
+            : "rgba(255, 99, 132, 0.7)";
         }),
       },
     ],
   };
+
+  GLOBAL_DATA.differenceChart.update();
 
   GLOBAL_DATA.extractChart.data = {
     labels: benchmarks,
@@ -85,4 +117,6 @@ function plotExtract() {
       },
     ],
   };
+
+  GLOBAL_DATA.extractChart.update();  
 }

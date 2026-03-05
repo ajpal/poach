@@ -102,8 +102,13 @@ def run_extract_experiments(resource_dir, tmp_dir, aggregator):
     for benchmark in benchmark_files(resource_dir / "test-files" / suite):
       timeline_file = tmp_dir / f"{benchmark.stem}-timeline.json"
       run_poach(benchmark, tmp_dir, "extract")
-      add_benchmark_data(aggregator, timeline_file, f"{suite}/timeline/{benchmark.stem}/timeline.json")
+      add_benchmark_data(aggregator, timeline_file, f"{suite}/extract/{benchmark.stem}/timeline.json")
       cleanup_benchmark_files(timeline_file, tmp_dir / "summary.json")
+  for benchmark in benchmark_files(top_dir / "tests", recursive = True):
+    timeline_file = tmp_dir / f"{benchmark.stem}-timeline.json"
+    run_poach(benchmark, tmp_dir, "extract")
+    add_benchmark_data(aggregator, timeline_file, f"tests/extract/{benchmark.stem}/timeline.json")
+    cleanup_benchmark_files(timeline_file, tmp_dir / "summary.json")
 
 def run_mined_experiments(resource_dir, tmp_dir, aggregator):
   mega_serialize_file = tmp_dir / "mega-easteregg-serialize.fbs"

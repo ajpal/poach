@@ -156,8 +156,8 @@ function initializeCharts() {
               },
             },
             y: {
-              min: -25,
-              max: 25,
+              min: -1000,
+              max: 3000,
               title: {
                 display: true,
                 text: "time (ms)",
