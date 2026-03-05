@@ -5,12 +5,12 @@ use std::{
     mem::{self, MaybeUninit},
     ops::Deref,
     sync::{
-        Mutex,
         atomic::{AtomicUsize, Ordering},
+        Mutex,
     },
 };
 
-use serde::{Deserialize, Deserializer, Serialize, ser::SerializeSeq};
+use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize};
 
 use crate::{MutexReader, ReadOptimizedLock};
 
@@ -42,10 +42,10 @@ impl<T: Serialize> Serialize for ConcurrentVec<T> {
 
         // Serialize only initialized entries.
         let mut seq = serializer.serialize_seq(Some(len))?;
-        for i in 0..len {
+        for cell in vec.iter().take(len) {
             unsafe {
-                // SAFETY: `i < head`, so the cell is fully initialized and contains valid `T`.
-                let cell_ptr = vec[i].as_ptr();
+                // SAFETY: this cell is among the first `head` entries, so it is initialized and contains valid `T`.
+                let cell_ptr = cell.as_ptr();
                 let t_ref: &T = &*(*cell_ptr).0.get();
                 seq.serialize_element(t_ref)?;
             }

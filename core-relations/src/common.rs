@@ -5,13 +5,13 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::numeric_id::{DenseIdMap, IdVec, NumericId, define_id};
+use crate::numeric_id::{define_id, DenseIdMap, IdVec, NumericId};
 use egglog_concurrency::ConcurrentVec;
 use rustc_hash::FxHasher;
-use serde::{Deserialize, Deserializer, Serialize, ser::SerializeStruct};
+use serde::{ser::SerializeStruct, Deserialize, Deserializer, Serialize};
 use serde_json::{from_value, to_value};
 
-use crate::{Subset, TableId, TableVersion, WrappedTable, pool::Clear};
+use crate::{pool::Clear, Subset, TableId, TableVersion, WrappedTable};
 
 pub(crate) type HashMap<K, V> = hashbrown::HashMap<K, V, BuildHasherDefault<FxHasher>>;
 pub(crate) type HashSet<T> = hashbrown::HashSet<T, BuildHasherDefault<FxHasher>>;
@@ -113,15 +113,19 @@ where
     }
 }
 
-impl<K: Eq + Hash + Serialize + for<'a> Deserialize<'a>, V: Serialize + for<'a> Deserialize<'a>>
-    Default for InternTable<K, V>
+impl<
+        K: Eq + Hash + Serialize + for<'a> Deserialize<'a>,
+        V: Serialize + for<'a> Deserialize<'a>,
+    > Default for InternTable<K, V>
 {
     fn default() -> Self {
         Self::with_shards(4)
     }
 }
-impl<K: Eq + Hash + Serialize + for<'a> Deserialize<'a>, V: Serialize + for<'a> Deserialize<'a>>
-    InternTable<K, V>
+impl<
+        K: Eq + Hash + Serialize + for<'a> Deserialize<'a>,
+        V: Serialize + for<'a> Deserialize<'a>,
+    > InternTable<K, V>
 {
     /// Create a new intern table with the given number of shards.
     ///
@@ -139,9 +143,9 @@ impl<K: Eq + Hash + Serialize + for<'a> Deserialize<'a>, V: Serialize + for<'a> 
 }
 
 impl<
-    K: Eq + Hash + Clone + Serialize + for<'a> Deserialize<'a>,
-    V: NumericId + Serialize + for<'a> Deserialize<'a>,
-> InternTable<K, V>
+        K: Eq + Hash + Clone + Serialize + for<'a> Deserialize<'a>,
+        V: NumericId + Serialize + for<'a> Deserialize<'a>,
+    > InternTable<K, V>
 {
     pub fn intern(&self, k: &K) -> V {
         let hash = hash_value(k);
@@ -150,11 +154,11 @@ impl<
         let shard = ((hash >> (64 - self.shards_log2)) & ((1 << self.shards_log2) - 1)) as usize;
         let mut table = self.data[shard].lock().unwrap();
         if let Some(v) = table.get(k) {
-            v.clone()
+            *v
         } else {
             let index = self.vals.push(k.clone());
             let v = V::from_usize(index);
-            table.insert(k.clone(), v.clone());
+            table.insert(k.clone(), v);
             v
         }
 

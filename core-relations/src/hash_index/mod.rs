@@ -193,7 +193,7 @@ impl<'de> Deserialize<'de> for ColumnIndexShard {
         // convert String back to Value
         let mut table = IndexMap::with_capacity_and_hasher(helper.table.len(), Default::default());
         for (k, v) in helper.table {
-            let parsed = Value::new(k.parse().expect(&format!("invalid Value {}", k)));
+            let parsed = Value::new(k.parse().unwrap_or_else(|_| panic!("invalid Value {}", k)));
             table.insert(parsed, v);
         }
 

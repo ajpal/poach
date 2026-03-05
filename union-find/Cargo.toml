@@ -17,6 +17,7 @@ egglog-concurrency = { workspace = true }
 divan = { workspace = true }
 rand = { workspace = true }
 rayon = { workspace = true }
+serde = { workspace = true }
 
 [[bench]]
 name = "union-find"
