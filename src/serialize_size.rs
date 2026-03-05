@@ -1,6 +1,8 @@
 use crate::{
     ast::ResolvedVar,
-    core::{GenericCoreAction, GenericCoreActions, GenericAtom, Query, ResolvedCall, ResolvedCoreRule},
+    core::{
+        GenericAtom, GenericCoreAction, GenericCoreActions, Query, ResolvedCall, ResolvedCoreRule,
+    },
     egglog::util::IndexMap,
     term_encoding::EncodingState,
     CommandMacroRegistry, EGraph, RunReport, TypeInfo,
@@ -179,7 +181,9 @@ impl GenerateSizeReport for ResolvedCoreRule {
     }
 }
 
-impl<T: serde::Serialize + GenerateSizeReport, S: serde::Serialize + GenerateSizeReport> GenerateSizeReport for (T, S) {
+impl<T: serde::Serialize + GenerateSizeReport, S: serde::Serialize + GenerateSizeReport>
+    GenerateSizeReport for (T, S)
+{
     fn get_sizerp(&self) -> SizeReport {
         let mut ret = get_sizerp_default(self);
         ret.fields

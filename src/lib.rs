@@ -2485,8 +2485,7 @@ impl TimedEgraph {
     }
 
     pub fn new_from_file(path: &Path) -> Self {
-        let mut file = fs::File::open(path)
-            .expect("failed to open file");
+        let mut file = fs::File::open(path).expect("failed to open file");
         let mut buf = Vec::new();
         file.read_to_end(&mut buf)
             .expect("Failed to read Flatbuffer from file");

@@ -13,21 +13,21 @@ pub enum Span {
 
 impl serde::Serialize for Span {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: serde::Serializer {
+    where
+        S: serde::Serializer,
+    {
         serializer.serialize_unit()
     }
 }
 
 impl<'de> serde::Deserialize<'de> for Span {
     fn deserialize<D>(_: D) -> Result<Self, D::Error>
-        where
-            D: serde::Deserializer<'de> {
+    where
+        D: serde::Deserializer<'de>,
+    {
         Ok(Self::POACH)
     }
 }
-
-
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct EgglogSpan {
@@ -116,7 +116,7 @@ impl Display for Span {
                         write!(f, "In {}:{}-{}: {quote}", start_line, start_col, end_col)
                     }
                 }
-            },
+            }
             Span::POACH => write!(f, "From POACH deserialization"),
         }
     }

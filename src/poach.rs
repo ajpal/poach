@@ -262,21 +262,12 @@ fn compare_extracts_weak(
 
     for (x, y) in initial_extracts.iter().zip(final_extracts) {
         match (x, y) {
-            (CommandOutput::ExtractBest(_, _, _), CommandOutput::ExtractBest(_, _, _)) => {
-                
-            }
-            (
-                CommandOutput::ExtractVariants(_, _),
-                CommandOutput::ExtractVariants(_, _),
-            ) => {
-                
-            }
+            (CommandOutput::ExtractBest(_, _, _), CommandOutput::ExtractBest(_, _, _)) => {}
+            (CommandOutput::ExtractVariants(_, _), CommandOutput::ExtractVariants(_, _)) => {}
             (
                 CommandOutput::MultiExtractVariants(_, _),
                 CommandOutput::MultiExtractVariants(_, _),
-            ) => {
-                
-            }
+            ) => {}
             _ => anyhow::bail!("No match : {:?} {:?}", x, y),
         }
     }
