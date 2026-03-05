@@ -73,7 +73,7 @@ use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 use std::fs::{self, read_to_string, File};
 use std::hash::Hash;
-use std::io::{BufReader, BufWriter, Read, Write as _};
+use std::io::{BufWriter, Read, Write as _};
 use std::iter::once;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
@@ -2485,10 +2485,14 @@ impl TimedEgraph {
     }
 
     pub fn new_from_file(path: &Path) -> Self {
-        let file = File::open(path).expect("failed to open egraph file");
-        let reader = BufReader::new(file);
+        let mut file = fs::File::open(path)
+            .expect("failed to open file");
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf)
+            .expect("Failed to read Flatbuffer from file");
 
-        let egraph: EGraph = serde_json::from_reader(reader).expect("failed to parse egraph JSON");
+        let r = flexbuffers::Reader::get_root(buf.as_slice()).unwrap();
+        let egraph: EGraph = EGraph::deserialize(r).unwrap();
 
         Self {
             egraphs: vec![egraph],
@@ -2624,7 +2628,7 @@ impl TimedEgraph {
         Ok(())
     }
 
-    pub fn to_value(&mut self) -> Result<serde_json::Value> {
+    pub fn to_value(&mut self) -> Result<Vec<u8>> {
         let mut timeline = ProgramTimeline::new("(serialize)");
 
         let egraph = self.egraphs.last().unwrap();
@@ -2634,7 +2638,10 @@ impl TimedEgraph {
             time_micros: self.timer.elapsed().as_micros(),
         });
 
-        let value = serde_json::to_value(egraph).context("Failed to encode egraph as json")?;
+        let mut buf = flexbuffers::FlexbufferSerializer::new();
+        Serialize::serialize(egraph, &mut buf)
+            .expect("Failed to serialize the egraph in Flexbuffer");
+        let value = Vec::from(buf.view());
 
         timeline.evts.push(EgraphEvent {
             sexp_idx: 0,
@@ -2646,7 +2653,7 @@ impl TimedEgraph {
         Ok(value)
     }
 
-    pub fn from_value(&mut self, value: serde_json::Value) -> Result<()> {
+    pub fn from_value(&mut self, value: Vec<u8>) -> Result<()> {
         let mut timeline = ProgramTimeline::new("(deserialize)");
 
         timeline.evts.push(EgraphEvent {
@@ -2655,8 +2662,8 @@ impl TimedEgraph {
             time_micros: self.timer.elapsed().as_micros(),
         });
 
-        let egraph: EGraph =
-            serde_json::from_value(value).context("Failed to decode egraph from json")?;
+        let r = flexbuffers::Reader::get_root(value.as_slice()).unwrap();
+        let egraph: EGraph = EGraph::deserialize(r).unwrap();
 
         timeline.evts.push(EgraphEvent {
             sexp_idx: 0,
@@ -2684,9 +2691,7 @@ impl TimedEgraph {
             time_micros: self.timer.elapsed().as_micros(),
         });
 
-        //let value = serde_json::to_value(egraph).context("Failed to encode egraph as json")?;
         let mut buf = flexbuffers::FlexbufferSerializer::new();
-        // Have to use the fully qualified syntax because egraph has a method called serailize
         Serialize::serialize(egraph, &mut buf)
             .expect("Failed to serialize the egraph in Flexbuffer");
 
@@ -2704,8 +2709,6 @@ impl TimedEgraph {
 
         let mut file = fs::File::create(path)
             .with_context(|| format!("failed to create file {}", path.display()))?;
-        //serde_json::to_writer(BufWriter::new(file), &value)
-        //    .context("Failed to write value to file")?;
         file.write_all(buf.view())
             .context("Failed to write value to file")?;
 
@@ -2731,9 +2734,6 @@ impl TimedEgraph {
 
         let mut file = fs::File::open(path)
             .with_context(|| format!("failed to open file {}", path.display()))?;
-        //let reader = BufReader::new(file);
-        //let value: serde_json::Value =
-        //    serde_json::from_reader(reader).context("Failed to read json from file")?;
         let mut buf = Vec::new();
         file.read_to_end(&mut buf)
             .context("Failed to read Flatbuffer from file")?;
@@ -2750,7 +2750,6 @@ impl TimedEgraph {
             time_micros: self.timer.elapsed().as_micros(),
         });
 
-        //let egraph: EGraph = serde_json::from_value(value)?;
         let r = flexbuffers::Reader::get_root(buf.as_slice()).unwrap();
         let egraph: EGraph = EGraph::deserialize(r).unwrap();
 
