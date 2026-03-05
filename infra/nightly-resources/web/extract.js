@@ -37,6 +37,8 @@ function plotExtract() {
     return;
   }
 
+  const includeser = document.querySelector("input[name='icldser1']:checked");
+
   const all_data = GLOBAL_DATA.data[suite].extract;
 
   if (GLOBAL_DATA.extractChart === null) {
@@ -63,10 +65,32 @@ function plotExtract() {
 
     data[b].poachExtract = aggregate(extracts.slice(midpoint), "total");
     data[b].poachDeser = aggregate(all_data[b].deserialize, "total");
-    data[b].poachTotal = data[b].poachDeser + data[b].poachExtract;
+    if (includeser) {
+      data[b].poachTotal = data[b].poachDeser + data[b].poachExtract;
+    } else {
+      data[b].poachTotal = data[b].poachExtract;
+    }
 
     data[b].difference = data[b].vanillaTotal - data[b].poachTotal;
+    data[b].speedup = data[b].vanillaTotal / data[b].poachTotal;
   });
+
+  GLOBAL_DATA.speedupChart.data = {
+    labels: benchmarks,
+    datasets: [
+      {
+        label: "poach - vanilla",
+        data: Object.values(data).map((d) => d.speedup),
+        backgroundColor: Object.values(data).map((d) => {
+          return d.speedup >= 1
+            ? "rgba(54, 162, 235, 0.7)"
+            : "rgba(255, 99, 132, 0.7)";
+        }),
+      },
+    ],
+  };
+
+  GLOBAL_DATA.speedupChart.update();
 
   GLOBAL_DATA.differenceChart.data = {
     labels: benchmarks,

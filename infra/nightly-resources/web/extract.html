@@ -25,8 +25,15 @@
       Serialization time is not counted
     </p>
 
+    <form id="icldser" onchange="plotExtract()">
+      <input type="checkbox" id="icldser1" name="icldser1" >
+      <label for="icldser1"> Include serialization time for Poach </label>
+    </form>
     <form id="suite" onchange="plotExtract()"></form>
 
+    <div style="max-height: 800px;">
+      <canvas class="content" id="speedup-chart"></canvas>
+    </div>  
     <div style="max-height: 800px;">
       <canvas class="content" id="difference-chart"></canvas>
     </div>
