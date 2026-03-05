@@ -154,11 +154,11 @@ impl<
         let shard = ((hash >> (64 - self.shards_log2)) & ((1 << self.shards_log2) - 1)) as usize;
         let mut table = self.data[shard].lock().unwrap();
         if let Some(v) = table.get(k) {
-            v.clone()
+            *v
         } else {
             let index = self.vals.push(k.clone());
             let v = V::from_usize(index);
-            table.insert(k.clone(), v.clone());
+            table.insert(k.clone(), v);
             v
         }
 
