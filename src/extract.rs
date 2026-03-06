@@ -584,6 +584,7 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
             }
 
             let mut res: Vec<(C, TermId)> = Vec::new();
+            let mut cache: HashMap<(Value, String), TermId> = Default::default();
             root_variants.sort();
             root_variants.truncate(nvariants);
             for (cost, func_name, hyperedge) in root_variants {
@@ -591,7 +592,9 @@ impl<C: Cost + Ord + Eq + Clone + Debug> Extractor<C> {
                 let ch_sorts = &egraph.functions.get(&func_name).unwrap().schema.input;
                 // zip truncates the row
                 for (value, sort) in hyperedge.iter().zip(ch_sorts.iter()) {
-                    ch_terms.push(self.reconstruct_termdag_node(egraph, termdag, *value, sort));
+                    ch_terms.push(self.reconstruct_termdag_node_helper(
+                        egraph, termdag, *value, sort, &mut cache,
+                    ));
                 }
                 res.push((cost, termdag.app(func_name, ch_terms)));
             }
