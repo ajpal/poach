@@ -68,7 +68,8 @@ impl Timestamp {
 /// The state associated with an egglog program.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct EGraph {
-    db: Database,
+    // TODO: evil hack for looking at serialization size
+    pub db: Database,
     uf_table: TableId,
     id_counter: CounterId,
     reason_counter: CounterId,

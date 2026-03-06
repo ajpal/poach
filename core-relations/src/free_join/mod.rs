@@ -118,7 +118,8 @@ pub(crate) type HashColumnIndex = Arc<ResettableOnceLock<Index<ColumnIndex>>>;
 pub struct TableInfo {
     pub(crate) name: Option<Arc<str>>,
     pub(crate) spec: TableSpec,
-    pub(crate) table: WrappedTable,
+    // TODO: evil hack for looking at serialization size
+    pub table: WrappedTable,
     #[serde(skip)]
     pub(crate) indexes: IndexCatalog<SmallVec<[ColumnId; 4]>, HashIndex>,
     #[serde(skip)]
@@ -276,7 +277,8 @@ impl Counters {
 pub struct Database {
     // NB: some fields are pub(crate) to allow some internal modules to avoid
     // borrowing the whole table.
-    pub(crate) tables: DenseIdMap<TableId, TableInfo>,
+    // TODO: evil hack for looking at serialization size
+    pub tables: DenseIdMap<TableId, TableInfo>,
     // TODO: having a single AtomicUsize per counter can lead to contention. We
     // should look into prefetching counters when creating a new ExecutionState
     // and incrementing locally. Note that the batch size shouldn't be too big

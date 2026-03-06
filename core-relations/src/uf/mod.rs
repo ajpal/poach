@@ -63,8 +63,10 @@ pub struct DisplacedTable {
     // k columns, k-1 are args, kth is the ID
     // enode is the row index
     // on deserialize: need to recompute this from `displaced`
+    #[serde(skip)]
     displaced: Vec<(Value, Value)>, // this is "the table" everything else can be recomputed from this
     // can even recanonicalize on serialization to get rid of dead things
+    #[serde(skip)]
     changed: bool,
     #[serde(skip)]
     lookup_table: HashMap<Value, RowId>,

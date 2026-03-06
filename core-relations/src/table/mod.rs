@@ -20,7 +20,10 @@ use crossbeam_queue::SegQueue;
 use hashbrown::HashTable;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 use rustc_hash::FxHasher;
-use serde::{ser::SerializeStruct, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{
+    ser::{SerializeStruct, SerializeTuple},
+    Deserialize, Deserializer, Serialize, Serializer,
+};
 use sharded_hash_table::ShardedHashTable;
 
 use crate::{
@@ -51,10 +54,39 @@ mod tests;
 type HashCode = u64;
 
 /// A pointer to a row in the table.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub(crate) struct TableEntry {
     hashcode: HashCode,
     row: RowId,
+}
+
+impl Serialize for TableEntry {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut bytes = [0u8; 12];
+        let b1 = self.hashcode.to_be_bytes();
+        bytes[..b1.len()].copy_from_slice(&b1);
+        let b2 = self.row.rep.to_be_bytes();
+        bytes[b1.len()..].copy_from_slice(&b2);
+        serializer.serialize_bytes(&bytes)
+    }
+}
+
+impl<'de> Deserialize<'de> for TableEntry {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let bytes = <[u8; 16]>::deserialize(deserializer).expect("Failed to parse TabelEntry");
+        Ok(TableEntry {
+            hashcode: u64::from_be_bytes(bytes[0..8].try_into().unwrap()),
+            row: RowId {
+                rep: u32::from_be_bytes(bytes[8..12].try_into().unwrap()),
+            },
+        })
+    }
 }
 
 impl TableEntry {
@@ -242,8 +274,8 @@ impl Serialize for SortedWritesTable {
 
         let mut state = serializer.serialize_struct("SortedWritesTable", 11)?;
         state.serialize_field("generation", &self.generation)?;
-        state.serialize_field("shard_data", &self.hash.shard_data())?;
-        state.serialize_field("shards", &serialized_shards)?;
+        //state.serialize_field("shard_data", &self.hash.shard_data())?;
+        //state.serialize_field("shards", &serialized_shards)?;
         state.serialize_field("data", &self.data)?;
         state.serialize_field("n_keys", &self.n_keys)?;
         state.serialize_field("n_columns", &self.n_columns)?;
@@ -251,7 +283,7 @@ impl Serialize for SortedWritesTable {
         state.serialize_field("offsets", &self.offsets)?;
         state.serialize_field("pending_state", &self.pending_state)?;
         state.serialize_field("to_rebuild", &self.to_rebuild)?;
-        state.serialize_field("rebuild_index", &self.rebuild_index)?;
+        //state.serialize_field("rebuild_index", &self.rebuild_index)?;
         state.serialize_field("subset_tracker", &self.subset_tracker)?;
 
         state.end()

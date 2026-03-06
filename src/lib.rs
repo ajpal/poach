@@ -30,7 +30,7 @@ mod typechecking;
 pub mod util;
 pub use command_macro::{CommandMacro, CommandMacroRegistry};
 
-mod serialize_size;
+pub mod serialize_size;
 
 // This is used to allow the `add_primitive` macro to work in
 // both this crate and other crates by referring to `::egglog`.

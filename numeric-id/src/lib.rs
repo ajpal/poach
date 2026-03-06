@@ -47,7 +47,8 @@ impl NumericId for usize {
 /// with no hashing. For sparse mappings, use a HashMap.
 #[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DenseIdMap<K, V> {
-    data: Vec<Option<V>>,
+    // TODO: evil hack for looking at serialization size
+    pub data: Vec<Option<V>>,
     _marker: PhantomData<K>,
 }
 
@@ -438,7 +439,8 @@ macro_rules! define_id {
         #[derive(Copy, Clone, Default)]
         #[doc = $doc]
         $v struct $name {
-            rep: $repr,
+            // TODO: evil hack
+            pub rep: $repr,
         }
 
         impl serde::Serialize for $name {

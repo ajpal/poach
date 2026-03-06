@@ -74,7 +74,9 @@ impl SizeReport {
                 pretty_print_nbytes(sr.size),
                 percentage
             );
-            sr.pretty_print(level + 1, max_level);
+            if percentage > 1.0 {
+                sr.pretty_print(level + 1, max_level);
+            }
         }
         if sorted_fields.len() > 10 {
             println!("  {:level$} ... {:} fields total", "", sorted_fields.len());
@@ -98,8 +100,6 @@ pub trait GenerateSizeReport: serde::Serialize + Sized {
     }
 }
 
-impl GenerateSizeReport for egglog_bridge::EGraph {}
-
 impl<T: serde::Serialize> GenerateSizeReport for Option<T> {}
 
 impl<K: serde::Serialize + ToString, V: serde::Serialize + GenerateSizeReport> GenerateSizeReport
@@ -121,9 +121,22 @@ impl GenerateSizeReport for TypeInfo {}
 
 impl GenerateSizeReport for RunReport {}
 
-impl<K: serde::Serialize, V: serde::Serialize> GenerateSizeReport
+impl<K: serde::Serialize, V: serde::Serialize + GenerateSizeReport> GenerateSizeReport
     for egglog_numeric_id::DenseIdMap<K, V>
 {
+    fn get_sizerp(&self) -> SizeReport {
+        let mut ret = get_sizerp_default(self);
+        for e in self.data.iter() {
+            match e {
+                Some(v) => {
+                    let rep = v.get_sizerp();
+                    ret.fields.push((rep.name.clone(), Box::new(rep)));
+                }
+                _ => {}
+            }
+        }
+        ret
+    }
 }
 
 impl GenerateSizeReport for CommandMacroRegistry {}
@@ -231,16 +244,45 @@ impl GenerateSizeReport for EGraph {
             "overall_run_report".to_string(),
             Box::new(self.overall_run_report.get_sizerp()),
         ));
-        ret.fields.push((
-            "schedulers".to_string(),
-            Box::new(self.schedulers.get_sizerp()),
-        ));
+        //ret.fields.push((
+        //    "schedulers".to_string(),
+        //    Box::new(self.schedulers.get_sizerp()),
+        //));
         //ret.fields.push(("commands".to_string(), Box::new(self.commands.get_sizerp())));
         //ret.fields.push(("command_macros".to_string(), Box::new(self.command_macros.get_sizerp())));
         ret.fields.push((
             "proof_state".to_string(),
             Box::new(self.proof_state.get_sizerp()),
         ));
+        ret
+    }
+}
+
+impl GenerateSizeReport for egglog_bridge::EGraph {
+    fn get_sizerp(&self) -> SizeReport {
+        let mut ret = get_sizerp_default(&self);
+        ret.fields
+            .push(("db".to_string(), Box::new(self.db.get_sizerp())));
+        ret
+    }
+}
+
+impl GenerateSizeReport for egglog_core_relations::Database {
+    fn get_sizerp(&self) -> SizeReport {
+        let mut ret = get_sizerp_default(&self);
+        ret.fields
+            .push(("tables".to_string(), Box::new(self.tables.get_sizerp())));
+        ret
+    }
+}
+
+impl GenerateSizeReport for egglog_core_relations::table_spec::WrappedTable {}
+
+impl GenerateSizeReport for egglog_core_relations::free_join::TableInfo {
+    fn get_sizerp(&self) -> SizeReport {
+        let mut ret = get_sizerp_default(&self);
+        ret.fields
+            .push(("table".to_string(), Box::new(self.table.get_sizerp())));
         ret
     }
 }
