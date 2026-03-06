@@ -2442,11 +2442,31 @@ mod tests {
 static START: &'static str = "start";
 static END: &'static str = "end";
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, Eq)]
 pub struct EgraphEvent {
     sexp_idx: i32,
     evt: &'static str,
     time_micros: u128,
+}
+
+impl Ord for EgraphEvent {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.time_micros.cmp(&other.time_micros)
+    }
+}
+
+impl PartialOrd for EgraphEvent {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for EgraphEvent {
+    fn eq(&self, other: &Self) -> bool {
+        self.sexp_idx == other.sexp_idx &&
+        self.evt == other.evt &&
+        self.time_micros == other.time_micros
+    }
 }
 
 #[derive(Serialize, Clone)]
@@ -2498,6 +2518,10 @@ impl TimedEgraph {
             timeline: vec![],
             timer: std::time::Instant::now(),
         }
+    }
+
+    pub fn get_total_time(&self, id : usize) -> u128 {
+        self.timeline[id].evts.iter().max().unwrap().time_micros - self.timeline[id].evts.iter().min().unwrap().time_micros
     }
 
     pub fn egraphs(&self) -> Vec<&EGraph> {

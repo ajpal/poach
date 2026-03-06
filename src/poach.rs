@@ -481,6 +481,8 @@ fn poach(
                     .to_value()
                     .context("Failed to encode egraph as Flatbuffer")?;
 
+                let serialized_size = value.len();
+
                 timed_egraph
                     .from_value(value)
                     .context("Failed to decode egraph from Flatbuffer")?;
@@ -494,6 +496,30 @@ fn poach(
 
                 timed_egraph.write_timeline(&out_dir.join(format!("{name}-timeline.json")))?;
 
+
+                #[derive(Serialize)]
+                struct CSVRecord{
+                    benchname: String,
+                    egraph_size: usize,
+                    serialized_size: usize,
+                    ser_time: u128,
+                    der_time: u128,
+                    ext_time: u128,
+                    run_time: u128,
+                }
+
+                let r = CSVRecord {
+                    benchname: name.to_string(),
+                    egraph_size: timed_egraph.egraphs().last().unwrap().num_tuples(),
+                    serialized_size: serialized_size,
+                    ser_time: timed_egraph.get_total_time(1),
+                    der_time: timed_egraph.get_total_time(2),
+                    ext_time: timed_egraph.get_total_time(3),
+                    run_time: timed_egraph.get_total_time(0)
+                };
+
+                csv::Writer::from_path(&out_dir.join(format!("{name}.csv")))?.serialize(r)?;
+                
                 Ok(())
             },
         ),

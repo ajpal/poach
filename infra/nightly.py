@@ -96,14 +96,16 @@ def run_test_experiments(top_dir, tmp_dir, aggregator):
       }.get(run_mode, [])
       cleanup_benchmark_files(timeline_file, tmp_dir / "summary.json", *extra_files)
 
-def run_extract_experiments(resource_dir, tmp_dir, aggregator):
+def run_extract_experiments(resource_dir, tmp_dir, aggregator, csv_aggregator):
   timeline_suites = ["easteregg", "herbie-hamming", "herbie-math-rewrite", "herbie-math-taylor"]
   for suite in timeline_suites:
     for benchmark in benchmark_files(resource_dir / "test-files" / suite):
       timeline_file = tmp_dir / f"{benchmark.stem}-timeline.json"
       run_poach(benchmark, tmp_dir, "extract")
       add_benchmark_data(aggregator, timeline_file, f"{suite}/extract/{benchmark.stem}/timeline.json")
-      cleanup_benchmark_files(timeline_file, tmp_dir / "summary.json")
+      extra_files = [tmp_dir / f"{benchmark.stem}.csv"]
+      csv_aggregator.add_file(extra_files[0])
+      cleanup_benchmark_files(timeline_file, tmp_dir / "summary.json", *extra_files)
 
 def run_mined_experiments(resource_dir, tmp_dir, aggregator):
   mega_serialize_file = tmp_dir / "mega-easteregg-serialize.fbs"
@@ -146,6 +148,7 @@ if __name__ == "__main__":
   tmp_dir = nightly_dir / "tmp"
   output_data_dir = nightly_dir / "output" / "data"
   aggregator = transform.TimelineAggregator(output_data_dir)
+  csv_aggregator = transform.CSVAggregator(output_data_dir)
 
   # Make sure we're in the right place
   os.chdir(top_dir)
@@ -167,11 +170,12 @@ if __name__ == "__main__":
   # run_mined_experiments(resource_dir, tmp_dir, aggregator)
 
   # Run the extract experiment on our heavy benchmarks
-  run_extract_experiments(resource_dir, tmp_dir, aggregator)
+  run_extract_experiments(resource_dir, tmp_dir, aggregator, csv_aggregator)
 
   ##############################################################################
 
   aggregator.save()
+  csv_aggregator.save()
 
   #if shutil.which("perf") is not None:
   #  # Generate flamegraphs
