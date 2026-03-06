@@ -165,7 +165,7 @@ impl<'de> Deserialize<'de> for TypeInfo {
             primitives: helper.primitives,
             func_types: helper.func_types,
             global_sorts: helper.global_sorts,
-        }) // TODO: this is a bogus default value
+        })
     }
 }
 
@@ -443,6 +443,24 @@ impl EGraph {
 }
 
 impl TypeInfo {
+    pub(crate) fn restore_deserialized_runtime_metadata(&mut self) {
+        self.mksorts = Default::default();
+        self.reserved_primitives = Default::default();
+        self.add_presort::<MapSort>(span!()).unwrap();
+        self.add_presort::<SetSort>(span!()).unwrap();
+        self.add_presort::<VecSort>(span!()).unwrap();
+        self.add_presort::<FunctionSort>(span!()).unwrap();
+        self.add_presort::<MultiSetSort>(span!()).unwrap();
+    }
+
+    pub(crate) fn clear_primitives(&mut self) {
+        self.primitives.clear();
+    }
+
+    pub(crate) fn all_sorts(&self) -> Vec<ArcSort> {
+        self.sorts.values().cloned().collect()
+    }
+
     /// Adds a sort constructor to the typechecker's known set of types.
     pub fn add_presort<S: Presort>(&mut self, span: Span) -> Result<(), TypeError> {
         let name = S::presort_name();
