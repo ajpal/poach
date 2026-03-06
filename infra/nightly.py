@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 import transform
 import glob
+import json
 
 ###############################################################################
 # IMPORTANT:
@@ -44,13 +45,12 @@ def add_benchmark_data(aggregator, timeline_file, benchmark_key):
   if timeline_file.exists():
     aggregator.add_file(timeline_file, benchmark_key)
 
-def remove_file(path):
-  if path.exists():
-    path.unlink()
-
-def cleanup_benchmark_files(*paths):
-  for path in paths:
-    remove_file(path)
+def cleanup_benchmark_files(tmp_dir):
+  for path in tmp_dir.iterdir():
+    if path.is_dir():
+      shutil.rmtree(path)
+    else:
+      path.unlink()
 
 def benchmark_files(input_dir, recursive = False):
   pattern = "**/*.egg" if recursive else "*.egg"
@@ -63,7 +63,7 @@ def run_timeline_experiments(resource_dir, tmp_dir, aggregator):
       timeline_file = tmp_dir / f"{benchmark.stem}-timeline.json"
       run_poach(benchmark, tmp_dir, "timeline-only")
       add_benchmark_data(aggregator, timeline_file, f"{suite}/timeline/{benchmark.stem}/timeline.json")
-      cleanup_benchmark_files(timeline_file, tmp_dir / "summary.json")
+      cleanup_benchmark_files(tmp_dir)
 
 def run_no_io_experiments(resource_dir, tmp_dir, aggregator):
   no_io_suites = ["easteregg", "herbie-hamming", "herbie-math-rewrite"] # herbie-math-taylor runs out of memory
@@ -72,7 +72,7 @@ def run_no_io_experiments(resource_dir, tmp_dir, aggregator):
       timeline_file = tmp_dir / f"{benchmark.stem}-timeline.json"
       run_poach(benchmark, tmp_dir, "no-io")
       add_benchmark_data(aggregator, timeline_file, f"{suite}/no-io/{benchmark.stem}/timeline.json")
-      cleanup_benchmark_files(timeline_file, tmp_dir / "summary.json")
+      cleanup_benchmark_files(tmp_dir)
 
 def run_test_experiments(top_dir, tmp_dir, aggregator):
   test_modes = [
@@ -87,39 +87,59 @@ def run_test_experiments(top_dir, tmp_dir, aggregator):
       timeline_file = tmp_dir / f"{benchmark.stem}-timeline.json"
       run_poach(benchmark, tmp_dir, run_mode)
       add_benchmark_data(aggregator, timeline_file, f"tests/{benchmark_name}/{benchmark.stem}/timeline.json")
-      extra_files = {
-        "sequential-round-trip": [tmp_dir / f"{benchmark.stem}-serialize1.json"],
-        "old-serialize": [
-          tmp_dir / f"{benchmark.stem}-serialize-poach.json",
-          tmp_dir / f"{benchmark.stem}-serialize-old.json",
-        ],
-      }.get(run_mode, [])
-      cleanup_benchmark_files(timeline_file, tmp_dir / "summary.json", *extra_files)
+      cleanup_benchmark_files(tmp_dir)
 
 def run_mined_experiments(resource_dir, tmp_dir, aggregator):
-  mega_serialize_file = tmp_dir / "mega-easteregg-serialize.json"
-  mega_timeline_file = tmp_dir / "mega-easteregg-timeline.json"
-  run_poach(resource_dir / "mega-easteregg.egg", tmp_dir, "serialize")
-  add_benchmark_data(aggregator, mega_timeline_file, "easteregg/serialize/mega-easteregg/timeline.json")
-  cleanup_benchmark_files(mega_timeline_file, tmp_dir / "summary.json")
+  mine_data = {}
+  mined_timeline_aggregator = transform.TimelineAggregator(tmp_dir)
+  mega_seed_dir = tmp_dir.parent / "cache"
+  mega_seed_dir.mkdir(exist_ok = True)
+  mega_serialize_file = mega_seed_dir / "mega-easteregg-serialize.json"
+  mega_timeline_file = mega_seed_dir / "mega-easteregg-timeline.json"
+  run_poach(resource_dir / "mega-easteregg.egg", mega_seed_dir, "serialize")
+
   for benchmark in benchmark_files(resource_dir / "test-files" / "easteregg"):
+    benchmark_name = benchmark.stem
     timeline_file = tmp_dir / f"{benchmark.stem}-timeline.json"
-    serialize_file = tmp_dir / f"{benchmark.stem}-serialize.json"
+    mine_extract_file = tmp_dir / "mine-extracts.json"
+    baseline_key = f"{benchmark_name}/baseline"
+    mine_indiv_key = f"{benchmark_name}/mine-indiv"
+    mine_mega_key = f"{benchmark_name}/mine-mega"
+
+    # First, make sure we have a serialized e-graph for the benchmark
     run_poach(benchmark, tmp_dir, "serialize")
+    mined_timeline_aggregator.add_file(timeline_file, baseline_key)
+    baseline_timeline = mined_timeline_aggregator.aggregated[baseline_key]
     add_benchmark_data(aggregator, timeline_file, f"easteregg/serialize/{benchmark.stem}/timeline.json")
-    cleanup_benchmark_files(timeline_file, tmp_dir / "summary.json")
 
+    # Mine Individual: Run the file starting from the serialized e-graph for the benchmark
     run_poach(benchmark, tmp_dir, "mine",
-      ["--initial-egraph=" + str(tmp_dir)])
+      ["--initial-egraph=" + str(tmp_dir / f"{benchmark.stem}-serialize.json")])
+    mined_timeline_aggregator.add_file(timeline_file, mine_indiv_key)
+    mine_indiv_timeline = mined_timeline_aggregator.aggregated[mine_indiv_key]
+    with open(mine_extract_file) as file:
+      mine_indiv_extracts = json.load(file)[benchmark_name]
     add_benchmark_data(aggregator, timeline_file, f"easteregg/mine-indiv/{benchmark.stem}/timeline.json")
-    cleanup_benchmark_files(timeline_file, serialize_file, tmp_dir / "summary.json")
 
+    # Mine Mega: Run the file starting from the mega e-graph for all of easteregg
     run_poach(benchmark, tmp_dir, "mine",
       ["--initial-egraph=" + str(mega_serialize_file)])
+    mined_timeline_aggregator.add_file(timeline_file, mine_mega_key)
+    mine_mega_timeline = mined_timeline_aggregator.aggregated[mine_mega_key]
+    with open(mine_extract_file) as file:
+      mine_mega_extracts = json.load(file)[benchmark_name]
     add_benchmark_data(aggregator, timeline_file, f"easteregg/mine-mega/{benchmark.stem}/timeline.json")
-    cleanup_benchmark_files(timeline_file, tmp_dir / "summary.json")
 
-  cleanup_benchmark_files(mega_serialize_file, tmp_dir / "summary.json")
+    mine_data[benchmark_name] = {
+      "baseline_timeline": baseline_timeline,
+      "mine_indiv_timeline": mine_indiv_timeline,
+      "mine_mega_timeline": mine_mega_timeline,
+      "mine_indiv_extracts": mine_indiv_extracts,
+      "mine_mega_extracts": mine_mega_extracts,
+    }
+    cleanup_benchmark_files(tmp_dir)
+
+  transform.save_json(aggregator.output_dir / "mine-data.json", mine_data)
 
 if __name__ == "__main__":
   print("Beginning poach nightly")

@@ -4,6 +4,7 @@ use egglog::ast::{
     all_sexps, GenericAction, GenericCommand, GenericExpr, GenericFact, GenericRunConfig,
     GenericSchedule, Sexp, SexpParser,
 };
+use egglog::extract::DefaultCost;
 use egglog::{CommandOutput, EGraph, TimedEgraph};
 use env_logger::Env;
 use hashbrown::HashMap;
@@ -67,8 +68,10 @@ enum RunMode {
 
     // Requires initial-egraph to be provided via Args
     // For each egg file under the input path,
-    //      Deserialize the initial egraph
-    //      Run the egglog program, skipping declarations of Sorts and Rules
+    //      Run the egglog program from a fresh egraph and record extract outputs.
+    //      Deserialize the initial egraph.
+    //      Run the egglog program, skipping declarations of Sorts and Rules.
+    //      Compare extract outputs between the two runs.
     //      Save the completed timeline, for consumption by the nightly frontend
     Mine,
 }
@@ -99,10 +102,7 @@ struct Args {
     output_dir: PathBuf,
     run_mode: RunMode,
 
-    // If this is a single file, it will be used as the initial egraph for
-    // every file in the input_path directory
-    // If it is a directory, we will look for a file matching the name of each
-    // file in the input_path directory
+    // Path to an initial serialized egraph file to load before running each benchmark.
     #[arg(long)]
     initial_egraph: Option<PathBuf>,
 }
@@ -173,11 +173,7 @@ where
             .unwrap_or("unknown");
 
         let mut timed_egraph = if let Some(path) = initial_egraph {
-            if path.is_file() {
-                TimedEgraph::new_from_file(path)
-            } else {
-                TimedEgraph::new_from_file(&path.join(format!("{name}-serialize.json")))
-            }
+            TimedEgraph::new_from_file(path)
         } else {
             TimedEgraph::new()
         };
@@ -204,42 +200,125 @@ where
     (successes, failures)
 }
 
-fn compare_extracts(
-    initial_extracts: &[CommandOutput],
-    final_extracts: &[CommandOutput],
-) -> Result<()> {
-    if initial_extracts.len() != final_extracts.len() {
-        anyhow::bail!("extract lengths mismatch")
-    }
+fn collect_extract_outputs(outputs: Vec<CommandOutput>) -> Vec<CommandOutput> {
+    outputs
+        .into_iter()
+        .filter(|output| {
+            matches!(
+                output,
+                CommandOutput::ExtractBest(_, _, _)
+                    | CommandOutput::ExtractVariants(_, _)
+                    | CommandOutput::MultiExtractVariants(_, _)
+            )
+        })
+        .collect()
+}
 
-    for (x, y) in initial_extracts.iter().zip(final_extracts) {
-        match (x, y) {
-            (CommandOutput::ExtractBest(_, _, term1), CommandOutput::ExtractBest(_, _, term2)) => {
-                if term1 != term2 {
-                    anyhow::bail!("No match : {:?} {:?}", x, y)
-                }
+#[derive(Serialize)]
+struct MineExtractComparison {
+    initial_term: String,
+    initial_cost: DefaultCost,
+    final_term: String,
+    final_cost: DefaultCost,
+}
+
+fn extract_term_costs_from_output(outputs: &[CommandOutput]) -> Result<Vec<(String, DefaultCost)>> {
+    let mut pairs = Vec::new();
+    for output in outputs {
+        match output {
+            CommandOutput::ExtractBest(dag, cost, term) => {
+                pairs.push((dag.to_string(*term), *cost));
             }
-            (
-                CommandOutput::ExtractVariants(_, terms1),
-                CommandOutput::ExtractVariants(_, terms2),
-            ) => {
-                if terms1 != terms2 {
-                    anyhow::bail!("No match : {:?} {:?}", x, y)
-                }
+            CommandOutput::ExtractVariants(dag, variants) => {
+                pairs.extend(
+                    variants
+                        .iter()
+                        .map(|(cost, term)| (dag.to_string(*term), *cost)),
+                );
             }
-            (
-                CommandOutput::MultiExtractVariants(_, items1),
-                CommandOutput::MultiExtractVariants(_, items2),
-            ) => {
-                if items1 != items2 {
-                    anyhow::bail!("No match : {:?} {:?}", x, y)
-                }
+            CommandOutput::MultiExtractVariants(dag, groups) => {
+                pairs.extend(groups.iter().flat_map(|group| {
+                    group
+                        .iter()
+                        .map(|(cost, term)| (dag.to_string(*term), *cost))
+                }));
             }
-            _ => anyhow::bail!("No match : {:?} {:?}", x, y),
+            _ => anyhow::bail!("Not an extract output: {output:?}"),
+        }
+    }
+    Ok(pairs)
+}
+
+#[derive(Default)]
+struct Namespace {
+    map: HashMap<String, String>,
+}
+
+impl Namespace {
+    fn add(&mut self, name: String) -> String {
+        if self.map.contains_key(&name) {
+            panic!("duplicate variable names")
+        } else {
+            let namespaced = format!("{name}@@");
+            self.map.insert(name.clone(), namespaced.clone());
+            namespaced
         }
     }
 
-    Ok(())
+    fn get(&self, name: String) -> String {
+        self.map.get(&name).unwrap_or(&name).to_string()
+    }
+
+    fn replace_expr(&self, expr: GenericExpr<String, String>) -> GenericExpr<String, String> {
+        match expr {
+            GenericExpr::Var(span, n) => GenericExpr::Var(span, self.get(n)),
+            GenericExpr::Call(span, h, generic_exprs) => GenericExpr::Call(
+                span,
+                self.get(h),
+                generic_exprs
+                    .into_iter()
+                    .map(|x| self.replace_expr(x))
+                    .collect(),
+            ),
+            GenericExpr::Lit(span, literal) => GenericExpr::Lit(span, literal),
+        }
+    }
+
+    fn replace_fact(&self, fact: GenericFact<String, String>) -> GenericFact<String, String> {
+        match fact {
+            GenericFact::Eq(span, e1, e2) => {
+                GenericFact::Eq(span, self.replace_expr(e1), self.replace_expr(e2))
+            }
+            GenericFact::Fact(e) => GenericFact::Fact(self.replace_expr(e)),
+        }
+    }
+
+    fn replace_sched(
+        &self,
+        schedule: GenericSchedule<String, String>,
+    ) -> GenericSchedule<String, String> {
+        match schedule {
+            GenericSchedule::Saturate(span, sched) => {
+                GenericSchedule::Saturate(span, Box::new(self.replace_sched(*sched)))
+            }
+            GenericSchedule::Repeat(span, n, sched) => {
+                GenericSchedule::Repeat(span, n, Box::new(self.replace_sched(*sched)))
+            }
+            GenericSchedule::Run(span, config) => GenericSchedule::Run(
+                span,
+                GenericRunConfig {
+                    ruleset: config.ruleset,
+                    until: config
+                        .until
+                        .map(|facts| facts.into_iter().map(|f| self.replace_fact(f)).collect()),
+                },
+            ),
+            GenericSchedule::Sequence(span, scheds) => GenericSchedule::Sequence(
+                span,
+                scheds.into_iter().map(|x| self.replace_sched(x)).collect(),
+            ),
+        }
+    }
 }
 
 fn poach(
@@ -268,7 +347,17 @@ fn poach(
             initial_egraph.as_deref(),
             |egg_file, out_dir, timed_egraph| {
                 let name = benchmark_name(egg_file);
-                timed_egraph.run_from_file(egg_file)?;
+                let outputs = timed_egraph.run_from_file(egg_file)?;
+                for output in outputs {
+                    if matches!(
+                        output,
+                        CommandOutput::ExtractBest(_, _, _)
+                            | CommandOutput::ExtractVariants(_, _)
+                            | CommandOutput::MultiExtractVariants(_, _)
+                    ) {
+                        print!("{output}");
+                    }
+                }
                 timed_egraph.to_file(&out_dir.join(format!("{name}-serialize.json")))?;
                 timed_egraph.write_timeline(&out_dir.join(format!("{name}-timeline.json")))?;
                 Ok(())
@@ -398,19 +487,8 @@ fn poach(
             initial_egraph.as_deref(),
             |egg_file, out_dir, timed_egraph| {
                 let name = benchmark_name(egg_file);
-                let initial_outputs = timed_egraph.run_from_file(egg_file)?;
-
-                let initial_extracts: Vec<CommandOutput> = initial_outputs
-                    .into_iter()
-                    .filter(|x| {
-                        matches!(
-                            x,
-                            CommandOutput::ExtractBest(_, _, _)
-                                | CommandOutput::ExtractVariants(_, _)
-                                | CommandOutput::MultiExtractVariants(_, _)
-                        )
-                    })
-                    .collect();
+                let initial_extracts =
+                    collect_extract_outputs(timed_egraph.run_from_file(egg_file)?);
 
                 let program_string = &read_to_string(egg_file)?;
 
@@ -454,10 +532,19 @@ fn poach(
 
                 check_egraph_number(&timed_egraph, 2)?;
 
-                let final_extracts =
-                    timed_egraph.run_program_with_timeline(extract_cmds, &extracts)?;
+                let final_extracts = collect_extract_outputs(
+                    timed_egraph.run_program_with_timeline(extract_cmds, &extracts)?,
+                );
 
-                compare_extracts(&initial_extracts, &final_extracts)?;
+                let initial_pairs = extract_term_costs_from_output(&initial_extracts)?;
+                let final_pairs = extract_term_costs_from_output(&final_extracts)?;
+                if initial_pairs != final_pairs {
+                    anyhow::bail!(
+                        "extract outputs differ:\ninitial: {:?}\nfinal: {:?}",
+                        initial_pairs,
+                        final_pairs
+                    );
+                }
 
                 timed_egraph.write_timeline(&out_dir.join(format!("{name}-timeline.json")))?;
 
@@ -470,102 +557,18 @@ fn poach(
                 initial_egraph.is_some(),
                 "initial_egraph must be provided via CLI args for Mine run mode"
             );
-            process_files(
+            let mut extract_report: HashMap<String, Vec<MineExtractComparison>> = HashMap::new();
+            let result = process_files(
                 &files,
                 out_dir,
                 initial_egraph.as_deref(),
                 |egg_file, out_dir, timed_egraph| {
+                    // First, run the file on a blank e-graph and track extracts
+                    let mut fresh_egraph = TimedEgraph::new();
+                    let fresh_extracts =
+                        collect_extract_outputs(fresh_egraph.run_from_file(egg_file)?);
+
                     let name = benchmark_name(egg_file);
-                    // Namespace to avoid shadowing
-                    #[derive(Default)]
-                    struct Namespace {
-                        map: HashMap<String, String>,
-                    }
-
-                    impl Namespace {
-                        fn add(&mut self, name: String) -> String {
-                            if self.map.contains_key(&name) {
-                                panic!("duplicate variable names")
-                            } else {
-                                let namespaced = format!("@@{name}");
-                                self.map.insert(name.clone(), namespaced.clone());
-                                namespaced
-                            }
-                        }
-
-                        fn get(&self, name: String) -> String {
-                            self.map.get(&name).unwrap_or(&name).to_string()
-                        }
-
-                        fn replace_expr(
-                            &self,
-                            expr: GenericExpr<String, String>,
-                        ) -> GenericExpr<String, String> {
-                            match expr {
-                                GenericExpr::Var(span, n) => GenericExpr::Var(span, self.get(n)),
-                                GenericExpr::Call(span, h, generic_exprs) => GenericExpr::Call(
-                                    span,
-                                    self.get(h),
-                                    generic_exprs
-                                        .into_iter()
-                                        .map(|x| self.replace_expr(x))
-                                        .collect(),
-                                ),
-                                GenericExpr::Lit(span, literal) => GenericExpr::Lit(span, literal),
-                            }
-                        }
-
-                        fn replace_fact(
-                            &self,
-                            fact: GenericFact<String, String>,
-                        ) -> GenericFact<String, String> {
-                            match fact {
-                                GenericFact::Eq(span, e1, e2) => GenericFact::Eq(
-                                    span,
-                                    self.replace_expr(e1),
-                                    self.replace_expr(e2),
-                                ),
-                                GenericFact::Fact(e) => GenericFact::Fact(self.replace_expr(e)),
-                            }
-                        }
-
-                        fn replace_sched(
-                            &self,
-                            schedule: GenericSchedule<String, String>,
-                        ) -> GenericSchedule<String, String> {
-                            match schedule {
-                                GenericSchedule::Saturate(span, sched) => {
-                                    GenericSchedule::Saturate(
-                                        span,
-                                        Box::new(self.replace_sched(*sched)),
-                                    )
-                                }
-                                GenericSchedule::Repeat(span, n, sched) => GenericSchedule::Repeat(
-                                    span,
-                                    n,
-                                    Box::new(self.replace_sched(*sched)),
-                                ),
-                                GenericSchedule::Run(span, config) => GenericSchedule::Run(
-                                    span,
-                                    GenericRunConfig {
-                                        ruleset: config.ruleset,
-                                        until: config.until.map(|facts| {
-                                            facts
-                                                .into_iter()
-                                                .map(|f| self.replace_fact(f))
-                                                .collect()
-                                        }),
-                                    },
-                                ),
-                                GenericSchedule::Sequence(span, scheds) => {
-                                    GenericSchedule::Sequence(
-                                        span,
-                                        scheds.into_iter().map(|x| self.replace_sched(x)).collect(),
-                                    )
-                                }
-                            }
-                        }
-                    }
                     let mut namespace = Namespace::default();
 
                     let program_string = &read_to_string(egg_file)?;
@@ -581,19 +584,16 @@ fn poach(
                     let (filtered_cmds, filtered_sexps): (Vec<_>, Vec<_>) = all_cmds
                         .into_iter()
                         .zip(all_sexps)
-                        .filter(|(c, _)| {
-                            match c {
-                                GenericCommand::Action(GenericAction::Let(..)) => true,
-                                egglog::ast::GenericCommand::Extract(..) => true,
-                                egglog::ast::GenericCommand::MultiExtract(..) => true,
-                                // TODO: Running rules on a deserialized egraph currently does not work
-                                // | egglog::ast::GenericCommand::RunSchedule(_)
-                                egglog::ast::GenericCommand::PrintOverallStatistics(..) => true,
-                                egglog::ast::GenericCommand::Check(..) => true,
-                                egglog::ast::GenericCommand::PrintFunction(..) => true,
-                                egglog::ast::GenericCommand::PrintSize(..) => true,
-                                _ => false,
-                            }
+                        .filter(|(c, _)| match c {
+                            GenericCommand::Action(GenericAction::Let(..)) => true,
+                            egglog::ast::GenericCommand::Extract(..) => true,
+                            egglog::ast::GenericCommand::MultiExtract(..) => true,
+                            egglog::ast::GenericCommand::RunSchedule(..) => true,
+                            egglog::ast::GenericCommand::PrintOverallStatistics(..) => true,
+                            egglog::ast::GenericCommand::Check(..) => true,
+                            egglog::ast::GenericCommand::PrintFunction(..) => true,
+                            egglog::ast::GenericCommand::PrintSize(..) => true,
+                            _ => false,
                         })
                         .map(|(cmd, sexp)| {
                             (
@@ -645,7 +645,8 @@ fn poach(
                         })
                         .unzip();
 
-                    timed_egraph.run_program_with_timeline(
+                    // Run program on the mined e-graph
+                    let mined_outputs = timed_egraph.run_program_with_timeline(
                         filtered_cmds,
                         &filtered_sexps
                             .iter()
@@ -654,11 +655,44 @@ fn poach(
                             .join("\n"),
                     )?;
 
+                    let mined_extracts = collect_extract_outputs(mined_outputs);
+
+                    let initial_pairs = extract_term_costs_from_output(&fresh_extracts)?;
+                    let final_pairs = extract_term_costs_from_output(&mined_extracts)?;
+                    if initial_pairs.len() != final_pairs.len() {
+                        anyhow::bail!(
+                            "extract lengths mismatch for {}: {} != {}",
+                            name,
+                            initial_pairs.len(),
+                            final_pairs.len()
+                        );
+                    }
+                    extract_report.insert(
+                        name.to_string(),
+                        initial_pairs
+                            .into_iter()
+                            .zip(final_pairs)
+                            .map(|((initial_term, initial_cost), (final_term, final_cost))| {
+                                MineExtractComparison {
+                                    initial_term,
+                                    initial_cost,
+                                    final_term,
+                                    final_cost,
+                                }
+                            })
+                            .collect(),
+                    );
+
                     timed_egraph.write_timeline(&out_dir.join(format!("{name}-timeline.json")))?;
 
                     Ok(())
                 },
-            )
+            );
+            let file = File::create(out_dir.join("mine-extracts.json"))
+                .expect("failed to create mine-extracts.json");
+            serde_json::to_writer_pretty(BufWriter::new(file), &extract_report)
+                .expect("failed to write mine-extracts.json");
+            result
         }
     }
 }
@@ -685,7 +719,6 @@ fn main() {
         WalkDir::new(input_path)
             .into_iter()
             .filter_map(|entry| entry.ok())
-            .filter(|entry| !entry.path().to_string_lossy().contains("fail"))
             .filter(|entry| entry.file_type().is_file())
             .filter(|entry| entry.path().extension().and_then(|s| s.to_str()) == Some("egg"))
             .map(|entry| entry.path().to_path_buf())
@@ -704,4 +737,44 @@ fn main() {
     let file =
         File::create(output_dir.join("summary.json")).expect("Failed to create summary.json");
     serde_json::to_writer_pretty(BufWriter::new(file), &out).expect("failed to write summary.json");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn run_rules_after_deserialize() {
+        let mut timed_egraph = TimedEgraph::new();
+        let program = r#"
+            (function fib (i64) i64 :no-merge)
+            (set (fib 0) 0)
+            (set (fib 1) 1)
+
+            (rule ((= f0 (fib x))
+                   (= f1 (fib (+ x 1))))
+                  ((set (fib (+ x 2)) (+ f0 f1))))
+
+            (run 2)
+
+            (check (= (fib 3) 2))
+            (fail (check (= (fib 4) 3)))
+        "#;
+
+        let res = timed_egraph.run_from_string(program);
+        assert!(res.is_ok());
+
+        // round trip serialize
+        let v = timed_egraph.to_value().expect("failed to serialize");
+        timed_egraph.from_value(v).expect("failed to deserialize");
+
+        let second_run = r#"
+            (fail (check (= (fib 4) 3)))
+            (run 1)
+            (check (= (fib 4) 3))
+        "#;
+
+        let res2 = timed_egraph.run_from_string(second_run);
+        assert!(res2.is_ok());
+    }
 }
