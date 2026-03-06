@@ -141,25 +141,25 @@ if __name__ == "__main__":
   # Make sure we're in the right place
   os.chdir(top_dir)
 
-  ##############################################################################
-  #                          run experiments                                   #
-  ##############################################################################
+  # ##############################################################################
+  # #                          run experiments                                   #
+  # ##############################################################################
 
-  # Run the benchmarks and record timeline-only data.
-  run_timeline_experiments(resource_dir, tmp_dir, aggregator)
-  
-  # Re-run the benchmarks with JSON round-tripping kept entirely in memory.
-  run_no_io_experiments(resource_dir, tmp_dir, aggregator)
-  
-  # Run the egglog tests under each serialization experiment mode.
-  run_test_experiments(top_dir, tmp_dir, aggregator)
-  
-  # Run the mined-egraph experiment using both per-benchmark and mega-egraph seeds.
-  run_mined_experiments(resource_dir, tmp_dir, aggregator)
+  # # Run the benchmarks and record timeline-only data.
+  # run_timeline_experiments(resource_dir, tmp_dir, aggregator)
 
-  ##############################################################################
+  # # Re-run the benchmarks with JSON round-tripping kept entirely in memory.
+  # run_no_io_experiments(resource_dir, tmp_dir, aggregator)
 
-  aggregator.save()
+  # # Run the egglog tests under each serialization experiment mode.
+  # run_test_experiments(top_dir, tmp_dir, aggregator)
+
+  # # Run the mined-egraph experiment using both per-benchmark and mega-egraph seeds.
+  # run_mined_experiments(resource_dir, tmp_dir, aggregator)
+
+  # ##############################################################################
+
+  # aggregator.save()
 
   if shutil.which("perf") is not None:
     # Generate flamegraphs
