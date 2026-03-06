@@ -496,9 +496,8 @@ fn poach(
 
                 timed_egraph.write_timeline(&out_dir.join(format!("{name}-timeline.json")))?;
 
-
                 #[derive(Serialize)]
-                struct CSVRecord{
+                struct CSVRecord {
                     benchname: String,
                     egraph_size: usize,
                     serialized_size: usize,
@@ -515,11 +514,11 @@ fn poach(
                     ser_time: timed_egraph.get_total_time(1),
                     der_time: timed_egraph.get_total_time(2),
                     ext_time: timed_egraph.get_total_time(3),
-                    run_time: timed_egraph.get_total_time(0)
+                    run_time: timed_egraph.get_total_time(0),
                 };
 
                 csv::Writer::from_path(&out_dir.join(format!("{name}.csv")))?.serialize(r)?;
-                
+
                 Ok(())
             },
         ),

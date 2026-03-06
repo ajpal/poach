@@ -2463,9 +2463,9 @@ impl PartialOrd for EgraphEvent {
 
 impl PartialEq for EgraphEvent {
     fn eq(&self, other: &Self) -> bool {
-        self.sexp_idx == other.sexp_idx &&
-        self.evt == other.evt &&
-        self.time_micros == other.time_micros
+        self.sexp_idx == other.sexp_idx
+            && self.evt == other.evt
+            && self.time_micros == other.time_micros
     }
 }
 
@@ -2520,8 +2520,9 @@ impl TimedEgraph {
         }
     }
 
-    pub fn get_total_time(&self, id : usize) -> u128 {
-        self.timeline[id].evts.iter().max().unwrap().time_micros - self.timeline[id].evts.iter().min().unwrap().time_micros
+    pub fn get_total_time(&self, id: usize) -> u128 {
+        self.timeline[id].evts.iter().max().unwrap().time_micros
+            - self.timeline[id].evts.iter().min().unwrap().time_micros
     }
 
     pub fn egraphs(&self) -> Vec<&EGraph> {
