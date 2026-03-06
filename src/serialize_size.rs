@@ -29,7 +29,7 @@ fn up_to_two_decimals(a: usize, b: usize) -> String {
     } else {
         low.to_string()
     };
-    return high.to_string() + "." + &low_str;
+    high.to_string() + "." + &low_str
 }
 
 fn pretty_print_nbytes(size: usize) -> String {
@@ -127,12 +127,9 @@ impl<K: serde::Serialize, V: serde::Serialize + GenerateSizeReport> GenerateSize
     fn get_sizerp(&self) -> SizeReport {
         let mut ret = get_sizerp_default(self);
         for e in self.data.iter() {
-            match e {
-                Some(v) => {
-                    let rep = v.get_sizerp();
-                    ret.fields.push((rep.name.clone(), Box::new(rep)));
-                }
-                _ => {}
+            if let Some(v) = e {
+                let rep = v.get_sizerp();
+                ret.fields.push((rep.name.clone(), Box::new(rep)));
             }
         }
         ret

@@ -259,31 +259,31 @@ impl Serialize for SerializableSort {
             s.serialize_field("type", "FunctionSort")?;
             s.serialize_field("data", sort)?;
             s.end()
-        } else if let Some(_) = sort.as_any().downcast_ref::<BaseSortImpl<BigIntSort>>() {
+        } else if sort.as_any().downcast_ref::<BaseSortImpl<BigIntSort>>().is_some() {
             s.serialize_field("type", "BaseSort")?;
             s.serialize_field("data", "BigIntSort")?;
             s.end()
-        } else if let Some(_) = sort.as_any().downcast_ref::<BaseSortImpl<BigRatSort>>() {
+        } else if sort.as_any().downcast_ref::<BaseSortImpl<BigRatSort>>().is_some() {
             s.serialize_field("type", "BaseSort")?;
             s.serialize_field("data", "BigRatSort")?;
             s.end()
-        } else if let Some(_) = sort.as_any().downcast_ref::<BaseSortImpl<BoolSort>>() {
+        } else if sort.as_any().downcast_ref::<BaseSortImpl<BoolSort>>().is_some() {
             s.serialize_field("type", "BaseSort")?;
             s.serialize_field("data", "BoolSort")?;
             s.end()
-        } else if let Some(_) = sort.as_any().downcast_ref::<BaseSortImpl<F64Sort>>() {
+        } else if sort.as_any().downcast_ref::<BaseSortImpl<F64Sort>>().is_some() {
             s.serialize_field("type", "BaseSort")?;
             s.serialize_field("data", "F64Sort")?;
             s.end()
-        } else if let Some(_) = sort.as_any().downcast_ref::<BaseSortImpl<I64Sort>>() {
+        } else if sort.as_any().downcast_ref::<BaseSortImpl<I64Sort>>().is_some() {
             s.serialize_field("type", "BaseSort")?;
             s.serialize_field("data", "I64Sort")?;
             s.end()
-        } else if let Some(_) = sort.as_any().downcast_ref::<BaseSortImpl<StringSort>>() {
+        } else if sort.as_any().downcast_ref::<BaseSortImpl<StringSort>>().is_some() {
             s.serialize_field("type", "BaseSort")?;
             s.serialize_field("data", "StringSort")?;
             s.end()
-        } else if let Some(_) = sort.as_any().downcast_ref::<BaseSortImpl<UnitSort>>() {
+        } else if sort.as_any().downcast_ref::<BaseSortImpl<UnitSort>>().is_some() {
             s.serialize_field("type", "BaseSort")?;
             s.serialize_field("data", "UnitSort")?;
             s.end()
@@ -1494,7 +1494,7 @@ impl EGraph {
                                 expr.output_type(),
                             )
                             .iter()
-                            .map(|e| e.1.clone())
+                            .map(|e| e.1)
                             .collect();
                         if log_enabled!(Level::Info) {
                             let expr_str = expr.to_string();
@@ -2439,8 +2439,8 @@ mod tests {
 
 /***** TESTING AREA FOR TIMED EGRAPH *****/
 
-static START: &'static str = "start";
-static END: &'static str = "end";
+static START: &str = "start";
+static END: &str = "end";
 
 #[derive(Serialize, Clone, Eq)]
 pub struct EgraphEvent {
@@ -2491,6 +2491,12 @@ pub struct TimedEgraph {
     timer: std::time::Instant,
 }
 
+impl Default for TimedEgraph {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TimedEgraph {
     /// Create a new TimedEgraph with a default EGraph
     pub fn new() -> Self {
@@ -2526,14 +2532,14 @@ impl TimedEgraph {
     }
 
     pub fn egraphs(&self) -> Vec<&EGraph> {
-        self.egraphs.iter().map(|x| x).collect()
+        self.egraphs.iter().collect()
     }
 
     pub fn write_timeline(&self, path: &Path) -> Result<(), serde_json::Error> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).expect("Failed to create out dir");
         }
-        let file = File::create(&path).expect("Failed to create timeline.json");
+        let file = File::create(path).expect("Failed to create timeline.json");
         serde_json::to_writer_pretty(BufWriter::new(file), &self.timeline)
     }
 
@@ -2593,7 +2599,7 @@ impl TimedEgraph {
                 time_micros: self.timer.elapsed().as_micros(),
             });
 
-            i = i + 1;
+            i += 1;
         }
 
         self.timeline.push(program_timeline);

@@ -202,7 +202,7 @@ where
             }
         }
     }
-    if failures.len() == 0 {
+    if failures.is_empty() {
         println!("0 failures out of {} files", files.len());
     } else {
         println!("{} failures out of {} files", failures.len(), files.len());
@@ -325,9 +325,9 @@ fn poach(
                     .from_file(&s1)
                     .context("failed to read s1.fbs")?;
 
-                check_egraph_number(&timed_egraph, 2)?;
+                check_egraph_number(timed_egraph, 2)?;
 
-                check_egraph_size(&timed_egraph)?;
+                check_egraph_size(timed_egraph)?;
 
                 timed_egraph.write_timeline(&out_dir.join(format!("{name}-timeline.json")))?;
                 Ok(())
@@ -369,8 +369,8 @@ fn poach(
                     .from_file(&s3)
                     .context("failed to read s3.fbs")?;
 
-                check_egraph_number(&timed_egraph, 4)?;
-                check_egraph_size(&timed_egraph)?;
+                check_egraph_number(timed_egraph, 4)?;
+                check_egraph_size(timed_egraph)?;
                 //check_idempotent(&s2, &s3, name, out_dir);
 
                 timed_egraph.write_timeline(&out_dir.join(format!("{name}-timeline.json")))?;
@@ -415,9 +415,9 @@ fn poach(
                     .from_value(value)
                     .context("failed to decode egraph from flatbuffer")?;
 
-                check_egraph_number(&timed_egraph, 2)?;
+                check_egraph_number(timed_egraph, 2)?;
 
-                check_egraph_size(&timed_egraph)?;
+                check_egraph_size(timed_egraph)?;
 
                 timed_egraph.write_timeline(&out_dir.join(format!("{name}-timeline.json")))?;
 
@@ -487,7 +487,7 @@ fn poach(
                     .from_value(value)
                     .context("Failed to decode egraph from Flatbuffer")?;
 
-                check_egraph_number(&timed_egraph, 2)?;
+                check_egraph_number(timed_egraph, 2)?;
 
                 let final_extracts =
                     timed_egraph.run_program_with_timeline(extract_cmds, &extracts)?;
@@ -510,14 +510,14 @@ fn poach(
                 let r = CSVRecord {
                     benchname: name.to_string(),
                     egraph_size: timed_egraph.egraphs().last().unwrap().num_tuples(),
-                    serialized_size: serialized_size,
+                    serialized_size,
                     ser_time: timed_egraph.get_total_time(1),
                     der_time: timed_egraph.get_total_time(2),
                     ext_time: timed_egraph.get_total_time(3),
                     run_time: timed_egraph.get_total_time(0),
                 };
 
-                csv::Writer::from_path(&out_dir.join(format!("{name}.csv")))?.serialize(r)?;
+                csv::Writer::from_path(out_dir.join(format!("{name}.csv")))?.serialize(r)?;
 
                 Ok(())
             },
@@ -632,7 +632,7 @@ fn poach(
 
                     let all_cmds = EGraph::default()
                         .parser
-                        .get_program_from_string(None, &program_string)?;
+                        .get_program_from_string(None, program_string)?;
 
                     assert!(all_cmds.len() == all_sexps.len());
 
