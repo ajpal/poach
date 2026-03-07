@@ -303,9 +303,13 @@ impl SubsetTracker {
     pub(crate) fn recent_updates(&mut self, table_id: TableId, table: &WrappedTable) -> Subset {
         let current_version = table.version();
         let res = if let Some(last_version) = self.last_rebuilt_at.get(table_id) {
-            if current_version.major == last_version.major {
+            if current_version.major == last_version.major
+                && current_version.minor >= last_version.minor
+            {
                 table.updates_since(last_version.minor)
             } else {
+                // Version rollback can happen after deserialization/runtime restoration.
+                // In that case incremental offsets are no longer valid, so rescan all rows.
                 table.all()
             }
         } else {
