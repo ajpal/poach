@@ -20,10 +20,7 @@ use crossbeam_queue::SegQueue;
 use hashbrown::HashTable;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 use rustc_hash::FxHasher;
-use serde::{
-    ser::{SerializeStruct, SerializeTuple},
-    Deserialize, Deserializer, Serialize, Serializer,
-};
+use serde::{ser::SerializeStruct, Deserialize, Deserializer, Serialize, Serializer};
 use sharded_hash_table::ShardedHashTable;
 
 use crate::{
@@ -203,8 +200,8 @@ impl<'de> Deserialize<'de> for SortedWritesTable {
         #[derive(Deserialize)]
         struct Partial {
             generation: Generation,
-            shard_data: ShardData,
-            shards: Vec<Vec<TableEntry>>,
+            //shard_data: ShardData,
+            //shards: Vec<Vec<TableEntry>>,
             data: Rows,
 
             n_keys: usize,
@@ -215,13 +212,13 @@ impl<'de> Deserialize<'de> for SortedWritesTable {
             pending_state: Arc<PendingState>,
 
             to_rebuild: Vec<ColumnId>,
-            rebuild_index: Index<ColumnIndex>,
-
+            //rebuild_index: Index<ColumnIndex>,
             subset_tracker: SubsetTracker,
         }
 
         let partial = Partial::deserialize(deserializer)?;
 
+        /*
         let shards: Vec<HashTable<TableEntry>> = partial
             .shards
             .iter()
@@ -238,11 +235,12 @@ impl<'de> Deserialize<'de> for SortedWritesTable {
             shard_data: partial.shard_data,
             shards,
         };
+        */
 
         Ok(SortedWritesTable {
             generation: partial.generation,
             data: partial.data,
-            hash,
+            hash: ShardedHashTable::default(),
             n_keys: partial.n_keys,
             n_columns: partial.n_columns,
             sort_by: partial.sort_by,
@@ -250,7 +248,7 @@ impl<'de> Deserialize<'de> for SortedWritesTable {
             pending_state: partial.pending_state,
             merge: Arc::new(|_, _, _, _| true),
             to_rebuild: partial.to_rebuild,
-            rebuild_index: partial.rebuild_index,
+            rebuild_index: <Index<ColumnIndex>>::default(),
             subset_tracker: partial.subset_tracker,
         })
     }
@@ -261,6 +259,7 @@ impl Serialize for SortedWritesTable {
     where
         S: Serializer,
     {
+        /*
         let serialized_shards: Vec<Vec<TableEntry>> = self
             .hash
             .shards
@@ -271,7 +270,7 @@ impl Serialize for SortedWritesTable {
                 v
             })
             .collect();
-
+        */
         let mut state = serializer.serialize_struct("SortedWritesTable", 11)?;
         state.serialize_field("generation", &self.generation)?;
         //state.serialize_field("shard_data", &self.hash.shard_data())?;

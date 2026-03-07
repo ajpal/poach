@@ -6,7 +6,7 @@ use std::{cell::Cell, mem, ops::Deref};
 use crate::numeric_id::NumericId;
 use egglog_concurrency::ParallelVecWriter;
 use rayon::iter::ParallelIterator;
-use serde::{ser::SerializeStruct, Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use smallvec::SmallVec;
 
 use crate::{
@@ -52,19 +52,35 @@ impl<'de> Deserialize<'de> for RowBuffer {
         })
         */
 
-        let bytes = <Vec<u8>>::deserialize(deserializer).expect("Failed to parse RowBuffer");
-        let mut it = bytes.iter();
-        let n_columns = deserialize_compressed(&mut it);
-        let total_rows = deserialize_compressed(&mut it);
-        let mut data = <Vec<Cell<Value>>>::new();
-        for i in 0..n_columns * total_rows {
-            data.push(Cell::new(Value::new(deserialize_compressed(&mut it))));
+        struct RowBufferVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for RowBufferVisitor {
+            type Value = RowBuffer;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("Expecting a byte array")
+            }
+
+            fn visit_bytes<E>(self, bytes: &[u8]) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                let mut it = bytes.iter();
+                let n_columns = deserialize_compressed(&mut it);
+                let total_rows = deserialize_compressed(&mut it);
+                let mut data = <Vec<Cell<Value>>>::new();
+                for _i in 0..n_columns * total_rows {
+                    data.push(Cell::new(Value::new(deserialize_compressed(&mut it))));
+                }
+                Ok(RowBuffer {
+                    n_columns: n_columns.try_into().unwrap(),
+                    total_rows: total_rows.try_into().unwrap(),
+                    data: Pooled::new(data),
+                })
+            }
         }
-        Ok(RowBuffer {
-            n_columns: n_columns.try_into().unwrap(),
-            total_rows: total_rows.try_into().unwrap(),
-            data: Pooled::new(data),
-        })
+
+        deserializer.deserialize_bytes(RowBufferVisitor)
     }
 }
 
@@ -85,7 +101,7 @@ fn get_n_compressed_bytes(x: u32) -> usize {
 
 fn compressed_serialize(buf: &mut Vec<u8>, x: u32) {
     let mut rem = x;
-    while (rem >= (1u32 << 7)) {
+    while rem >= (1u32 << 7) {
         buf.push((rem & ((1u32 << 7) - 1)).try_into().unwrap());
         rem = rem >> 7;
     }
@@ -96,7 +112,7 @@ fn deserialize_compressed<'a, T: Iterator<Item = &'a u8>>(it: &mut T) -> u32 {
     let mut ret = 0u32;
     let mut delta = 0u32;
     let mut val: u32 = <u8>::into(*it.next().unwrap());
-    while (val < (1u32 << 7)) {
+    while val < (1u32 << 7) {
         ret = ret | (val << delta);
         delta += 7;
         val = <u8>::into(*it.next().unwrap());

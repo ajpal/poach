@@ -259,31 +259,59 @@ impl Serialize for SerializableSort {
             s.serialize_field("type", "FunctionSort")?;
             s.serialize_field("data", sort)?;
             s.end()
-        } else if sort.as_any().downcast_ref::<BaseSortImpl<BigIntSort>>().is_some() {
+        } else if sort
+            .as_any()
+            .downcast_ref::<BaseSortImpl<BigIntSort>>()
+            .is_some()
+        {
             s.serialize_field("type", "BaseSort")?;
             s.serialize_field("data", "BigIntSort")?;
             s.end()
-        } else if sort.as_any().downcast_ref::<BaseSortImpl<BigRatSort>>().is_some() {
+        } else if sort
+            .as_any()
+            .downcast_ref::<BaseSortImpl<BigRatSort>>()
+            .is_some()
+        {
             s.serialize_field("type", "BaseSort")?;
             s.serialize_field("data", "BigRatSort")?;
             s.end()
-        } else if sort.as_any().downcast_ref::<BaseSortImpl<BoolSort>>().is_some() {
+        } else if sort
+            .as_any()
+            .downcast_ref::<BaseSortImpl<BoolSort>>()
+            .is_some()
+        {
             s.serialize_field("type", "BaseSort")?;
             s.serialize_field("data", "BoolSort")?;
             s.end()
-        } else if sort.as_any().downcast_ref::<BaseSortImpl<F64Sort>>().is_some() {
+        } else if sort
+            .as_any()
+            .downcast_ref::<BaseSortImpl<F64Sort>>()
+            .is_some()
+        {
             s.serialize_field("type", "BaseSort")?;
             s.serialize_field("data", "F64Sort")?;
             s.end()
-        } else if sort.as_any().downcast_ref::<BaseSortImpl<I64Sort>>().is_some() {
+        } else if sort
+            .as_any()
+            .downcast_ref::<BaseSortImpl<I64Sort>>()
+            .is_some()
+        {
             s.serialize_field("type", "BaseSort")?;
             s.serialize_field("data", "I64Sort")?;
             s.end()
-        } else if sort.as_any().downcast_ref::<BaseSortImpl<StringSort>>().is_some() {
+        } else if sort
+            .as_any()
+            .downcast_ref::<BaseSortImpl<StringSort>>()
+            .is_some()
+        {
             s.serialize_field("type", "BaseSort")?;
             s.serialize_field("data", "StringSort")?;
             s.end()
-        } else if sort.as_any().downcast_ref::<BaseSortImpl<UnitSort>>().is_some() {
+        } else if sort
+            .as_any()
+            .downcast_ref::<BaseSortImpl<UnitSort>>()
+            .is_some()
+        {
             s.serialize_field("type", "BaseSort")?;
             s.serialize_field("data", "UnitSort")?;
             s.end()
@@ -1275,7 +1303,7 @@ impl EGraph {
         );
 
         let id = translator.build();
-        let rule_result = self.backend.run_rules(&[id]);
+        let rule_result = self.backend.run_rules_without_rebuild(&[id]);
         self.backend.free_rule(id);
         self.backend.free_external_func(ext_id);
         let _ = rule_result.map_err(|e| {

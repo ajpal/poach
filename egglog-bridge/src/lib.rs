@@ -812,6 +812,31 @@ impl EGraph {
         Ok(iteration_report)
     }
 
+    /// TODO: evil hack for speeding up extraction
+    pub fn run_rules_without_rebuild(&mut self, rules: &[RuleId]) -> Result<IterationReport> {
+        let ts = self.next_ts();
+
+        let rule_set_report =
+            run_rules_impl(&mut self.db, &mut self.rules, rules, ts, self.report_level)?;
+        if let Some(message) = self.panic_message.lock().unwrap().take() {
+            return Err(PanicError(message).into());
+        }
+
+        let iteration_report = IterationReport {
+            rule_set_report,
+            rebuild_time: Duration::ZERO,
+        };
+        if !iteration_report.changed() {
+            return Ok(iteration_report);
+        }
+
+        if let Some(message) = self.panic_message.lock().unwrap().take() {
+            return Err(PanicError(message).into());
+        }
+
+        Ok(iteration_report)
+    }
+
     fn rebuild(&mut self) -> Result<()> {
         fn do_parallel() -> bool {
             #[cfg(test)]
