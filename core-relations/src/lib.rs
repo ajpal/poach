@@ -7,7 +7,8 @@ pub(crate) mod base_values;
 pub(crate) mod common;
 pub(crate) mod containers;
 pub(crate) mod dependency_graph;
-pub(crate) mod free_join;
+// TODO: evil hack for looking at serialization size
+pub mod free_join;
 pub(crate) mod hash_index;
 pub(crate) mod offsets;
 pub(crate) mod parallel_heuristics;
@@ -16,7 +17,8 @@ pub(crate) mod query;
 pub(crate) mod row_buffer;
 pub(crate) mod table;
 
-pub(crate) mod table_spec;
+// TODO: evil hack for looking at serialization size
+pub mod table_spec;
 pub(crate) mod uf;
 
 #[cfg(test)]

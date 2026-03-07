@@ -522,7 +522,8 @@ impl<T: Table> TableWrapper for WrapperImpl<T> {
 /// The implementations here downcast manually to the type used when
 /// constructing the WrappedTable.
 pub struct WrappedTable {
-    inner: Box<dyn Table>,
+    // TODO: evil hack
+    pub inner: Box<dyn Table>,
     wrapper: Box<dyn TableWrapper>,
 }
 

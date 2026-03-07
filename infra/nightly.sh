@@ -47,7 +47,8 @@ mkdir -p nightly/output
 mkdir -p nightly/output/flamegraphs
 mkdir -p nightly/tmp
 
-git clone https://github.com/brendangregg/FlameGraph.git
+# Skip FlameGraphs for mining MVP
+# git clone https://github.com/brendangregg/FlameGraph.git
 
 # Build in release mode before running nightly.py
 cargo build --release
@@ -61,7 +62,7 @@ if [ ! -f nightly/output/data/data.json ]; then
   exit 1
 fi
 
-ls nightly/output/flamegraphs > nightly/output/flamegraphs.txt
+# ls nightly/output/flamegraphs > nightly/output/flamegraphs.txt
 
 cp infra/nightly-resources/web/* nightly/output
 
