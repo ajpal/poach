@@ -78,3 +78,15 @@ body {
 #on-error {
   display: none;
 }
+
+#mine-summary-table {
+  border-collapse: collapse;
+  margin-top: 16px;
+}
+
+#mine-summary-table th,
+#mine-summary-table td {
+  border: 1px solid #ddd;
+  padding: 6px 10px;
+  text-align: left;
+}

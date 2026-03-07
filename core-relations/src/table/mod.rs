@@ -432,6 +432,10 @@ impl Table for SortedWritesTable {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
     fn clear(&mut self) {
         self.pending_state.clear();
         if self.data.data.len() == 0 {
@@ -648,6 +652,12 @@ impl Table for SortedWritesTable {
             &self.data.get_row(row).unwrap()[0..self.n_keys] == key
         })?;
         Some(self.data.get_row(id).unwrap()[col.index()])
+    }
+}
+
+impl SortedWritesTable {
+    pub fn set_merge(&mut self, merge: Box<MergeFn>) {
+        self.merge = merge.into();
     }
 }
 

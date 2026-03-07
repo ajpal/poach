@@ -405,9 +405,9 @@ pub enum CommandOutput {
     /// The best function found after extracting
     ExtractBest(TermDag, DefaultCost, TermId),
     /// The variants of a function found after extracting
-    ExtractVariants(TermDag, Vec<TermId>),
+    ExtractVariants(TermDag, Vec<(DefaultCost, TermId)>),
     /// The variants of multiple functions found after extracting
-    MultiExtractVariants(TermDag, Vec<Vec<TermId>>),
+    MultiExtractVariants(TermDag, Vec<Vec<(DefaultCost, TermId)>>),
     /// The report from all runs
     OverallStatistics(RunReport),
     /// A printed function and all its values
@@ -434,7 +434,7 @@ impl std::fmt::Display for CommandOutput {
             }
             CommandOutput::ExtractVariants(termdag, terms) => {
                 writeln!(f, "(")?;
-                for expr in terms {
+                for (_, expr) in terms {
                     writeln!(f, "   {}", termdag.to_string(*expr))?;
                 }
                 writeln!(f, ")")
@@ -443,7 +443,7 @@ impl std::fmt::Display for CommandOutput {
                 writeln!(f, "(")?;
                 for variants in terms {
                     writeln!(f, "   (")?;
-                    for expr in variants {
+                    for (_, expr) in variants {
                         writeln!(f, "      {}", termdag.to_string(*expr))?;
                     }
                     writeln!(f, "   )")?;
@@ -1172,6 +1172,69 @@ impl EGraph {
         Ok(RunReport::singleton(ruleset, iteration_report))
     }
 
+    fn restore_deserialized_runtime(&mut self) -> Result<(), Error> {
+        self.type_info.restore_deserialized_runtime_metadata();
+        self.type_info.clear_primitives();
+
+        let mut sorts = self
+            .type_info
+            .all_sorts()
+            .into_iter()
+            .map(|sort| (sort.name().to_owned(), sort))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        for builtin in ["Unit", "String", "bool", "i64", "f64", "BigInt", "BigRat"] {
+            if let Some(sort) = sorts.remove(builtin) {
+                sort.register_primitives(self);
+            }
+        }
+        add_primitive!(self, "!=" = |a: #, b: #| -?> () {
+            (a != b).then_some(())
+        });
+        add_primitive!(self, "value-eq" = |a: #, b: #| -?> () {
+            (a == b).then_some(())
+        });
+        add_primitive!(self, "ordering-min" = |a: #, b: #| -> # {
+            if a < b { a } else { b }
+        });
+        add_primitive!(self, "ordering-max" = |a: #, b: #| -> # {
+            if a > b { a } else { b }
+        });
+        for (_, sort) in sorts {
+            sort.register_primitives(self);
+        }
+        self.backend.restore_deserialized_runtime();
+
+        let mut restored_rulesets = IndexMap::default();
+        let rulesets = std::mem::take(&mut self.rulesets);
+
+        for (ruleset_name, ruleset) in rulesets {
+            let restored = match ruleset {
+                Ruleset::Rules(rules) => {
+                    let mut restored_rules = IndexMap::default();
+                    for (rule_name, (core_rule, _)) in rules {
+                        let rule_id = {
+                            let mut translator = BackendRule::new(
+                                self.backend.new_rule(&rule_name, self.seminaive),
+                                &self.functions,
+                                &self.type_info,
+                            );
+                            translator.query(&core_rule.body, false);
+                            translator.actions(&core_rule.head)?;
+                            translator.build()
+                        };
+                        restored_rules.insert(rule_name, (core_rule, rule_id));
+                    }
+                    Ruleset::Rules(restored_rules)
+                }
+                Ruleset::Combined(sub_rulesets) => Ruleset::Combined(sub_rulesets),
+            };
+            restored_rulesets.insert(ruleset_name, restored);
+        }
+
+        self.rulesets = restored_rulesets;
+        Ok(())
+    }
+
     fn add_rule(&mut self, rule: ast::ResolvedRule) -> Result<String, Error> {
         // Disable union_to_set optimization in proof or term encoding mode, since
         // it expects only `union` on constructors (not set).
@@ -1476,11 +1539,7 @@ impl EGraph {
                     if n < 0 {
                         panic!("Cannot extract negative number of variants");
                     }
-                    let terms: Vec<TermId> = extractor
-                        .extract_variants(self, &mut termdag, x, n as usize)
-                        .iter()
-                        .map(|e| e.1)
-                        .collect();
+                    let terms = extractor.extract_variants(self, &mut termdag, x, n as usize);
                     if log_enabled!(Level::Info) {
                         let expr_str = expr.to_string();
                         log::info!("extracted {} variants for {expr_str}", terms.len());
@@ -1513,17 +1572,13 @@ impl EGraph {
                     .iter()
                     .zip(exprs.iter())
                     .map(|(x, expr)| {
-                        let variants: Vec<_> = extractor
-                            .extract_variants_with_sort(
-                                self,
-                                &mut termdag,
-                                *x,
-                                n as usize,
-                                expr.output_type(),
-                            )
-                            .iter()
-                            .map(|e| e.1)
-                            .collect();
+                        let variants = extractor.extract_variants_with_sort(
+                            self,
+                            &mut termdag,
+                            *x,
+                            n as usize,
+                            expr.output_type(),
+                        );
                         if log_enabled!(Level::Info) {
                             let expr_str = expr.to_string();
                             log::info!("extracted {} variants for {expr_str}", variants.len());
@@ -2545,7 +2600,10 @@ impl TimedEgraph {
             .expect("Failed to read Flatbuffer from file");
 
         let r = flexbuffers::Reader::get_root(buf.as_slice()).unwrap();
-        let egraph: EGraph = EGraph::deserialize(r).unwrap();
+        let mut egraph: EGraph = EGraph::deserialize(r).unwrap();
+        egraph
+            .restore_deserialized_runtime()
+            .expect("failed to restore deserialized runtime");
 
         Self {
             egraphs: vec![egraph],
@@ -2589,6 +2647,17 @@ impl TimedEgraph {
         let outputs = self.run_program_with_timeline(parsed_commands, &program_text)?;
 
         Ok(outputs)
+    }
+
+    pub fn run_from_string(&mut self, program_text: &str) -> Result<Vec<CommandOutput>> {
+        let parsed_commands = self
+            .egraphs
+            .last_mut()
+            .expect("There are no egraphs")
+            .parser
+            .get_program_from_string(None, program_text)?;
+
+        Ok(self.run_program_with_timeline(parsed_commands, program_text)?)
     }
 
     pub fn run_program_with_timeline(
@@ -2721,7 +2790,10 @@ impl TimedEgraph {
         });
 
         let r = flexbuffers::Reader::get_root(value.as_slice()).unwrap();
-        let egraph: EGraph = EGraph::deserialize(r).unwrap();
+        let mut egraph: EGraph = EGraph::deserialize(r).unwrap();
+        egraph
+            .restore_deserialized_runtime()
+            .context("Failed to restore deserialized runtime")?;
 
         timeline.evts.push(EgraphEvent {
             sexp_idx: 0,
@@ -2811,7 +2883,10 @@ impl TimedEgraph {
         });
 
         let r = flexbuffers::Reader::get_root(buf.as_slice()).unwrap();
-        let egraph: EGraph = EGraph::deserialize(r).unwrap();
+        let mut egraph: EGraph = EGraph::deserialize(r).unwrap();
+        egraph
+            .restore_deserialized_runtime()
+            .context("Failed to restore deserialized runtime")?;
 
         timeline.evts.push(EgraphEvent {
             sexp_idx: 1,

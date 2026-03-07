@@ -59,6 +59,7 @@ function initializeGlobalData() {
   GLOBAL_DATA.extractChart = null;
   GLOBAL_DATA.differenceChart = null;
   GLOBAL_DATA.minedChart = null;
+  GLOBAL_DATA.mineData = {};
 
   return fetch("data/data.json")
     .then((response) => response.json())
@@ -86,21 +87,10 @@ function processRawData(blob) {
     if (!GLOBAL_DATA.data[suite]) {
       return;
     }
-    // Aggregate commands across all timelines
     const times = {
       benchmark,
-      ...Object.fromEntries(CMDS.map((cmd) => [cmd, []])),
-      other: [],
+      ...aggregateTimelinesByCommand(timelines),
     };
-
-    timelines.forEach(({ events, sexps }) => {
-      events.forEach((time_micros, idx) => {
-        const cmd = getCmd(sexps[idx]);
-
-        // Group times by command type
-        times[getCmdType(cmd)].push(time_micros / 1000); // we measure microseconds, but for charts, it's nicer to show in ms
-      });
-    });
 
     GLOBAL_DATA.data[suite][runMode][benchmark] = times;
   });

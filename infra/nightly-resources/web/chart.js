@@ -242,7 +242,7 @@ function initializeCharts() {
             },
           },
           y: {
-            stacked: false,
+            stacked: true,
             title: {
               display: true,
               text: "Time (ms)",
