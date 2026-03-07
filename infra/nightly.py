@@ -97,7 +97,7 @@ def run_test_experiments(top_dir, tmp_dir, aggregator):
       cleanup_benchmark_files(timeline_file, tmp_dir / "summary.json", *extra_files)
 
 def run_extract_experiments(resource_dir, tmp_dir, aggregator, csv_aggregator):
-  timeline_suites = ["easteregg", "herbie-hamming", "herbie-math-rewrite", "herbie-math-taylor"]
+  timeline_suites = ["herbie-hamming", "herbie-math-rewrite", "herbie-math-taylor"]
   for suite in timeline_suites:
     for benchmark in benchmark_files(resource_dir / "test-files" / suite):
       timeline_file = tmp_dir / f"{benchmark.stem}-timeline.json"
