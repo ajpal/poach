@@ -62,7 +62,7 @@ if [ ! -f nightly/output/data/data.json ]; then
   exit 1
 fi
 
-# ls nightly/output/flamegraphs > nightly/output/flamegraphs.txt
+ls nightly/output/flamegraphs > nightly/output/flamegraphs.txt
 
 cp infra/nightly-resources/web/* nightly/output
 

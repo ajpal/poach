@@ -178,16 +178,16 @@ if __name__ == "__main__":
   ##############################################################################
 
   # Run the benchmarks and record timeline-only data.
-  # run_timeline_experiments(resource_dir, tmp_dir, aggregator)
+  run_timeline_experiments(resource_dir, tmp_dir, aggregator)
 
   # Re-run the benchmarks with JSON round-tripping kept entirely in memory.
-  # run_no_io_experiments(resource_dir, tmp_dir, aggregator)
+  run_no_io_experiments(resource_dir, tmp_dir, aggregator)
 
   # Run the egglog tests under each serialization experiment mode.
-  # run_test_experiments(top_dir, tmp_dir, aggregator)
+  run_test_experiments(top_dir, tmp_dir, aggregator)
 
   # Run the mined-egraph experiment using both per-benchmark and mega-egraph seeds.
-  # run_mined_experiments(resource_dir, tmp_dir, aggregator)
+  run_mined_experiments(resource_dir, tmp_dir, aggregator)
 
   # Run the extract experiment on our heavy benchmarks
   run_extract_experiments(resource_dir, tmp_dir, aggregator, csv_aggregator)
@@ -197,7 +197,7 @@ if __name__ == "__main__":
   aggregator.save()
   csv_aggregator.save()
 
-  #if shutil.which("perf") is not None:
-  #  # Generate flamegraphs
-  #  for egg_file in glob.glob("tests/*.egg") + glob.glob("tests/web-demo/*.egg"):
-  #    run_cmd([str(script_dir / "flamegraph.sh"), egg_file, str(nightly_dir / "output" / "flamegraphs")])
+  if shutil.which("perf") is not None:
+   # Generate flamegraphs
+   for egg_file in glob.glob("tests/*.egg") + glob.glob("tests/web-demo/*.egg"):
+     run_cmd([str(script_dir / "flamegraph.sh"), egg_file, str(nightly_dir / "output" / "flamegraphs")])
