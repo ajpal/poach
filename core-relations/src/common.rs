@@ -1,4 +1,5 @@
 use std::{
+    collections::hash_map::DefaultHasher,
     hash::{BuildHasherDefault, Hash, Hasher},
     mem,
     ops::Deref,
@@ -9,7 +10,6 @@ use crate::numeric_id::{define_id, DenseIdMap, IdVec, NumericId};
 use egglog_concurrency::ConcurrentVec;
 use rustc_hash::FxHasher;
 use serde::{ser::SerializeStruct, Deserialize, Deserializer, Serialize};
-use serde_json::{from_value, to_value};
 
 use crate::{pool::Clear, Subset, TableId, TableVersion, WrappedTable};
 
@@ -36,8 +36,8 @@ where
 
 impl<K: Serialize, V: Serialize> Serialize for InternTable<K, V>
 where
-    K: Eq + Hash + Serialize + for<'a> Deserialize<'a>,
-    V: Serialize + for<'a> Deserialize<'a>,
+    K: Clone + Eq + Hash + Serialize + for<'a> Deserialize<'a>,
+    V: Clone + Serialize + for<'a> Deserialize<'a>,
 {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -46,21 +46,24 @@ where
         let mut s = serializer.serialize_struct("InternTable", 3)?;
         s.serialize_field("vals", &self.vals)?;
 
-        let mut serializable_data: Vec<Vec<(serde_json::Value, serde_json::Value)>> = Vec::new();
+        let mut serializable_data: Vec<Vec<(K, V)>> = Vec::new();
         for shard in &self.data {
             let shard = shard
                 .lock()
                 .map_err(|_| serde::ser::Error::custom("mutex poisoned"))?;
             let mut inner = Vec::new();
             for (k, v) in shard.iter() {
-                inner.push((
-                    to_value(k).map_err(serde::ser::Error::custom)?,
-                    to_value(v).map_err(serde::ser::Error::custom)?,
-                ));
+                inner.push((k.clone(), v.clone()));
             }
 
-            // Sort by the serialized key to guarantee deterministic order
-            inner.sort_by(|(k1, _), (k2, _)| k1.to_string().cmp(&k2.to_string()));
+            // Sort by deterministic key hashes to keep output stable across runs.
+            inner.sort_by_key(|(k, _)| {
+                let mut h1 = FxHasher::default();
+                k.hash(&mut h1);
+                let mut h2 = DefaultHasher::new();
+                k.hash(&mut h2);
+                (h1.finish(), h2.finish())
+            });
 
             serializable_data.push(inner)
         }
@@ -82,9 +85,9 @@ where
     {
         // Helper struct matching the serialized shape
         #[derive(Deserialize)]
-        struct Partial<K> {
+        struct Partial<K, V> {
             vals: Arc<ConcurrentVec<K>>,
-            data: Vec<Vec<(serde_json::Value, serde_json::Value)>>,
+            data: Vec<Vec<(K, V)>>,
             shards_log2: u32,
         }
 
@@ -96,9 +99,7 @@ where
             .into_iter()
             .map(|shard_vec| {
                 let mut map = hashbrown::HashMap::new();
-                for (k_val, v_val) in shard_vec {
-                    let k: K = from_value(k_val).unwrap();
-                    let v: V = from_value(v_val).unwrap();
+                for (k, v) in shard_vec {
                     map.insert(k, v);
                 }
                 Arc::new(Mutex::new(map))
