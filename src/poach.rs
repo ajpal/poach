@@ -185,7 +185,7 @@ where
             if path.is_file() {
                 TimedEgraph::new_from_file(path)
             } else {
-                TimedEgraph::new_from_file(&path.join(format!("{name}-serialize.json")))
+                TimedEgraph::new_from_file(&path.join(format!("{name}-serialize.fbs")))
             }
         } else {
             TimedEgraph::new()
