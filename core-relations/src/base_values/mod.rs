@@ -206,6 +206,27 @@ struct BaseInternTableErased {
     base_value_type: String,
 }
 
+/// Opaque representation for function values defined outside `core-relations`.
+///
+/// This preserves serialized data for round-tripping even when we cannot reconstruct
+/// the concrete Rust type in this crate.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+struct OpaqueResolvedFn(serde_json::Value);
+
+impl std::hash::Hash for OpaqueResolvedFn {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // Hash the canonical JSON text so logically-equal values hash together.
+        self.0.to_string().hash(state);
+    }
+}
+
+impl BaseValue for OpaqueResolvedFn {
+    fn type_id_string() -> String {
+        "ResolvedFn".into()
+    }
+}
+
 #[derive(Clone, Serialize)]
 struct BaseInternTable<P: BaseValue> {
     table: InternTable<P, Value>,
@@ -496,6 +517,10 @@ fn deserialize_dyn(
         "Boxed<num_rational::Ratio<num_bigint::bigint::BigInt>>" => {
             let table: InternTable<Boxed<Ratio<BigInt>>, Value> =
                 serde_json::from_value(erased.table)?;
+            Ok(Box::new(BaseInternTable { table }))
+        }
+        "ResolvedFn" => {
+            let table: InternTable<OpaqueResolvedFn, Value> = serde_json::from_value(erased.table)?;
             Ok(Box::new(BaseInternTable { table }))
         }
 
