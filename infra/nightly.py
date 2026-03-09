@@ -66,7 +66,7 @@ def run_timeline_experiments(resource_dir, tmp_dir, aggregator):
       cleanup_benchmark_files(timeline_file, tmp_dir / "summary.json")
 
 def run_no_io_experiments(resource_dir, tmp_dir, aggregator):
-  no_io_suites = ["easteregg", "herbie-hamming", "herbie-math-rewrite"] # herbie-math-taylor runs out of memory
+  no_io_suites = ["easteregg", "herbie-hamming", "herbie-math-rewrite", "herbie-math-taylor"]
   for suite in no_io_suites:
     for benchmark in benchmark_files(resource_dir / "test-files" / suite):
       timeline_file = tmp_dir / f"{benchmark.stem}-timeline.json"
