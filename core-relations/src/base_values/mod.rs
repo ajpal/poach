@@ -9,7 +9,6 @@ use std::{
 use hashbrown::HashMap;
 use num::{rational::Ratio, BigInt, Rational64};
 use serde::{de, ser::SerializeStruct, Deserialize, Serialize};
-use serde_json::json;
 
 use crate::numeric_id::{define_id, DenseIdMap, NumericId};
 
@@ -202,7 +201,7 @@ dyn_clone::clone_trait_object!(DynamicInternTable);
 
 #[derive(Serialize, Deserialize)]
 struct BaseInternTableErased {
-    table: serde_json::Value,
+    table: Vec<u8>,
     base_value_type: String,
 }
 
@@ -224,26 +223,6 @@ impl std::hash::Hash for OpaqueResolvedFn {
 impl BaseValue for OpaqueResolvedFn {
     fn type_id_string() -> String {
         "ResolvedFn".into()
-    }
-}
-
-/// Opaque representation for boxed f64 values.
-///
-/// Needed because the intermediate JSON representation may encode non-finite
-/// floats as `null`, which cannot deserialize into concrete f64-based types.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(transparent)]
-struct OpaqueBoxedOrderedFloatF64(serde_json::Value);
-
-impl std::hash::Hash for OpaqueBoxedOrderedFloatF64 {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.0.to_string().hash(state);
-    }
-}
-
-impl BaseValue for OpaqueBoxedOrderedFloatF64 {
-    fn type_id_string() -> String {
-        "Boxed<ordered_float::OrderedFloat<f64>>".into()
     }
 }
 
@@ -274,9 +253,14 @@ where
     }
 
     fn serialize_dyn(&self) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-        let v = serde_json::to_value(&self.table)?;
+        let mut buf = flexbuffers::FlexbufferSerializer::new();
+        Serialize::serialize(&self.table, &mut buf)?;
         let base_value_type = self.get_type_id_string();
-        Ok(json! ({ "table": v, "base_value_type": base_value_type}))
+        let erased = BaseInternTableErased {
+            table: buf.take_buffer(),
+            base_value_type,
+        };
+        Ok(serde_json::to_value(erased)?)
     }
 
     fn get_type_id(&self) -> TypeId {
@@ -455,19 +439,27 @@ impl<T: std::ops::BitXor<Output = T>> std::ops::BitXor for Boxed<T> {
 fn deserialize_dyn(
     value: serde_json::Value,
 ) -> Result<Box<dyn DynamicInternTable>, Box<dyn std::error::Error>> {
+    fn deserialize_table<T: BaseValue>(
+        bytes: &[u8],
+    ) -> Result<InternTable<T, Value>, Box<dyn std::error::Error>> {
+        let table_reader = flexbuffers::Reader::get_root(bytes)?;
+        Ok(InternTable::deserialize(table_reader)?)
+    }
+
     let erased: BaseInternTableErased = serde_json::from_value(value)?;
+    let table_bytes = erased.table;
 
     match erased.base_value_type.as_str() {
         "Unit" => {
-            let table: InternTable<(), Value> = serde_json::from_value(erased.table)?;
+            let table: InternTable<(), Value> = deserialize_table(&table_bytes)?;
             Ok(Box::new(BaseInternTable { table }))
         }
         "Bool" => {
-            let table: InternTable<bool, Value> = serde_json::from_value(erased.table)?;
+            let table: InternTable<bool, Value> = deserialize_table(&table_bytes)?;
             Ok(Box::new(BaseInternTable { table }))
         }
         "String" => {
-            let table: InternTable<String, Value> = serde_json::from_value(erased.table)?;
+            let table: InternTable<String, Value> = deserialize_table(&table_bytes)?;
             Ok(Box::new(BaseInternTable { table }))
         }
         "StaticStr" => {
@@ -476,71 +468,70 @@ fn deserialize_dyn(
             // Ok(Box::new(BaseInternTable { table }))
         }
         "Rational64" => {
-            let table: InternTable<Rational64, Value> = serde_json::from_value(erased.table)?;
+            let table: InternTable<Rational64, Value> = deserialize_table(&table_bytes)?;
             Ok(Box::new(BaseInternTable { table }))
         }
         "u8" => {
-            let table: InternTable<u8, Value> = serde_json::from_value(erased.table)?;
+            let table: InternTable<u8, Value> = deserialize_table(&table_bytes)?;
             Ok(Box::new(BaseInternTable { table }))
         }
         "u16" => {
-            let table: InternTable<u16, Value> = serde_json::from_value(erased.table)?;
+            let table: InternTable<u16, Value> = deserialize_table(&table_bytes)?;
             Ok(Box::new(BaseInternTable { table }))
         }
         "u32" => {
-            let table: InternTable<u32, Value> = serde_json::from_value(erased.table)?;
+            let table: InternTable<u32, Value> = deserialize_table(&table_bytes)?;
             Ok(Box::new(BaseInternTable { table }))
         }
         "u64" => {
-            let table: InternTable<u64, Value> = serde_json::from_value(erased.table)?;
+            let table: InternTable<u64, Value> = deserialize_table(&table_bytes)?;
             Ok(Box::new(BaseInternTable { table }))
         }
         "usize" => {
-            let table: InternTable<usize, Value> = serde_json::from_value(erased.table)?;
+            let table: InternTable<usize, Value> = deserialize_table(&table_bytes)?;
             Ok(Box::new(BaseInternTable { table }))
         }
         "i8" => {
-            let table: InternTable<i8, Value> = serde_json::from_value(erased.table)?;
+            let table: InternTable<i8, Value> = deserialize_table(&table_bytes)?;
             Ok(Box::new(BaseInternTable { table }))
         }
         "i16" => {
-            let table: InternTable<i16, Value> = serde_json::from_value(erased.table)?;
+            let table: InternTable<i16, Value> = deserialize_table(&table_bytes)?;
             Ok(Box::new(BaseInternTable { table }))
         }
         "i32" => {
-            let table: InternTable<i32, Value> = serde_json::from_value(erased.table)?;
+            let table: InternTable<i32, Value> = deserialize_table(&table_bytes)?;
             Ok(Box::new(BaseInternTable { table }))
         }
         "i64" => {
-            let table: InternTable<i64, Value> = serde_json::from_value(erased.table)?;
+            let table: InternTable<i64, Value> = deserialize_table(&table_bytes)?;
             Ok(Box::new(BaseInternTable { table }))
         }
         "isize" => {
-            let table: InternTable<isize, Value> = serde_json::from_value(erased.table)?;
+            let table: InternTable<isize, Value> = deserialize_table(&table_bytes)?;
             Ok(Box::new(BaseInternTable { table }))
         }
 
         "Boxed<alloc::string::String>" => {
-            let table: InternTable<Boxed<String>, Value> = serde_json::from_value(erased.table)?;
+            let table: InternTable<Boxed<String>, Value> = deserialize_table(&table_bytes)?;
             Ok(Box::new(BaseInternTable { table }))
         }
         "Boxed<ordered_float::OrderedFloat<f64>>" => {
-            let table: InternTable<OpaqueBoxedOrderedFloatF64, Value> =
-                serde_json::from_value(erased.table)?;
+            let table: InternTable<Boxed<ordered_float::OrderedFloat<f64>>, Value> =
+                deserialize_table(&table_bytes)?;
             Ok(Box::new(BaseInternTable { table }))
         }
         "Boxed<num_bigint::bigint::BigInt>" => {
-            let table: InternTable<Boxed<BigInt>, Value> = serde_json::from_value(erased.table)?;
+            let table: InternTable<Boxed<BigInt>, Value> = deserialize_table(&table_bytes)?;
             Ok(Box::new(BaseInternTable { table }))
         }
 
         "Boxed<num_rational::Ratio<num_bigint::bigint::BigInt>>" => {
-            let table: InternTable<Boxed<Ratio<BigInt>>, Value> =
-                serde_json::from_value(erased.table)?;
+            let table: InternTable<Boxed<Ratio<BigInt>>, Value> = deserialize_table(&table_bytes)?;
             Ok(Box::new(BaseInternTable { table }))
         }
         "ResolvedFn" => {
-            let table: InternTable<OpaqueResolvedFn, Value> = serde_json::from_value(erased.table)?;
+            let table: InternTable<OpaqueResolvedFn, Value> = deserialize_table(&table_bytes)?;
             Ok(Box::new(BaseInternTable { table }))
         }
 

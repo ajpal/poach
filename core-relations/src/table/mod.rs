@@ -470,9 +470,11 @@ impl Table for SortedWritesTable {
     }
 
     fn updates_since(&self, offset: Offset) -> Subset {
+        let end = self.data.next_row();
+        let start = RowId::from_usize(cmp::min(offset.index(), end.index()));
         Subset::Dense(OffsetRange::new(
-            RowId::from_usize(offset.index()),
-            self.data.next_row(),
+            start,
+            end,
         ))
     }
 

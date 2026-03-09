@@ -2,6 +2,7 @@
 
 use std::{
     any::Any,
+    cmp,
     mem::{self, ManuallyDrop},
     sync::{Arc, Weak},
 };
@@ -324,9 +325,11 @@ impl Table for DisplacedTable {
     }
 
     fn updates_since(&self, offset: Offset) -> Subset {
+        let end = self.displaced.len();
+        let start = cmp::min(offset.index(), end);
         Subset::Dense(OffsetRange::new(
-            RowId::from_usize(offset.index()),
-            RowId::from_usize(self.displaced.len()),
+            RowId::from_usize(start),
+            RowId::from_usize(end),
         ))
     }
 

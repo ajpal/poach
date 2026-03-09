@@ -37,6 +37,7 @@ once_cell = { workspace = true }
 serde = { workspace = true }
 typetag = { workspace = true }
 serde_json = { workspace = true }
+flexbuffers = { workspace = true }
 ordered-float = { workspace = true }
 num-bigint = { workspace = true }
 
