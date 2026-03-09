@@ -2555,8 +2555,16 @@ impl TimedEgraph {
     }
 
     pub fn get_total_time(&self, id: usize) -> u128 {
-        self.timeline[id].evts.iter().max().unwrap().time_micros
-            - self.timeline[id].evts.iter().min().unwrap().time_micros
+        let Some(timeline) = self.timeline.get(id) else {
+            return 0;
+        };
+        let Some(min_time) = timeline.evts.iter().map(|evt| evt.time_micros).min() else {
+            return 0;
+        };
+        let Some(max_time) = timeline.evts.iter().map(|evt| evt.time_micros).max() else {
+            return 0;
+        };
+        max_time.saturating_sub(min_time)
     }
 
     pub fn egraphs(&self) -> Vec<&EGraph> {
