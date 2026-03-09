@@ -227,6 +227,26 @@ impl BaseValue for OpaqueResolvedFn {
     }
 }
 
+/// Opaque representation for boxed f64 values.
+///
+/// Needed because the intermediate JSON representation may encode non-finite
+/// floats as `null`, which cannot deserialize into concrete f64-based types.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+struct OpaqueBoxedOrderedFloatF64(serde_json::Value);
+
+impl std::hash::Hash for OpaqueBoxedOrderedFloatF64 {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.to_string().hash(state);
+    }
+}
+
+impl BaseValue for OpaqueBoxedOrderedFloatF64 {
+    fn type_id_string() -> String {
+        "Boxed<ordered_float::OrderedFloat<f64>>".into()
+    }
+}
+
 #[derive(Clone, Serialize)]
 struct BaseInternTable<P: BaseValue> {
     table: InternTable<P, Value>,
@@ -505,7 +525,7 @@ fn deserialize_dyn(
             Ok(Box::new(BaseInternTable { table }))
         }
         "Boxed<ordered_float::OrderedFloat<f64>>" => {
-            let table: InternTable<Boxed<ordered_float::OrderedFloat<f64>>, Value> =
+            let table: InternTable<OpaqueBoxedOrderedFloatF64, Value> =
                 serde_json::from_value(erased.table)?;
             Ok(Box::new(BaseInternTable { table }))
         }
