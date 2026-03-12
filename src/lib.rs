@@ -1140,6 +1140,69 @@ impl EGraph {
         Ok(RunReport::singleton(ruleset, iteration_report))
     }
 
+    fn restore_deserialized_runtime(&mut self) -> Result<(), Error> {
+        self.type_info.restore_deserialized_runtime_metadata();
+        self.type_info.clear_primitives();
+
+        let mut sorts = self
+            .type_info
+            .all_sorts()
+            .into_iter()
+            .map(|sort| (sort.name().to_owned(), sort))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        for builtin in ["Unit", "String", "bool", "i64", "f64", "BigInt", "BigRat"] {
+            if let Some(sort) = sorts.remove(builtin) {
+                sort.register_primitives(self);
+            }
+        }
+        add_primitive!(self, "!=" = |a: #, b: #| -?> () {
+            (a != b).then_some(())
+        });
+        add_primitive!(self, "value-eq" = |a: #, b: #| -?> () {
+            (a == b).then_some(())
+        });
+        add_primitive!(self, "ordering-min" = |a: #, b: #| -> # {
+            if a < b { a } else { b }
+        });
+        add_primitive!(self, "ordering-max" = |a: #, b: #| -> # {
+            if a > b { a } else { b }
+        });
+        for (_, sort) in sorts {
+            sort.register_primitives(self);
+        }
+        self.backend.restore_deserialized_runtime();
+
+        let mut restored_rulesets = IndexMap::default();
+        let rulesets = std::mem::take(&mut self.rulesets);
+
+        for (ruleset_name, ruleset) in rulesets {
+            let restored = match ruleset {
+                Ruleset::Rules(rules) => {
+                    let mut restored_rules = IndexMap::default();
+                    for (rule_name, (core_rule, _)) in rules {
+                        let rule_id = {
+                            let mut translator = BackendRule::new(
+                                self.backend.new_rule(&rule_name, self.seminaive),
+                                &self.functions,
+                                &self.type_info,
+                            );
+                            translator.query(&core_rule.body, false);
+                            translator.actions(&core_rule.head)?;
+                            translator.build()
+                        };
+                        restored_rules.insert(rule_name, (core_rule, rule_id));
+                    }
+                    Ruleset::Rules(restored_rules)
+                }
+                Ruleset::Combined(sub_rulesets) => Ruleset::Combined(sub_rulesets),
+            };
+            restored_rulesets.insert(ruleset_name, restored);
+        }
+
+        self.rulesets = restored_rulesets;
+        Ok(())
+    }
+
     fn add_rule(&mut self, rule: ast::ResolvedRule) -> Result<String, Error> {
         // Disable union_to_set optimization in proof or term encoding mode, since
         // it expects only `union` on constructors (not set).
@@ -2520,7 +2583,11 @@ impl TimedEgraph {
         let file = File::open(path).expect("failed to open egraph file");
         let reader = BufReader::new(file);
 
-        let egraph: EGraph = serde_json::from_reader(reader).expect("failed to parse egraph JSON");
+        let mut egraph: EGraph =
+            serde_json::from_reader(reader).expect("failed to parse egraph JSON");
+        egraph
+            .restore_deserialized_runtime()
+            .expect("failed to restore deserialized runtime");
 
         Self {
             egraphs: vec![egraph],
@@ -2559,6 +2626,17 @@ impl TimedEgraph {
         let outputs = self.run_program_with_timeline(parsed_commands, &program_text)?;
 
         Ok(outputs)
+    }
+
+    pub fn run_from_string(&mut self, program_text: &str) -> Result<Vec<CommandOutput>> {
+        let parsed_commands = self
+            .egraphs
+            .last_mut()
+            .expect("There are no egraphs")
+            .parser
+            .get_program_from_string(None, program_text)?;
+
+        Ok(self.run_program_with_timeline(parsed_commands, program_text)?)
     }
 
     pub fn run_program_with_timeline(
@@ -2719,8 +2797,11 @@ impl TimedEgraph {
             time_micros: self.timer.elapsed().as_micros(),
         });
 
-        let egraph: EGraph =
+        let mut egraph: EGraph =
             serde_json::from_value(value).context("Failed to decode egraph from json")?;
+        egraph
+            .restore_deserialized_runtime()
+            .context("Failed to restore deserialized runtime")?;
 
         timeline.evts.push(EgraphEvent {
             sexp_idx: 0,
@@ -2759,7 +2840,7 @@ impl TimedEgraph {
 
         let file = fs::File::create(path)
             .with_context(|| format!("failed to create file {}", path.display()))?;
-        serde_json::to_writer(BufWriter::new(file), &value)
+        serde_json::to_writer_pretty(BufWriter::new(file), &value)
             .context("Failed to write value to file")?;
 
         timeline.evts.push(EgraphEvent {
@@ -2800,7 +2881,10 @@ impl TimedEgraph {
             time_micros: self.timer.elapsed().as_micros(),
         });
 
-        let egraph: EGraph = serde_json::from_value(value)?;
+        let mut egraph: EGraph = serde_json::from_value(value)?;
+        egraph
+            .restore_deserialized_runtime()
+            .context("Failed to restore deserialized runtime")?;
 
         timeline.evts.push(EgraphEvent {
             sexp_idx: 1,
