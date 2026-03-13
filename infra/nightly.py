@@ -181,7 +181,7 @@ if __name__ == "__main__":
       "herbie-math-rewrite/rewrite180.egg",
       "herbie-math-rewrite/rewrite172.egg",
       "herbie-math-rewrite/rewrite122.egg",
-      "herbie-math-taylor/taylor22.egg"
+      "herbie-math-taylor/taylor22.egg",
       # timeout
       "pathological/herbie_arrays_timeout.egg"
       ]:
