@@ -27,6 +27,7 @@ use crate::{
     offsets::{RowId, Subset, SubsetRef},
     pool::{with_pool_set, PoolSet, Pooled},
     row_buffer::{RowBuffer, TaggedRowBuffer},
+    DisplacedTable, DisplacedTableWithProvenance,
     QueryEntry, TableId, Variable,
 };
 
@@ -182,6 +183,9 @@ pub trait Table: Any + Send + Sync {
     /// Implementors should be able to implement this method by returning
     /// `self`.
     fn as_any(&self) -> &dyn Any;
+
+    /// A mutable variant of [`Table::as_any`] for downcasting.
+    fn as_any_mut(&mut self) -> &mut dyn Any;
 
     /// The schema of the table.
     ///
@@ -543,8 +547,15 @@ impl<'de> Deserialize<'de> for WrappedTable {
         D: serde::Deserializer<'de>,
     {
         let inner: Box<dyn Table> = Deserialize::deserialize(deserializer)?;
-
-        let wrapper = wrapper::<SortedWritesTable>(); // todo: different kind of wrapper?
+        let wrapper = if inner.as_any().is::<SortedWritesTable>() {
+            wrapper::<SortedWritesTable>()
+        } else if inner.as_any().is::<DisplacedTable>() {
+            wrapper::<DisplacedTable>()
+        } else if inner.as_any().is::<DisplacedTableWithProvenance>() {
+            wrapper::<DisplacedTableWithProvenance>()
+        } else {
+            return Err(serde::de::Error::custom("unknown table type for WrappedTable"));
+        };
 
         Ok(WrappedTable { inner, wrapper })
     }
@@ -563,6 +574,10 @@ impl WrappedTable {
             inner: self.inner.dyn_clone(),
             wrapper: self.wrapper.dyn_clone(),
         }
+    }
+
+    pub fn as_any_mut(&mut self) -> &mut dyn Any {
+        self.inner.as_any_mut()
     }
 
     pub(crate) fn as_ref(&self) -> WrappedTableRef<'_> {

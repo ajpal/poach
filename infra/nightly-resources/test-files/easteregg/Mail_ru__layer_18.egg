@@ -108,9 +108,9 @@
   (Draw (Empty) shape (Paint (Color 1.0 0.0 0.0 0.0) (SrcOver) style (IdFilter) i1) clip transform)
   :ruleset opt)
 
-(let test (SaveLayer (Draw (Empty) (Full) (Paint (Color 0.0 0.0 0.0 0.0) (Src) (Solid) (IdFilter) 0) (Full) (Matrix 1.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0)) (Draw (Draw (Empty) (Rect 0.0 0.0 478.0 290.0) (Paint (Color 0.10196078431372549 0.0 0.0 0.0) (SrcOver) (Solid) (IdFilter) 4) (Full) (Matrix 1.0 0.0 0.0 0.0 0.0 1.0 0.0 1.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0)) (ImageRect 0.0 0.0 478.0 290.0) (Paint (Color 1.0 0.0 0.0 0.0) (Overlay) (Solid) (IdFilter) 5) (Full) (Matrix 1.0 0.0 0.0 0.0 0.0 1.0 0.0 1.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0)) (Paint (Color 1.0 0.0 0.0 0.0) (SrcOver) (Solid) (IdFilter) 3)))
+(let $test (SaveLayer (Draw (Empty) (Full) (Paint (Color 0.0 0.0 0.0 0.0) (Src) (Solid) (IdFilter) 0) (Full) (Matrix 1.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0)) (Draw (Draw (Empty) (Rect 0.0 0.0 478.0 290.0) (Paint (Color 0.10196078431372549 0.0 0.0 0.0) (SrcOver) (Solid) (IdFilter) 4) (Full) (Matrix 1.0 0.0 0.0 0.0 0.0 1.0 0.0 1.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0)) (ImageRect 0.0 0.0 478.0 290.0) (Paint (Color 1.0 0.0 0.0 0.0) (Overlay) (Solid) (IdFilter) 5) (Full) (Matrix 1.0 0.0 0.0 0.0 0.0 1.0 0.0 1.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0)) (Paint (Color 1.0 0.0 0.0 0.0) (SrcOver) (Solid) (IdFilter) 3)))
 (run-schedule
   ;; (repeat 1 (run simp))
   (saturate (run opt)))
 
-(multi-extract 0 test)
+(multi-extract 1 $test)
