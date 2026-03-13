@@ -332,6 +332,13 @@ pub(crate) struct SubsetTracker {
 }
 
 impl SubsetTracker {
+    /// Deserialized tables may have different row/version state than when this
+    /// tracker was recorded, so cached "last rebuilt at" entries cannot be
+    /// trusted across serialization boundaries.
+    pub(crate) fn restore_deserialized_runtime(&mut self) {
+        *self = Default::default();
+    }
+
     /// Hand back the subset of the table needed to be scanned in order to see all updates since
     /// the last call to this method.
     ///

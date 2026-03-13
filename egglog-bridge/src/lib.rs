@@ -1163,6 +1163,8 @@ impl EGraph {
     }
 
     pub fn restore_deserialized_runtime(&mut self) {
+        self.db.restore_deserialized_runtime();
+
         let funcs = self
             .funcs
             .iter()

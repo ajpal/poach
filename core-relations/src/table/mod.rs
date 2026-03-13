@@ -436,6 +436,11 @@ impl Table for SortedWritesTable {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
+
+    fn restore_deserialized_runtime(&mut self) {
+        self.subset_tracker.restore_deserialized_runtime();
+    }
+
     fn clear(&mut self) {
         self.pending_state.clear();
         if self.data.data.len() == 0 {

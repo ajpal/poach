@@ -187,6 +187,13 @@ pub trait Table: Any + Send + Sync {
     /// A mutable variant of [`Table::as_any`] for downcasting.
     fn as_any_mut(&mut self) -> &mut dyn Any;
 
+    /// Restore runtime-only state after deserialization.
+    ///
+    /// Most tables serialize only durable data, so they do not need any extra
+    /// fixup and can use the default no-op implementation. Tables with
+    /// incremental caches or trackers should override this and reset them.
+    fn restore_deserialized_runtime(&mut self) {}
+
     /// The schema of the table.
     ///
     /// These are immutable properties of the table; callers can assume they
