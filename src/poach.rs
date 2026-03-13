@@ -180,6 +180,7 @@ where
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("unknown");
+        println!("{}", name);
 
         let mut timed_egraph = if let Some(path) = initial_egraph {
             if path.is_file() {
@@ -470,6 +471,11 @@ fn poach(
                     .collect::<Vec<_>>()
                     .join("\n");
 
+                if extracts.trim().is_empty() {
+                    timed_egraph.write_timeline(&out_dir.join(format!("{name}-timeline.json")))?;
+                    return Ok(());
+                }
+
                 let extract_cmds = timed_egraph
                     .egraphs
                     .last_mut()
@@ -545,7 +551,7 @@ fn poach(
                             if self.map.contains_key(&name) {
                                 panic!("duplicate variable names")
                             } else {
-                                let namespaced = format!("@@{name}");
+                                let namespaced = format!("{name}@@");
                                 self.map.insert(name.clone(), namespaced.clone());
                                 namespaced
                             }
@@ -639,19 +645,16 @@ fn poach(
                     let (filtered_cmds, filtered_sexps): (Vec<_>, Vec<_>) = all_cmds
                         .into_iter()
                         .zip(all_sexps)
-                        .filter(|(c, _)| {
-                            match c {
-                                GenericCommand::Action(GenericAction::Let(..)) => true,
-                                egglog::ast::GenericCommand::Extract(..) => true,
-                                egglog::ast::GenericCommand::MultiExtract(..) => true,
-                                // TODO: Running rules on a deserialized egraph currently does not work
-                                // | egglog::ast::GenericCommand::RunSchedule(_)
-                                egglog::ast::GenericCommand::PrintOverallStatistics(..) => true,
-                                egglog::ast::GenericCommand::Check(..) => true,
-                                egglog::ast::GenericCommand::PrintFunction(..) => true,
-                                egglog::ast::GenericCommand::PrintSize(..) => true,
-                                _ => false,
-                            }
+                        .filter(|(c, _)| match c {
+                            GenericCommand::Action(GenericAction::Let(..)) => true,
+                            egglog::ast::GenericCommand::Extract(..) => true,
+                            egglog::ast::GenericCommand::MultiExtract(..) => true,
+                            egglog::ast::GenericCommand::RunSchedule(..) => true,
+                            egglog::ast::GenericCommand::PrintOverallStatistics(..) => true,
+                            egglog::ast::GenericCommand::Check(..) => true,
+                            egglog::ast::GenericCommand::PrintFunction(..) => true,
+                            egglog::ast::GenericCommand::PrintSize(..) => true,
+                            _ => false,
                         })
                         .map(|(cmd, sexp)| {
                             (

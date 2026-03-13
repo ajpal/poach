@@ -27,8 +27,7 @@ use crate::{
     offsets::{RowId, Subset, SubsetRef},
     pool::{with_pool_set, PoolSet, Pooled},
     row_buffer::{RowBuffer, TaggedRowBuffer},
-    DisplacedTable, DisplacedTableWithProvenance,
-    QueryEntry, TableId, Variable,
+    DisplacedTable, DisplacedTableWithProvenance, QueryEntry, TableId, Variable,
 };
 
 define_id!(pub ColumnId, u32, "a particular column in a table");
@@ -186,6 +185,13 @@ pub trait Table: Any + Send + Sync {
 
     /// A mutable variant of [`Table::as_any`] for downcasting.
     fn as_any_mut(&mut self) -> &mut dyn Any;
+
+    /// Restore runtime-only state after deserialization.
+    ///
+    /// Most tables serialize only durable data, so they do not need any extra
+    /// fixup and can use the default no-op implementation. Tables with
+    /// incremental caches or trackers should override this and reset them.
+    fn restore_deserialized_runtime(&mut self) {}
 
     /// The schema of the table.
     ///
@@ -554,7 +560,9 @@ impl<'de> Deserialize<'de> for WrappedTable {
         } else if inner.as_any().is::<DisplacedTableWithProvenance>() {
             wrapper::<DisplacedTableWithProvenance>()
         } else {
-            return Err(serde::de::Error::custom("unknown table type for WrappedTable"));
+            return Err(serde::de::Error::custom(
+                "unknown table type for WrappedTable",
+            ));
         };
 
         Ok(WrappedTable { inner, wrapper })

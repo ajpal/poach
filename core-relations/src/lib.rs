@@ -25,7 +25,9 @@ pub(crate) mod uf;
 mod tests;
 
 pub use action::{ExecutionState, MergeVal, QueryEntry, WriteVal};
-pub use base_values::{BaseValue, BaseValueId, BaseValuePrinter, BaseValues, Boxed};
+pub use base_values::{
+    register_deserializable_base_type, BaseValue, BaseValueId, BaseValuePrinter, BaseValues, Boxed,
+};
 pub use common::Value;
 pub use containers::{ContainerValue, ContainerValueId, ContainerValues};
 pub use free_join::{

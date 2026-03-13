@@ -65,6 +65,10 @@ impl ContainerValues {
         Default::default()
     }
 
+    pub fn restore_deserialized_runtime(&mut self) {
+        self.subset_tracker.restore_deserialized_runtime();
+    }
+
     fn get<C: ContainerValue>(&self) -> Option<&ContainerEnv<C>> {
         let id = self
             .container_ids

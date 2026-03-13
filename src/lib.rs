@@ -94,6 +94,10 @@ pub const GLOBAL_NAME_PREFIX: &str = "$";
 
 pub type ArcSort = Arc<dyn Sort>;
 
+fn register_custom_base_value_deserializers() {
+    core_relations::register_deserializable_base_type::<ResolvedFunction>();
+}
+
 impl dyn Sort {
     fn as_any(&self) -> &dyn Any {
         self
@@ -1184,6 +1188,7 @@ impl EGraph {
             .collect::<std::collections::BTreeMap<_, _>>();
         for builtin in ["Unit", "String", "bool", "i64", "f64", "BigInt", "BigRat"] {
             if let Some(sort) = sorts.remove(builtin) {
+                sort.register_type(&mut self.backend);
                 sort.register_primitives(self);
             }
         }
@@ -1200,6 +1205,7 @@ impl EGraph {
             if a > b { a } else { b }
         });
         for (_, sort) in sorts {
+            sort.register_type(&mut self.backend);
             sort.register_primitives(self);
         }
         self.backend.restore_deserialized_runtime();
@@ -2417,6 +2423,36 @@ mod tests {
         assert!(is_send(&egraph) && is_sync(&egraph));
     }
 
+    #[test]
+    fn test_unstable_fn_round_trip_deserializes() {
+        let mut egraph = EGraph::default();
+        egraph
+            .parse_and_run_program(
+                None,
+                r#"
+                (datatype Math (Num i64))
+                (sort MathToMath (UnstableFn (Math) Math))
+                (constructor square (Math) Math)
+                (rewrite (square (Num x)) (Num (* x x)))
+                (let squared (unstable-app (unstable-fn "square") (Num 3)))
+                (run 1)
+                (check (= squared (Num 9)))
+                "#,
+            )
+            .unwrap();
+
+        let expected_tuples = egraph.num_tuples();
+        let mut buf = flexbuffers::FlexbufferSerializer::new();
+        Serialize::serialize(&egraph, &mut buf).unwrap();
+
+        register_custom_base_value_deserializers();
+        let r = flexbuffers::Reader::get_root(buf.view()).unwrap();
+        let mut restored: EGraph = EGraph::deserialize(r).unwrap();
+        restored.restore_deserialized_runtime().unwrap();
+
+        assert_eq!(restored.num_tuples(), expected_tuples);
+    }
+
     fn get_function(egraph: &EGraph, name: &str) -> Function {
         egraph.functions.get(name).unwrap().clone()
     }
@@ -2591,6 +2627,7 @@ impl Default for TimedEgraph {
 impl TimedEgraph {
     /// Create a new TimedEgraph with a default EGraph
     pub fn new() -> Self {
+        register_custom_base_value_deserializers();
         let mut egraph = EGraph::default();
         egraph.add_primitive(GetSizePrimitive);
 
@@ -2602,6 +2639,7 @@ impl TimedEgraph {
     }
 
     pub fn new_from_file(path: &Path) -> Self {
+        register_custom_base_value_deserializers();
         let mut file = fs::File::open(path).expect("failed to open file");
         let mut buf = Vec::new();
         file.read_to_end(&mut buf)
@@ -2789,6 +2827,7 @@ impl TimedEgraph {
     }
 
     pub fn from_value(&mut self, value: Vec<u8>) -> Result<()> {
+        register_custom_base_value_deserializers();
         let mut timeline = ProgramTimeline::new("(deserialize)");
 
         timeline.evts.push(EgraphEvent {
@@ -2864,6 +2903,7 @@ impl TimedEgraph {
     }
 
     pub fn from_file(&mut self, path: &Path) -> Result<()> {
+        register_custom_base_value_deserializers();
         let mut timeline = ProgramTimeline::new("(read)\n(deserialize)");
 
         timeline.evts.push(EgraphEvent {

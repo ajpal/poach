@@ -343,6 +343,13 @@ impl Database {
         &mut self.container_values
     }
 
+    pub fn restore_deserialized_runtime(&mut self) {
+        for (_, table) in self.tables.iter_mut() {
+            table.table.restore_deserialized_runtime();
+        }
+        self.container_values.restore_deserialized_runtime();
+    }
+
     pub fn rebuild_containers(&mut self, table_id: TableId) -> bool {
         let mut containers = mem::take(&mut self.container_values);
         let table = &self.tables[table_id].table;
