@@ -8,8 +8,10 @@ use std::{
 
 use hashbrown::HashMap;
 use num::{rational::Ratio, BigInt, Rational64};
+use once_cell::sync::Lazy;
 use serde::{de, ser::SerializeStruct, Deserialize, Serialize};
 use serde_json::json;
+use std::sync::Mutex;
 
 use crate::numeric_id::{define_id, DenseIdMap, NumericId};
 
@@ -200,6 +202,12 @@ trait DynamicInternTable: Any + dyn_clone::DynClone + Send + Sync {
 // Implements `Clone` for `Box<dyn DynamicInternTable>`.
 dyn_clone::clone_trait_object!(DynamicInternTable);
 
+type DynTableDeserializer =
+    fn(serde_json::Value) -> Result<Box<dyn DynamicInternTable>, Box<dyn std::error::Error>>;
+
+static EXTERNAL_BASE_VALUE_DESERIALIZERS: Lazy<Mutex<HashMap<String, DynTableDeserializer>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
 #[derive(Serialize, Deserialize)]
 struct BaseInternTableErased {
     table: serde_json::Value,
@@ -217,6 +225,20 @@ impl<P: BaseValue> Default for BaseInternTable<P> {
             table: InternTable::default(),
         }
     }
+}
+
+fn deserialize_table_for<P: BaseValue>(
+    table: serde_json::Value,
+) -> Result<Box<dyn DynamicInternTable>, Box<dyn std::error::Error>> {
+    let table: InternTable<P, Value> = serde_json::from_value(table)?;
+    Ok(Box::new(BaseInternTable { table }))
+}
+
+pub fn register_deserializable_base_type<P: BaseValue>() {
+    EXTERNAL_BASE_VALUE_DESERIALIZERS
+        .lock()
+        .unwrap()
+        .insert(P::type_id_string(), deserialize_table_for::<P>);
 }
 
 impl<P> DynamicInternTable for BaseInternTable<P>
@@ -415,6 +437,14 @@ fn deserialize_dyn(
     value: serde_json::Value,
 ) -> Result<Box<dyn DynamicInternTable>, Box<dyn std::error::Error>> {
     let erased: BaseInternTableErased = serde_json::from_value(value)?;
+    if let Some(deserialize) = EXTERNAL_BASE_VALUE_DESERIALIZERS
+        .lock()
+        .unwrap()
+        .get(&erased.base_value_type)
+        .copied()
+    {
+        return deserialize(erased.table);
+    }
 
     match erased.base_value_type.as_str() {
         "Unit" => {
