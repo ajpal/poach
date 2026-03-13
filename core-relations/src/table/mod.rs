@@ -439,6 +439,32 @@ impl Table for SortedWritesTable {
 
     fn restore_deserialized_runtime(&mut self) {
         self.subset_tracker.restore_deserialized_runtime();
+        self.hash = ShardedHashTable::default();
+        self.offsets.clear();
+
+        for (i, row) in self.data.data.iter().enumerate() {
+            if row[0].is_stale() {
+                continue;
+            }
+
+            let row_id = RowId::from_usize(i);
+            let (shard, hc) = hash_code(self.hash.shard_data(), row, self.n_keys);
+            self.hash.mut_shards()[shard.index()].insert_unique(
+                hc,
+                TableEntry {
+                    hashcode: hc as _,
+                    row: row_id,
+                },
+                TableEntry::hashcode,
+            );
+
+            if let Some(sort_by) = self.sort_by {
+                let sort_val = row[sort_by.index()];
+                if self.offsets.last().is_none_or(|(max, _)| sort_val > *max) {
+                    self.offsets.push((sort_val, row_id));
+                }
+            }
+        }
     }
 
     fn clear(&mut self) {
