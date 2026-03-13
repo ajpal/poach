@@ -17,7 +17,7 @@ use walkdir::WalkDir;
 
 fn write_final_egraph_size(path: &Path, timed_egraph: &TimedEgraph) -> Result<()> {
     if let Some(parent) = path.parent() {
-        create_dir_all(parent)
+        fs::create_dir_all(parent)
             .with_context(|| format!("failed to create directory {}", parent.display()))?;
     }
 
