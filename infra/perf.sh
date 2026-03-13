@@ -31,8 +31,9 @@ echo "Recording perf data for $EGG_FILE"
 
 mkdir -p "$timeline_out"
 
-timeout 300s perf record -o "$out_perf" -F 9999 --call-graph fp -- \
-  "$poach_bin" "$EGG_FILE" --record-size "$out_size" "$timeline_out" timeline-only
+timeout 300 perf record -o "$out_perf" -F 9999 --call-graph fp -- \
+  "$poach_bin" "$EGG_FILE" --record-size "$out_size" "$timeline_out" timeline-only \
+  || true
 
 echo "Wrote $out_perf"
 echo "Wrote $out_size"

@@ -163,8 +163,32 @@ if __name__ == "__main__":
 
   if shutil.which("perf") is not None:
     # Generate flamegraphs
-    for egg_file in glob.glob("tests/*.egg") + glob.glob("tests/web-demo/*.egg"):
-      run_cmd([str(script_dir / "flamegraph.sh"), egg_file, str(nightly_dir / "output" / "flamegraphs")])
+    for egg_file in [
+      # high extract
+      "easteregg/Zen_News__layer_0.egg",
+      "herbie-hamming/rewrite73.egg",
+      "herbie-hamming/rewrite102.egg",
+      "herbie-hamming/rewrite103.egg",
+      "herbie-hamming/taylor17.egg",
+      "herbie-math-rewrite/rewrite60.egg",
+      "herbie-math-rewrite/rewrite116.egg",
+      "herbie-math-taylor/taylor40.egg",
+      # low extract
+      "herbie-hamming/rewrite59.egg",
+      "herbie-hamming/rewrite67.egg",
+      "herbie-hamming/rewrite53.egg",
+      "herbie-hamming/taylor85.egg",
+      "herbie-math-rewrite/rewrite180.egg",
+      "herbie-math-rewrite/rewrite172.egg",
+      "herbie-math-rewrite/rewrite122.egg",
+      "herbie-math-taylor/taylor22.egg"
+      # timeout
+      "pathological/herbie_arrays_timeout.egg"
+      ]:
+      run_cmd([
+        str(script_dir / "flamegraph.sh"),
+        str("infra/nightly-resources/test-files/" + egg_file),
+        str(nightly_dir / "output" / "flamegraphs")])
 
     # Generate perf records and aggregate perf summaries.
     perf_targets = {

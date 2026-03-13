@@ -36,7 +36,8 @@ poach_bin="$REPO_ROOT/target/profiling/poach"
 
 echo "Generating flamegraph for $EGG_FILE"
 
-perf record -F 999 --call-graph fp -- "$poach_bin" "$EGG_FILE" nightly/raw timeline-only
+timeout 300 perf record -F 999 --call-graph fp -- "$poach_bin" "$EGG_FILE" nightly/raw timeline-only \
+  || true
 
 perf script --demangle | rustfilt | "$REPO_ROOT/FlameGraph/stackcollapse-perf.pl" | "$REPO_ROOT/FlameGraph/flamegraph.pl" > "$out_svg"
 
