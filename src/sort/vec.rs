@@ -102,10 +102,10 @@ impl ContainerSort for VecSort {
         container_values: &ContainerValues,
         value: Value,
     ) -> Vec<(ArcSort, Value)> {
-        let val = container_values
-            .get_val::<VecContainer>(value)
-            .unwrap()
-            .clone();
+        let Some(val) = container_values.get_val::<VecContainer>(value) else {
+            return vec![];
+        };
+        let val = val.clone();
         val.data
             .iter()
             .map(|e| (self.element.clone(), *e))
