@@ -1188,6 +1188,7 @@ impl EGraph {
             .collect::<std::collections::BTreeMap<_, _>>();
         for builtin in ["Unit", "String", "bool", "i64", "f64", "BigInt", "BigRat"] {
             if let Some(sort) = sorts.remove(builtin) {
+                sort.register_type(&mut self.backend);
                 sort.register_primitives(self);
             }
         }
@@ -1204,6 +1205,7 @@ impl EGraph {
             if a > b { a } else { b }
         });
         for (_, sort) in sorts {
+            sort.register_type(&mut self.backend);
             sort.register_primitives(self);
         }
         self.backend.restore_deserialized_runtime();
