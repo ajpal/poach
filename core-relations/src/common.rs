@@ -7,9 +7,9 @@ use std::{
 
 use crate::numeric_id::{define_id, DenseIdMap, IdVec, NumericId};
 use egglog_concurrency::ConcurrentVec;
+use flexbuffers::{FlexbufferSerializer, Reader};
 use rustc_hash::FxHasher;
 use serde::{ser::SerializeStruct, Deserialize, Deserializer, Serialize};
-use serde_json::{from_value, to_value};
 
 use crate::{pool::Clear, Subset, TableId, TableVersion, WrappedTable};
 
@@ -43,24 +43,43 @@ where
     where
         S: serde::Serializer,
     {
-        let mut s = serializer.serialize_struct("InternTable", 3)?;
-        s.serialize_field("vals", &self.vals)?;
+        fn to_flexbuffer<T: Serialize>(value: &T) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+            let mut serializer = FlexbufferSerializer::new();
+            value.serialize(&mut serializer)?;
+            Ok(serializer.take_buffer())
+        }
 
-        let mut serializable_data: Vec<Vec<(serde_json::Value, serde_json::Value)>> = Vec::new();
+        let vals = self
+            .vals
+            .read()
+            .iter()
+            .map(|value| to_flexbuffer(value).map_err(serde::ser::Error::custom))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let mut s = serializer.serialize_struct("InternTable", 3)?;
+        s.serialize_field("vals", &vals)?;
+
+        #[derive(Serialize)]
+        struct SerializedEntry {
+            key: Vec<u8>,
+            value: Vec<u8>,
+        }
+
+        let mut serializable_data: Vec<Vec<SerializedEntry>> = Vec::new();
         for shard in &self.data {
             let shard = shard
                 .lock()
                 .map_err(|_| serde::ser::Error::custom("mutex poisoned"))?;
             let mut inner = Vec::new();
             for (k, v) in shard.iter() {
-                inner.push((
-                    to_value(k).map_err(serde::ser::Error::custom)?,
-                    to_value(v).map_err(serde::ser::Error::custom)?,
-                ));
+                inner.push(SerializedEntry {
+                    key: to_flexbuffer(k).map_err(serde::ser::Error::custom)?,
+                    value: to_flexbuffer(v).map_err(serde::ser::Error::custom)?,
+                });
             }
 
-            // Sort by the serialized key to guarantee deterministic order
-            inner.sort_by(|(k1, _), (k2, _)| k1.to_string().cmp(&k2.to_string()));
+            // Sort by the encoded key bytes to guarantee deterministic order.
+            inner.sort_by(|e1, e2| e1.key.cmp(&e2.key));
 
             serializable_data.push(inner)
         }
@@ -80,25 +99,44 @@ where
     where
         D: Deserializer<'de>,
     {
-        // Helper struct matching the serialized shape
+        fn from_flexbuffer<T: for<'a> Deserialize<'a>>(
+            bytes: &[u8],
+        ) -> Result<T, Box<dyn std::error::Error>> {
+            let reader = Reader::get_root(bytes)?;
+            Ok(T::deserialize(reader)?)
+        }
+
         #[derive(Deserialize)]
-        struct Partial<K> {
-            vals: Arc<ConcurrentVec<K>>,
-            data: Vec<Vec<(serde_json::Value, serde_json::Value)>>,
+        struct SerializedEntry {
+            key: Vec<u8>,
+            value: Vec<u8>,
+        }
+
+        #[derive(Deserialize)]
+        struct Partial {
+            vals: Vec<Vec<u8>>,
+            data: Vec<Vec<SerializedEntry>>,
             shards_log2: u32,
         }
 
         let helper = Partial::deserialize(deserializer)?;
+        let vals = Arc::new(ConcurrentVec::with_capacity(helper.vals.len().max(128)));
+        for bytes in helper.vals {
+            let value = from_flexbuffer(&bytes).unwrap();
+            vals.push(value);
+        }
 
-        // Convert each shard from Vec<(Value, Value)> back into HashMap<K, V>
         let data: Vec<Arc<Mutex<hashbrown::HashMap<K, V>>>> = helper
             .data
             .into_iter()
             .map(|shard_vec| {
                 let mut map = hashbrown::HashMap::new();
-                for (k_val, v_val) in shard_vec {
-                    let k: K = from_value(k_val).unwrap();
-                    let v: V = from_value(v_val).unwrap();
+                for entry in shard_vec {
+                    let SerializedEntry { key, value } = entry;
+                    let (k, v) = (
+                        from_flexbuffer(&key).unwrap(),
+                        from_flexbuffer(&value).unwrap(),
+                    );
                     map.insert(k, v);
                 }
                 Arc::new(Mutex::new(map))
@@ -106,7 +144,7 @@ where
             .collect();
 
         Ok(InternTable {
-            vals: helper.vals,
+            vals,
             data,
             shards_log2: helper.shards_log2,
         })
