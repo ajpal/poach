@@ -550,7 +550,7 @@ fn poach(
                             if self.map.contains_key(&name) {
                                 panic!("duplicate variable names")
                             } else {
-                                let namespaced = format!("@@{name}");
+                                let namespaced = format!("{name}@@");
                                 self.map.insert(name.clone(), namespaced.clone());
                                 namespaced
                             }
