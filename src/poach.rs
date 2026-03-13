@@ -180,6 +180,7 @@ where
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("unknown");
+        println!("{}", name);
 
         let mut timed_egraph = if let Some(path) = initial_egraph {
             if path.is_file() {
@@ -644,19 +645,16 @@ fn poach(
                     let (filtered_cmds, filtered_sexps): (Vec<_>, Vec<_>) = all_cmds
                         .into_iter()
                         .zip(all_sexps)
-                        .filter(|(c, _)| {
-                            match c {
-                                GenericCommand::Action(GenericAction::Let(..)) => true,
-                                egglog::ast::GenericCommand::Extract(..) => true,
-                                egglog::ast::GenericCommand::MultiExtract(..) => true,
-                                // TODO: Running rules on a deserialized egraph currently does not work
-                                // | egglog::ast::GenericCommand::RunSchedule(_)
-                                egglog::ast::GenericCommand::PrintOverallStatistics(..) => true,
-                                egglog::ast::GenericCommand::Check(..) => true,
-                                egglog::ast::GenericCommand::PrintFunction(..) => true,
-                                egglog::ast::GenericCommand::PrintSize(..) => true,
-                                _ => false,
-                            }
+                        .filter(|(c, _)| match c {
+                            GenericCommand::Action(GenericAction::Let(..)) => true,
+                            egglog::ast::GenericCommand::Extract(..) => true,
+                            egglog::ast::GenericCommand::MultiExtract(..) => true,
+                            egglog::ast::GenericCommand::RunSchedule(..) => true,
+                            egglog::ast::GenericCommand::PrintOverallStatistics(..) => true,
+                            egglog::ast::GenericCommand::Check(..) => true,
+                            egglog::ast::GenericCommand::PrintFunction(..) => true,
+                            egglog::ast::GenericCommand::PrintSize(..) => true,
+                            _ => false,
                         })
                         .map(|(cmd, sexp)| {
                             (
