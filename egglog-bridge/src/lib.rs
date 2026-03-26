@@ -68,8 +68,7 @@ impl Timestamp {
 /// The state associated with an egglog program.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct EGraph {
-    // TODO: evil hack for looking at serialization size
-    pub db: Database,
+    db: Database,
     uf_table: TableId,
     id_counter: CounterId,
     reason_counter: CounterId,
@@ -812,7 +811,9 @@ impl EGraph {
         Ok(iteration_report)
     }
 
-    /// TODO: evil hack for speeding up extraction
+    /// This hack speeds up extraction and 
+    /// avoid certain fields of the backend data structure
+    /// by skipping rebuild
     pub fn run_rules_without_rebuild(&mut self, rules: &[RuleId]) -> Result<IterationReport> {
         let ts = self.next_ts();
 
@@ -826,14 +827,6 @@ impl EGraph {
             rule_set_report,
             rebuild_time: Duration::ZERO,
         };
-        if !iteration_report.changed() {
-            return Ok(iteration_report);
-        }
-
-        if let Some(message) = self.panic_message.lock().unwrap().take() {
-            return Err(PanicError(message).into());
-        }
-
         Ok(iteration_report)
     }
 

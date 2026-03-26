@@ -122,19 +122,7 @@ impl GenerateSizeReport for TypeInfo {}
 impl GenerateSizeReport for RunReport {}
 
 impl<K: serde::Serialize, V: serde::Serialize + GenerateSizeReport> GenerateSizeReport
-    for egglog_numeric_id::DenseIdMap<K, V>
-{
-    fn get_sizerp(&self) -> SizeReport {
-        let mut ret = get_sizerp_default(self);
-        for e in self.data.iter() {
-            if let Some(v) = e {
-                let rep = v.get_sizerp();
-                ret.fields.push((rep.name.clone(), Box::new(rep)));
-            }
-        }
-        ret
-    }
-}
+    for egglog_numeric_id::DenseIdMap<K, V> {}
 
 impl GenerateSizeReport for CommandMacroRegistry {}
 
@@ -255,31 +243,4 @@ impl GenerateSizeReport for EGraph {
     }
 }
 
-impl GenerateSizeReport for egglog_bridge::EGraph {
-    fn get_sizerp(&self) -> SizeReport {
-        let mut ret = get_sizerp_default(&self);
-        ret.fields
-            .push(("db".to_string(), Box::new(self.db.get_sizerp())));
-        ret
-    }
-}
-
-impl GenerateSizeReport for egglog_core_relations::Database {
-    fn get_sizerp(&self) -> SizeReport {
-        let mut ret = get_sizerp_default(&self);
-        ret.fields
-            .push(("tables".to_string(), Box::new(self.tables.get_sizerp())));
-        ret
-    }
-}
-
-impl GenerateSizeReport for egglog_core_relations::table_spec::WrappedTable {}
-
-impl GenerateSizeReport for egglog_core_relations::free_join::TableInfo {
-    fn get_sizerp(&self) -> SizeReport {
-        let mut ret = get_sizerp_default(&self);
-        ret.fields
-            .push(("table".to_string(), Box::new(self.table.get_sizerp())));
-        ret
-    }
-}
+impl GenerateSizeReport for egglog_bridge::EGraph {}
