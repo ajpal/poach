@@ -2611,7 +2611,7 @@ impl TimedEgraph {
         let mut egraph: EGraph = EGraph::deserialize(r).unwrap();
         egraph
             .restore_deserialized_runtime()
-            .expect("Failed to restore deserialized runtime");        
+            .expect("Failed to restore deserialized runtime");
 
         Self {
             egraphs: vec![egraph],
