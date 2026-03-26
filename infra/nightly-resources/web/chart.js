@@ -124,6 +124,51 @@ function initializeCharts() {
     );
   }
 
+  if (!!document.getElementById("speedup-chart")) {
+    console.assert(GLOBAL_DATA.differenceChart === null);
+
+    GLOBAL_DATA.speedupChart = new Chart(
+      document.getElementById("speedup-chart"),
+      {
+        type: "bar",
+        data: {},
+        options: {
+          responsive: true,
+          plugins: {
+            legend: {
+              display: false,
+            },
+            title: {
+              display: true,
+              text: "Per-benchmark Runtime Speedup",
+            },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => `${ctx.raw.toFixed(2)}x`,
+              },
+            },
+          },
+          scales: {
+            x: {
+              ticks: {
+                maxRotation: 90,
+                minRotation: 45,
+              },
+            },
+            y: {
+              min: 0,
+              max: 50,
+              title: {
+                display: true,
+                text: "Speedup (times)",
+              },
+            },
+          },
+        },
+      },
+    );
+  }
+
   if (!!document.getElementById("difference-chart")) {
     console.assert(GLOBAL_DATA.differenceChart === null);
 
@@ -156,8 +201,8 @@ function initializeCharts() {
               },
             },
             y: {
-              min: -25,
-              max: 25,
+              min: -1000,
+              max: 3000,
               title: {
                 display: true,
                 text: "time (ms)",

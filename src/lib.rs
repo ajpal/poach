@@ -30,8 +30,11 @@ mod typechecking;
 pub mod util;
 pub use command_macro::{CommandMacro, CommandMacroRegistry};
 
+pub mod serialize_size;
+
 // This is used to allow the `add_primitive` macro to work in
 // both this crate and other crates by referring to `::egglog`.
+extern crate flexbuffers;
 extern crate self as egglog;
 use anyhow::{Context, Result};
 use ast::*;
@@ -62,6 +65,7 @@ use scheduler::{SchedulerId, SchedulerRecord};
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use serialize_size::GenerateSizeReport;
 pub use serialize_vis::{SerializeConfig, SerializeOutput, SerializedNode};
 use size::GetSizePrimitive;
 use sort::*;
@@ -69,7 +73,7 @@ use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 use std::fs::{self, read_to_string, File};
 use std::hash::Hash;
-use std::io::{BufReader, BufWriter, Read, Write as _};
+use std::io::{BufWriter, Read, Write as _};
 use std::iter::once;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
@@ -255,31 +259,59 @@ impl Serialize for SerializableSort {
             s.serialize_field("type", "FunctionSort")?;
             s.serialize_field("data", sort)?;
             s.end()
-        } else if let Some(_) = sort.as_any().downcast_ref::<BaseSortImpl<BigIntSort>>() {
+        } else if sort
+            .as_any()
+            .downcast_ref::<BaseSortImpl<BigIntSort>>()
+            .is_some()
+        {
             s.serialize_field("type", "BaseSort")?;
             s.serialize_field("data", "BigIntSort")?;
             s.end()
-        } else if let Some(_) = sort.as_any().downcast_ref::<BaseSortImpl<BigRatSort>>() {
+        } else if sort
+            .as_any()
+            .downcast_ref::<BaseSortImpl<BigRatSort>>()
+            .is_some()
+        {
             s.serialize_field("type", "BaseSort")?;
             s.serialize_field("data", "BigRatSort")?;
             s.end()
-        } else if let Some(_) = sort.as_any().downcast_ref::<BaseSortImpl<BoolSort>>() {
+        } else if sort
+            .as_any()
+            .downcast_ref::<BaseSortImpl<BoolSort>>()
+            .is_some()
+        {
             s.serialize_field("type", "BaseSort")?;
             s.serialize_field("data", "BoolSort")?;
             s.end()
-        } else if let Some(_) = sort.as_any().downcast_ref::<BaseSortImpl<F64Sort>>() {
+        } else if sort
+            .as_any()
+            .downcast_ref::<BaseSortImpl<F64Sort>>()
+            .is_some()
+        {
             s.serialize_field("type", "BaseSort")?;
             s.serialize_field("data", "F64Sort")?;
             s.end()
-        } else if let Some(_) = sort.as_any().downcast_ref::<BaseSortImpl<I64Sort>>() {
+        } else if sort
+            .as_any()
+            .downcast_ref::<BaseSortImpl<I64Sort>>()
+            .is_some()
+        {
             s.serialize_field("type", "BaseSort")?;
             s.serialize_field("data", "I64Sort")?;
             s.end()
-        } else if let Some(_) = sort.as_any().downcast_ref::<BaseSortImpl<StringSort>>() {
+        } else if sort
+            .as_any()
+            .downcast_ref::<BaseSortImpl<StringSort>>()
+            .is_some()
+        {
             s.serialize_field("type", "BaseSort")?;
             s.serialize_field("data", "StringSort")?;
             s.end()
-        } else if let Some(_) = sort.as_any().downcast_ref::<BaseSortImpl<UnitSort>>() {
+        } else if sort
+            .as_any()
+            .downcast_ref::<BaseSortImpl<UnitSort>>()
+            .is_some()
+        {
             s.serialize_field("type", "BaseSort")?;
             s.serialize_field("data", "UnitSort")?;
             s.end()
@@ -1334,7 +1366,7 @@ impl EGraph {
         );
 
         let id = translator.build();
-        let rule_result = self.backend.run_rules(&[id]);
+        let rule_result = self.backend.run_rules_without_rebuild(&[id]);
         self.backend.free_rule(id);
         self.backend.free_external_func(ext_id);
         let _ = rule_result.map_err(|e| {
@@ -1553,7 +1585,7 @@ impl EGraph {
                                 expr.output_type(),
                             )
                             .iter()
-                            .map(|e| e.1.clone())
+                            .map(|e| e.1)
                             .collect();
                         if log_enabled!(Level::Info) {
                             let expr_str = expr.to_string();
@@ -2498,14 +2530,34 @@ mod tests {
 
 /***** TESTING AREA FOR TIMED EGRAPH *****/
 
-static START: &'static str = "start";
-static END: &'static str = "end";
+static START: &str = "start";
+static END: &str = "end";
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, Eq)]
 pub struct EgraphEvent {
     sexp_idx: i32,
     evt: &'static str,
     time_micros: u128,
+}
+
+impl Ord for EgraphEvent {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.time_micros.cmp(&other.time_micros)
+    }
+}
+
+impl PartialOrd for EgraphEvent {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for EgraphEvent {
+    fn eq(&self, other: &Self) -> bool {
+        self.sexp_idx == other.sexp_idx
+            && self.evt == other.evt
+            && self.time_micros == other.time_micros
+    }
 }
 
 #[derive(Serialize, Clone)]
@@ -2530,6 +2582,12 @@ pub struct TimedEgraph {
     timer: std::time::Instant,
 }
 
+impl Default for TimedEgraph {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TimedEgraph {
     /// Create a new TimedEgraph with a default EGraph
     pub fn new() -> Self {
@@ -2544,14 +2602,16 @@ impl TimedEgraph {
     }
 
     pub fn new_from_file(path: &Path) -> Self {
-        let file = File::open(path).expect("failed to open egraph file");
-        let reader = BufReader::new(file);
+        let mut file = fs::File::open(path).expect("failed to open file");
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf)
+            .expect("Failed to read Flatbuffer from file");
 
-        let mut egraph: EGraph =
-            serde_json::from_reader(reader).expect("failed to parse egraph JSON");
+        let r = flexbuffers::Reader::get_root(buf.as_slice()).unwrap();
+        let mut egraph: EGraph = EGraph::deserialize(r).unwrap();
         egraph
             .restore_deserialized_runtime()
-            .expect("failed to restore deserialized runtime");
+            .expect("Failed to restore deserialized runtime");
 
         Self {
             egraphs: vec![egraph],
@@ -2560,15 +2620,20 @@ impl TimedEgraph {
         }
     }
 
+    pub fn get_total_time(&self, id: usize) -> u128 {
+        self.timeline[id].evts.iter().max().unwrap().time_micros
+            - self.timeline[id].evts.iter().min().unwrap().time_micros
+    }
+
     pub fn egraphs(&self) -> Vec<&EGraph> {
-        self.egraphs.iter().map(|x| x).collect()
+        self.egraphs.iter().collect()
     }
 
     pub fn write_timeline(&self, path: &Path) -> Result<(), serde_json::Error> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).expect("Failed to create out dir");
         }
-        let file = File::create(&path).expect("Failed to create timeline.json");
+        let file = File::create(path).expect("Failed to create timeline.json");
         serde_json::to_writer_pretty(BufWriter::new(file), &self.timeline)
     }
 
@@ -2639,7 +2704,7 @@ impl TimedEgraph {
                 time_micros: self.timer.elapsed().as_micros(),
             });
 
-            i = i + 1;
+            i += 1;
         }
 
         self.timeline.push(program_timeline);
@@ -2698,7 +2763,7 @@ impl TimedEgraph {
         Ok(())
     }
 
-    pub fn to_value(&mut self) -> Result<serde_json::Value> {
+    pub fn to_value(&mut self) -> Result<Vec<u8>> {
         let mut timeline = ProgramTimeline::new("(serialize)");
 
         let egraph = self.egraphs.last().unwrap();
@@ -2708,7 +2773,10 @@ impl TimedEgraph {
             time_micros: self.timer.elapsed().as_micros(),
         });
 
-        let value = serde_json::to_value(egraph).context("Failed to encode egraph as json")?;
+        let mut buf = flexbuffers::FlexbufferSerializer::new();
+        Serialize::serialize(egraph, &mut buf)
+            .expect("Failed to serialize the egraph in Flexbuffer");
+        let value = Vec::from(buf.view());
 
         timeline.evts.push(EgraphEvent {
             sexp_idx: 0,
@@ -2720,7 +2788,7 @@ impl TimedEgraph {
         Ok(value)
     }
 
-    pub fn from_value(&mut self, value: serde_json::Value) -> Result<()> {
+    pub fn from_value(&mut self, value: Vec<u8>) -> Result<()> {
         let mut timeline = ProgramTimeline::new("(deserialize)");
 
         timeline.evts.push(EgraphEvent {
@@ -2729,8 +2797,8 @@ impl TimedEgraph {
             time_micros: self.timer.elapsed().as_micros(),
         });
 
-        let mut egraph: EGraph =
-            serde_json::from_value(value).context("Failed to decode egraph from json")?;
+        let r = flexbuffers::Reader::get_root(value.as_slice()).unwrap();
+        let mut egraph: EGraph = EGraph::deserialize(r).unwrap();
         egraph
             .restore_deserialized_runtime()
             .context("Failed to restore deserialized runtime")?;
@@ -2747,6 +2815,13 @@ impl TimedEgraph {
         Ok(())
     }
 
+    pub fn print_size_report(&mut self, max_level: usize) -> Result<()> {
+        let egraph = self.egraphs.last().unwrap();
+        println!("egraph size: {:}", egraph.num_tuples());
+        egraph.get_sizerp().pretty_print(0, max_level);
+        Ok(())
+    }
+
     pub fn to_file(&mut self, path: &Path) -> Result<()> {
         let mut timeline = ProgramTimeline::new("(serialize)\n(write)");
         let egraph = self.egraphs.last().unwrap();
@@ -2756,7 +2831,9 @@ impl TimedEgraph {
             time_micros: self.timer.elapsed().as_micros(),
         });
 
-        let value = serde_json::to_value(egraph).context("Failed to encode egraph as json")?;
+        let mut buf = flexbuffers::FlexbufferSerializer::new();
+        Serialize::serialize(egraph, &mut buf)
+            .expect("Failed to serialize the egraph in Flexbuffer");
 
         timeline.evts.push(EgraphEvent {
             sexp_idx: 0,
@@ -2770,9 +2847,9 @@ impl TimedEgraph {
             time_micros: self.timer.elapsed().as_micros(),
         });
 
-        let file = fs::File::create(path)
+        let mut file = fs::File::create(path)
             .with_context(|| format!("failed to create file {}", path.display()))?;
-        serde_json::to_writer_pretty(BufWriter::new(file), &value)
+        file.write_all(buf.view())
             .context("Failed to write value to file")?;
 
         timeline.evts.push(EgraphEvent {
@@ -2795,11 +2872,11 @@ impl TimedEgraph {
             time_micros: self.timer.elapsed().as_micros(),
         });
 
-        let file = fs::File::open(path)
+        let mut file = fs::File::open(path)
             .with_context(|| format!("failed to open file {}", path.display()))?;
-        let reader = BufReader::new(file);
-        let value: serde_json::Value =
-            serde_json::from_reader(reader).context("Failed to read json from file")?;
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf)
+            .context("Failed to read Flatbuffer from file")?;
 
         timeline.evts.push(EgraphEvent {
             sexp_idx: 0,
@@ -2813,7 +2890,8 @@ impl TimedEgraph {
             time_micros: self.timer.elapsed().as_micros(),
         });
 
-        let mut egraph: EGraph = serde_json::from_value(value)?;
+        let r = flexbuffers::Reader::get_root(buf.as_slice()).unwrap();
+        let mut egraph: EGraph = EGraph::deserialize(r).unwrap();
         egraph
             .restore_deserialized_runtime()
             .context("Failed to restore deserialized runtime")?;

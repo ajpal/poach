@@ -51,10 +51,39 @@ mod tests;
 type HashCode = u64;
 
 /// A pointer to a row in the table.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub(crate) struct TableEntry {
     hashcode: HashCode,
     row: RowId,
+}
+
+impl Serialize for TableEntry {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut bytes = [0u8; 12];
+        let b1 = self.hashcode.to_be_bytes();
+        bytes[..b1.len()].copy_from_slice(&b1);
+        let b2 = self.row.rep.to_be_bytes();
+        bytes[b1.len()..].copy_from_slice(&b2);
+        serializer.serialize_bytes(&bytes)
+    }
+}
+
+impl<'de> Deserialize<'de> for TableEntry {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let bytes = <[u8; 16]>::deserialize(deserializer).expect("Failed to parse TabelEntry");
+        Ok(TableEntry {
+            hashcode: u64::from_be_bytes(bytes[0..8].try_into().unwrap()),
+            row: RowId {
+                rep: u32::from_be_bytes(bytes[8..12].try_into().unwrap()),
+            },
+        })
+    }
 }
 
 impl TableEntry {
@@ -171,8 +200,8 @@ impl<'de> Deserialize<'de> for SortedWritesTable {
         #[derive(Deserialize)]
         struct Partial {
             generation: Generation,
-            shard_data: ShardData,
-            shards: Vec<Vec<TableEntry>>,
+            //shard_data: ShardData,
+            //shards: Vec<Vec<TableEntry>>,
             data: Rows,
 
             n_keys: usize,
@@ -183,13 +212,13 @@ impl<'de> Deserialize<'de> for SortedWritesTable {
             pending_state: Arc<PendingState>,
 
             to_rebuild: Vec<ColumnId>,
-            rebuild_index: Index<ColumnIndex>,
-
+            //rebuild_index: Index<ColumnIndex>,
             subset_tracker: SubsetTracker,
         }
 
         let partial = Partial::deserialize(deserializer)?;
 
+        /*
         let shards: Vec<HashTable<TableEntry>> = partial
             .shards
             .iter()
@@ -206,11 +235,12 @@ impl<'de> Deserialize<'de> for SortedWritesTable {
             shard_data: partial.shard_data,
             shards,
         };
+        */
 
         Ok(SortedWritesTable {
             generation: partial.generation,
             data: partial.data,
-            hash,
+            hash: ShardedHashTable::default(),
             n_keys: partial.n_keys,
             n_columns: partial.n_columns,
             sort_by: partial.sort_by,
@@ -218,7 +248,7 @@ impl<'de> Deserialize<'de> for SortedWritesTable {
             pending_state: partial.pending_state,
             merge: Arc::new(|_, _, _, _| true),
             to_rebuild: partial.to_rebuild,
-            rebuild_index: partial.rebuild_index,
+            rebuild_index: <Index<ColumnIndex>>::default(),
             subset_tracker: partial.subset_tracker,
         })
     }
@@ -229,6 +259,7 @@ impl Serialize for SortedWritesTable {
     where
         S: Serializer,
     {
+        /*
         let serialized_shards: Vec<Vec<TableEntry>> = self
             .hash
             .shards
@@ -239,11 +270,11 @@ impl Serialize for SortedWritesTable {
                 v
             })
             .collect();
-
+        */
         let mut state = serializer.serialize_struct("SortedWritesTable", 11)?;
         state.serialize_field("generation", &self.generation)?;
-        state.serialize_field("shard_data", &self.hash.shard_data())?;
-        state.serialize_field("shards", &serialized_shards)?;
+        //state.serialize_field("shard_data", &self.hash.shard_data())?;
+        //state.serialize_field("shards", &serialized_shards)?;
         state.serialize_field("data", &self.data)?;
         state.serialize_field("n_keys", &self.n_keys)?;
         state.serialize_field("n_columns", &self.n_columns)?;
@@ -251,7 +282,7 @@ impl Serialize for SortedWritesTable {
         state.serialize_field("offsets", &self.offsets)?;
         state.serialize_field("pending_state", &self.pending_state)?;
         state.serialize_field("to_rebuild", &self.to_rebuild)?;
-        state.serialize_field("rebuild_index", &self.rebuild_index)?;
+        //state.serialize_field("rebuild_index", &self.rebuild_index)?;
         state.serialize_field("subset_tracker", &self.subset_tracker)?;
 
         state.end()

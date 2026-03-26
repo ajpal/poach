@@ -88,23 +88,34 @@ def run_test_experiments(top_dir, tmp_dir, aggregator):
       run_poach(benchmark, tmp_dir, run_mode)
       add_benchmark_data(aggregator, timeline_file, f"tests/{benchmark_name}/{benchmark.stem}/timeline.json")
       extra_files = {
-        "sequential-round-trip": [tmp_dir / f"{benchmark.stem}-serialize1.json"],
+        "sequential-round-trip": [tmp_dir / f"{benchmark.stem}-serialize1.fbs"],
         "old-serialize": [
-          tmp_dir / f"{benchmark.stem}-serialize-poach.json",
+          tmp_dir / f"{benchmark.stem}-serialize-poach.fbs",
           tmp_dir / f"{benchmark.stem}-serialize-old.json",
         ],
       }.get(run_mode, [])
       cleanup_benchmark_files(timeline_file, tmp_dir / "summary.json", *extra_files)
 
+def run_extract_experiments(resource_dir, tmp_dir, aggregator, csv_aggregator):
+  timeline_suites = ["herbie-hamming", "herbie-math-rewrite", "herbie-math-taylor"]
+  for suite in timeline_suites:
+    for benchmark in benchmark_files(resource_dir / "test-files" / suite):
+      timeline_file = tmp_dir / f"{benchmark.stem}-timeline.json"
+      run_poach(benchmark, tmp_dir, "extract")
+      add_benchmark_data(aggregator, timeline_file, f"{suite}/extract/{benchmark.stem}/timeline.json")
+      extra_files = [tmp_dir / f"{benchmark.stem}.csv"]
+      csv_aggregator.add_file(extra_files[0])
+      cleanup_benchmark_files(timeline_file, tmp_dir / "summary.json", *extra_files)
+
 def run_mined_experiments(resource_dir, tmp_dir, aggregator):
-  mega_serialize_file = tmp_dir / "mega-easteregg-serialize.json"
+  mega_serialize_file = tmp_dir / "mega-easteregg-serialize.fbs"
   mega_timeline_file = tmp_dir / "mega-easteregg-timeline.json"
   run_poach(resource_dir / "mega-easteregg.egg", tmp_dir, "serialize")
   add_benchmark_data(aggregator, mega_timeline_file, "easteregg/serialize/mega-easteregg/timeline.json")
   cleanup_benchmark_files(mega_timeline_file, tmp_dir / "summary.json")
   for benchmark in benchmark_files(resource_dir / "test-files" / "easteregg"):
     timeline_file = tmp_dir / f"{benchmark.stem}-timeline.json"
-    serialize_file = tmp_dir / f"{benchmark.stem}-serialize.json"
+    serialize_file = tmp_dir / f"{benchmark.stem}-serialize.fbs"
     run_poach(benchmark, tmp_dir, "serialize")
     add_benchmark_data(aggregator, timeline_file, f"easteregg/serialize/{benchmark.stem}/timeline.json")
     cleanup_benchmark_files(timeline_file, tmp_dir / "summary.json")
@@ -137,6 +148,7 @@ if __name__ == "__main__":
   tmp_dir = nightly_dir / "tmp"
   output_data_dir = nightly_dir / "output" / "data"
   aggregator = transform.TimelineAggregator(output_data_dir)
+  csv_aggregator = transform.CSVAggregator(output_data_dir)
 
   # Make sure we're in the right place
   os.chdir(top_dir)
@@ -146,22 +158,26 @@ if __name__ == "__main__":
   ##############################################################################
 
   # Run the benchmarks and record timeline-only data.
-  run_timeline_experiments(resource_dir, tmp_dir, aggregator)
+  # run_timeline_experiments(resource_dir, tmp_dir, aggregator)
   
   # Re-run the benchmarks with JSON round-tripping kept entirely in memory.
-  run_no_io_experiments(resource_dir, tmp_dir, aggregator)
+  # run_no_io_experiments(resource_dir, tmp_dir, aggregator)
   
   # Run the egglog tests under each serialization experiment mode.
-  run_test_experiments(top_dir, tmp_dir, aggregator)
+  # run_test_experiments(top_dir, tmp_dir, aggregator)
   
   # Run the mined-egraph experiment using both per-benchmark and mega-egraph seeds.
-  run_mined_experiments(resource_dir, tmp_dir, aggregator)
+  # run_mined_experiments(resource_dir, tmp_dir, aggregator)
+
+  # Run the extract experiment on our heavy benchmarks
+  run_extract_experiments(resource_dir, tmp_dir, aggregator, csv_aggregator)
 
   ##############################################################################
 
   aggregator.save()
+  csv_aggregator.save()
 
-  if shutil.which("perf") is not None:
-    # Generate flamegraphs
-    for egg_file in glob.glob("tests/*.egg") + glob.glob("tests/web-demo/*.egg"):
-      run_cmd([str(script_dir / "flamegraph.sh"), egg_file, str(nightly_dir / "output" / "flamegraphs")])
+  #if shutil.which("perf") is not None:
+  #  # Generate flamegraphs
+  #  for egg_file in glob.glob("tests/*.egg") + glob.glob("tests/web-demo/*.egg"):
+  #    run_cmd([str(script_dir / "flamegraph.sh"), egg_file, str(nightly_dir / "output" / "flamegraphs")])
