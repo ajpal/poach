@@ -108,9 +108,9 @@
   (Draw (Empty) shape (Paint (Color 1.0 0.0 0.0 0.0) (SrcOver) style (IdFilter) i1) clip transform)
   :ruleset opt)
 
-(let test (Draw (Empty) (Oval 40.0 40.0 160.0 160.0) (Paint (Color 0.5019607843137255 0.0 0.0 1.0) (SrcOver) (Solid) (IdFilter) 3) (Intersect (Full) (Rect 0.0 0.0 90.0 80.0)) (Matrix 2.0 0.0 0.0 0.0 0.0 0.5 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0)))
+(let $test (Draw (Empty) (Oval 40.0 40.0 160.0 160.0) (Paint (Color 0.5019607843137255 0.0 0.0 1.0) (SrcOver) (Solid) (IdFilter) 3) (Intersect (Full) (Rect 0.0 0.0 90.0 80.0)) (Matrix 2.0 0.0 0.0 0.0 0.0 0.5 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 1.0)))
 (run-schedule
   ;; (repeat 1 (run simp))
   (saturate (run opt)))
 
-(multi-extract 0 test)
+(multi-extract 1 $test)

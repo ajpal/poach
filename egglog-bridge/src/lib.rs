@@ -768,6 +768,7 @@ impl EGraph {
             incremental_rebuild_rules: Default::default(),
             nonincremental_rebuild_rule: RuleId::new(!0),
             default_val: default,
+            merge: merge.clone(),
             can_subsume,
             name,
         });
@@ -1154,6 +1155,43 @@ impl EGraph {
         updated
     }
 
+    pub fn restore_deserialized_runtime(&mut self) {
+        let funcs = self
+            .funcs
+            .iter()
+            .map(|(func, info)| {
+                (
+                    func,
+                    info.table,
+                    info.schema.clone(),
+                    info.can_subsume,
+                    info.name.clone(),
+                    info.merge.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        for (func, table_id, schema, can_subsume, name, merge) in funcs {
+            let schema_math = SchemaMath {
+                tracing: self.tracing,
+                subsume: can_subsume,
+                func_cols: schema.len(),
+            };
+            let merge_fn = merge.to_callback(schema_math, &name, self);
+            let table = self
+                .db
+                .get_table_mut(table_id)
+                .as_any_mut()
+                .downcast_mut::<SortedWritesTable>()
+                .expect("function tables must use SortedWritesTable");
+            table.set_merge(merge_fn);
+            let incremental_rebuild_rules = self.incremental_rebuild_rules(func, &schema);
+            let nonincremental_rebuild_rule = self.nonincremental_rebuild(func, &schema);
+            let info = &mut self.funcs[func];
+            info.incremental_rebuild_rules = incremental_rebuild_rules;
+            info.nonincremental_rebuild_rule = nonincremental_rebuild_rule;
+        }
+    }
+
     pub fn set_report_level(&mut self, level: ReportLevel) {
         self.report_level = level;
     }
@@ -1182,6 +1220,7 @@ struct FunctionInfo {
     incremental_rebuild_rules: Vec<RuleId>,
     nonincremental_rebuild_rule: RuleId,
     default_val: DefaultVal,
+    merge: MergeFn,
     can_subsume: bool,
     name: Arc<str>,
 }
@@ -1204,6 +1243,7 @@ pub enum DefaultVal {
 }
 
 /// How to resolve FD conflicts for a table.
+#[derive(Clone, Serialize, Deserialize)]
 pub enum MergeFn {
     /// Panic if the old and new values don't match.
     AssertEq,
