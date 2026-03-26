@@ -122,7 +122,9 @@ impl GenerateSizeReport for TypeInfo {}
 impl GenerateSizeReport for RunReport {}
 
 impl<K: serde::Serialize, V: serde::Serialize + GenerateSizeReport> GenerateSizeReport
-    for egglog_numeric_id::DenseIdMap<K, V> {}
+    for egglog_numeric_id::DenseIdMap<K, V>
+{
+}
 
 impl GenerateSizeReport for CommandMacroRegistry {}
 

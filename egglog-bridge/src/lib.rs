@@ -811,7 +811,7 @@ impl EGraph {
         Ok(iteration_report)
     }
 
-    /// This hack speeds up extraction and 
+    /// This hack speeds up extraction and
     /// avoid certain fields of the backend data structure
     /// by skipping rebuild
     pub fn run_rules_without_rebuild(&mut self, rules: &[RuleId]) -> Result<IterationReport> {
