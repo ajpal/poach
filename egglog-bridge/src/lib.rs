@@ -812,25 +812,6 @@ impl EGraph {
         Ok(iteration_report)
     }
 
-    /// This hack speeds up extraction and
-    /// avoid certain fields of the backend data structure
-    /// by skipping rebuild
-    pub fn run_rules_without_rebuild(&mut self, rules: &[RuleId]) -> Result<IterationReport> {
-        let ts = self.next_ts();
-
-        let rule_set_report =
-            run_rules_impl(&mut self.db, &mut self.rules, rules, ts, self.report_level)?;
-        if let Some(message) = self.panic_message.lock().unwrap().take() {
-            return Err(PanicError(message).into());
-        }
-
-        let iteration_report = IterationReport {
-            rule_set_report,
-            rebuild_time: Duration::ZERO,
-        };
-        Ok(iteration_report)
-    }
-
     fn rebuild(&mut self) -> Result<()> {
         fn do_parallel() -> bool {
             #[cfg(test)]

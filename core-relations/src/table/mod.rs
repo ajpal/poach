@@ -236,11 +236,12 @@ impl<'de> Deserialize<'de> for SortedWritesTable {
             shards,
         };
         */
-
-        Ok(SortedWritesTable {
+        let hash = ShardedHashTable::<TableEntry>::default();
+        let rebuild_index = Index::new(partial.to_rebuild.clone(), ColumnIndex::new());
+        let mut ret = SortedWritesTable {
             generation: partial.generation,
             data: partial.data,
-            hash: ShardedHashTable::default(),
+            hash,
             n_keys: partial.n_keys,
             n_columns: partial.n_columns,
             sort_by: partial.sort_by,
@@ -248,9 +249,11 @@ impl<'de> Deserialize<'de> for SortedWritesTable {
             pending_state: partial.pending_state,
             merge: Arc::new(|_, _, _, _| true),
             to_rebuild: partial.to_rebuild,
-            rebuild_index: <Index<ColumnIndex>>::default(),
+            rebuild_index,
             subset_tracker: partial.subset_tracker,
-        })
+        };
+        ret.rebuild_hash();
+        Ok(ret)
     }
 }
 
@@ -1343,6 +1346,25 @@ impl SortedWritesTable {
             &mut self.offsets,
             &mut self.hash,
         )
+    }
+
+    fn rebuild_hash_impl(n_keys: usize, rows: &mut Rows, hash: &mut ShardedHashTable<TableEntry>) {
+        for (id, r) in rows.data.iter().enumerate() {
+            let (shard, hc) = hash_code(hash.shard_data(), r, n_keys);
+            hash.mut_shards()[shard.index()].insert_unique(
+                hc as _,
+                TableEntry {
+                    hashcode: hc as _,
+                    row: RowId { rep: id as u32 },
+                },
+                TableEntry::hashcode,
+            );
+        }
+    }
+
+    fn rebuild_hash(&mut self) {
+        self.generation = self.generation.inc();
+        Self::rebuild_hash_impl(self.n_keys, &mut self.data, &mut self.hash)
     }
 }
 

@@ -1366,7 +1366,7 @@ impl EGraph {
         );
 
         let id = translator.build();
-        let rule_result = self.backend.run_rules_without_rebuild(&[id]);
+        let rule_result = self.backend.run_rules(&[id]);
         self.backend.free_rule(id);
         self.backend.free_external_func(ext_id);
         let _ = rule_result.map_err(|e| {
