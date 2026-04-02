@@ -2073,6 +2073,10 @@ impl EGraph {
         self.backend
             .get_canon_repr(val, sort.column_ty(&self.backend))
     }
+
+    pub fn stablize(&mut self) {
+        self.backend.stablize();
+    }
 }
 
 struct BackendRule<'a> {
@@ -2764,6 +2768,9 @@ impl TimedEgraph {
     }
 
     pub fn to_value(&mut self) -> Result<Vec<u8>> {
+        // flush stale rows before serialization
+        self.egraphs.last_mut().unwrap().stablize();
+
         let mut timeline = ProgramTimeline::new("(serialize)");
 
         let egraph = self.egraphs.last().unwrap();
@@ -2823,6 +2830,9 @@ impl TimedEgraph {
     }
 
     pub fn to_file(&mut self, path: &Path) -> Result<()> {
+        // flush stale rows before serialization
+        self.egraphs.last_mut().unwrap().stablize();
+
         let mut timeline = ProgramTimeline::new("(serialize)\n(write)");
         let egraph = self.egraphs.last().unwrap();
         timeline.evts.push(EgraphEvent {

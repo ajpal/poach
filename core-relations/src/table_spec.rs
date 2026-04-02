@@ -344,6 +344,9 @@ pub trait Table: Any + Send + Sync {
     /// MutationBuffer that is then dropped may not take effect until the next call to
     /// [`Table::merge`].
     fn new_buffer(&self) -> Box<dyn MutationBuffer>;
+
+    /// Flush all stale data structures and prepare for serialization
+    fn stablize(&mut self) {}
 }
 
 /// A trait specifying a buffer of pending mutations for a [`Table`].
@@ -663,6 +666,10 @@ impl WrappedTable {
     ) {
         self.as_ref()
             .lookup_with_default_vectorized(mask, bindings, args, col, default, out_var)
+    }
+
+    pub fn stablize(&mut self) {
+        self.inner.stablize();
     }
 }
 

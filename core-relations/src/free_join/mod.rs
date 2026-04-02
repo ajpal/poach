@@ -732,6 +732,12 @@ impl Database {
     pub(crate) fn plan_query(&mut self, query: Query) -> Plan {
         plan::plan_query(query)
     }
+
+    pub fn stablize(&mut self) {
+        for (_, t) in self.tables.iter_mut() {
+            t.table.stablize();
+        }
+    }
 }
 
 impl Drop for Database {

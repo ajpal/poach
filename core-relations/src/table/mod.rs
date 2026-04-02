@@ -656,6 +656,10 @@ impl Table for SortedWritesTable {
         })?;
         Some(self.data.get_row(id).unwrap()[col.index()])
     }
+
+    fn stablize(&mut self) {
+        self.rehash();
+    }
 }
 
 impl SortedWritesTable {
