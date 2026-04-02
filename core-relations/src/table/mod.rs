@@ -76,11 +76,11 @@ impl<'de> Deserialize<'de> for TableEntry {
     where
         D: Deserializer<'de>,
     {
-        let bytes = <[u8; 16]>::deserialize(deserializer).expect("Failed to parse TabelEntry");
+        let bytes = <[u8; 12]>::deserialize(deserializer).expect("Failed to parse TabelEntry");
         Ok(TableEntry {
-            hashcode: u64::from_be_bytes(bytes[0..8].try_into().unwrap()),
+            hashcode: u64::from_be_bytes(bytes[..8].try_into().unwrap()),
             row: RowId {
-                rep: u32::from_be_bytes(bytes[8..12].try_into().unwrap()),
+                rep: u32::from_be_bytes(bytes[8..].try_into().unwrap()),
             },
         })
     }
