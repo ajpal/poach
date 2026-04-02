@@ -2074,8 +2074,8 @@ impl EGraph {
             .get_canon_repr(val, sort.column_ty(&self.backend))
     }
 
-    pub fn stablize(&mut self) {
-        self.backend.stablize();
+    pub fn stabilize(&mut self) {
+        self.backend.stabilize();
     }
 }
 
@@ -2769,7 +2769,7 @@ impl TimedEgraph {
 
     pub fn to_value(&mut self) -> Result<Vec<u8>> {
         // flush stale rows before serialization
-        self.egraphs.last_mut().unwrap().stablize();
+        self.egraphs.last_mut().unwrap().stabilize();
 
         let mut timeline = ProgramTimeline::new("(serialize)");
 
@@ -2831,7 +2831,7 @@ impl TimedEgraph {
 
     pub fn to_file(&mut self, path: &Path) -> Result<()> {
         // flush stale rows before serialization
-        self.egraphs.last_mut().unwrap().stablize();
+        self.egraphs.last_mut().unwrap().stabilize();
 
         let mut timeline = ProgramTimeline::new("(serialize)\n(write)");
         let egraph = self.egraphs.last().unwrap();

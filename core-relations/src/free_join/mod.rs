@@ -733,9 +733,9 @@ impl Database {
         plan::plan_query(query)
     }
 
-    pub fn stablize(&mut self) {
+    pub fn stabilize(&mut self) {
         for (_, t) in self.tables.iter_mut() {
-            t.table.stablize();
+            t.table.stabilize();
         }
     }
 }

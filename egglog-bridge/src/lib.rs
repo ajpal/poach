@@ -1177,8 +1177,8 @@ impl EGraph {
         self.report_level = level;
     }
 
-    pub fn stablize(&mut self) {
-        self.db.stablize();
+    pub fn stabilize(&mut self) {
+        self.db.stabilize();
     }
 }
 
