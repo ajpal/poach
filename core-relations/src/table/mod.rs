@@ -200,8 +200,6 @@ impl<'de> Deserialize<'de> for SortedWritesTable {
         #[derive(Deserialize)]
         struct Partial {
             generation: Generation,
-            //shard_data: ShardData,
-            //shards: Vec<Vec<TableEntry>>,
             data: Rows,
 
             n_keys: usize,
@@ -218,24 +216,6 @@ impl<'de> Deserialize<'de> for SortedWritesTable {
 
         let partial = Partial::deserialize(deserializer)?;
 
-        /*
-        let shards: Vec<HashTable<TableEntry>> = partial
-            .shards
-            .iter()
-            .map(|entries| {
-                let mut table: HashTable<TableEntry> = HashTable::new();
-                entries.iter().for_each(|t| {
-                    table.insert_unique(t.hashcode as _, t.clone(), TableEntry::hashcode);
-                });
-                table
-            })
-            .collect();
-
-        let hash: ShardedHashTable<TableEntry> = ShardedHashTable {
-            shard_data: partial.shard_data,
-            shards,
-        };
-        */
         let hash = ShardedHashTable::<TableEntry>::default();
         let rebuild_index = Index::new(partial.to_rebuild.clone(), ColumnIndex::new());
         let mut ret = SortedWritesTable {
@@ -262,22 +242,8 @@ impl Serialize for SortedWritesTable {
     where
         S: Serializer,
     {
-        /*
-        let serialized_shards: Vec<Vec<TableEntry>> = self
-            .hash
-            .shards
-            .iter()
-            .map(|shard| {
-                let mut v: Vec<_> = shard.iter().cloned().collect();
-                v.sort_by_key(|entry| entry.hashcode);
-                v
-            })
-            .collect();
-        */
         let mut state = serializer.serialize_struct("SortedWritesTable", 11)?;
         state.serialize_field("generation", &self.generation)?;
-        //state.serialize_field("shard_data", &self.hash.shard_data())?;
-        //state.serialize_field("shards", &serialized_shards)?;
         state.serialize_field("data", &self.data)?;
         state.serialize_field("n_keys", &self.n_keys)?;
         state.serialize_field("n_columns", &self.n_columns)?;
@@ -285,7 +251,6 @@ impl Serialize for SortedWritesTable {
         state.serialize_field("offsets", &self.offsets)?;
         state.serialize_field("pending_state", &self.pending_state)?;
         state.serialize_field("to_rebuild", &self.to_rebuild)?;
-        //state.serialize_field("rebuild_index", &self.rebuild_index)?;
         state.serialize_field("subset_tracker", &self.subset_tracker)?;
 
         state.end()

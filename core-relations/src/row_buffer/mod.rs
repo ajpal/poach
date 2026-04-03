@@ -35,23 +35,6 @@ impl<'de> Deserialize<'de> for RowBuffer {
     where
         D: Deserializer<'de>,
     {
-        /*
-        #[derive(Deserialize)]
-        struct Partial {
-            n_columns: usize,
-            total_rows: usize,
-            data: Vec<Cell<Value>>,
-        }
-
-        let helper = Partial::deserialize(deserializer)?;
-
-        Ok(RowBuffer {
-            n_columns: helper.n_columns,
-            total_rows: helper.total_rows,
-            data: Pooled::new(helper.data),
-        })
-        */
-
         struct RowBufferVisitor;
 
         impl<'de> serde::de::Visitor<'de> for RowBufferVisitor {
@@ -84,20 +67,26 @@ impl<'de> Deserialize<'de> for RowBuffer {
     }
 }
 
-#[allow(dead_code)]
-fn get_n_compressed_bytes(x: u32) -> usize {
-    if x < (1u32 << 7) {
-        1
-    } else if x < (1u32 << 14) {
-        2
-    } else if x < (1u32 << 21) {
-        3
-    } else if x < (1u32 << 28) {
-        4
-    } else {
-        5
-    }
-}
+/// Serialize an u32
+/// The highest bit of each byte represents whether this is the last byte (0 = no; 1 = yes).
+/// The lower seven bits encodes seven bits from the number.
+/// This encoding uses fewer than 4 bytes if the number is small as shown in the following function.
+/// ```
+/// fn get_n_compressed_bytes(x: u32) -> usize {
+///     if x < (1u32 << 7) {
+///         1
+///     } else if x < (1u32 << 14) {
+///         2
+///     } else if x < (1u32 << 21) {
+///         3
+///     } else if x < (1u32 << 28) {
+///         4
+///     } else {
+///         5
+///     }
+/// }
+/// ```
+/// In practice, small number usually out-proportions large numbers, so this encoding saves space.
 
 fn compressed_serialize(buf: &mut Vec<u8>, x: u32) {
     let mut rem = x;
@@ -126,22 +115,6 @@ impl Serialize for RowBuffer {
     where
         S: serde::Serializer,
     {
-        /*
-        let mut state = serializer.serialize_struct("RowBuffer", 3)?;
-        state.serialize_field("n_columns", &self.n_columns)?;
-        state.serialize_field("total_rows", &self.total_rows)?;
-        state.serialize_field("data", &*self.data)?;
-        state.end()
-        */
-        //let len = mem::size_of::<usize>() * 2 + self.n_columns * self.total_rows * mem::size_of::<u32>();
-        /*
-        let mut len = get_n_compressed_bytes(self.n_columns.try_into().unwrap()) + get_n_compressed_bytes(self.total_rows.try_into().unwrap());
-        for r in self.data.iter() {
-            len = len + get_n_compressed_bytes(r.get().rep);
-        }
-        let mut buf = vec![0u8; len];
-        //TODO: put data in
-        */
         let mut buf = Vec::new();
         compressed_serialize(&mut buf, self.n_columns.try_into().unwrap());
         compressed_serialize(&mut buf, self.total_rows.try_into().unwrap());
