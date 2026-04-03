@@ -51,10 +51,39 @@ mod tests;
 type HashCode = u64;
 
 /// A pointer to a row in the table.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub(crate) struct TableEntry {
     hashcode: HashCode,
     row: RowId,
+}
+
+impl Serialize for TableEntry {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut bytes = [0u8; 12];
+        let b1 = self.hashcode.to_be_bytes();
+        bytes[..b1.len()].copy_from_slice(&b1);
+        let b2 = self.row.rep.to_be_bytes();
+        bytes[b1.len()..].copy_from_slice(&b2);
+        serializer.serialize_bytes(&bytes)
+    }
+}
+
+impl<'de> Deserialize<'de> for TableEntry {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let bytes = <[u8; 12]>::deserialize(deserializer).expect("Failed to parse TabelEntry");
+        Ok(TableEntry {
+            hashcode: u64::from_be_bytes(bytes[..8].try_into().unwrap()),
+            row: RowId {
+                rep: u32::from_be_bytes(bytes[8..].try_into().unwrap()),
+            },
+        })
+    }
 }
 
 impl TableEntry {
@@ -171,8 +200,6 @@ impl<'de> Deserialize<'de> for SortedWritesTable {
         #[derive(Deserialize)]
         struct Partial {
             generation: Generation,
-            shard_data: ShardData,
-            shards: Vec<Vec<TableEntry>>,
             data: Rows,
 
             n_keys: usize,
@@ -183,31 +210,15 @@ impl<'de> Deserialize<'de> for SortedWritesTable {
             pending_state: Arc<PendingState>,
 
             to_rebuild: Vec<ColumnId>,
-            rebuild_index: Index<ColumnIndex>,
-
+            //rebuild_index: Index<ColumnIndex>,
             subset_tracker: SubsetTracker,
         }
 
         let partial = Partial::deserialize(deserializer)?;
 
-        let shards: Vec<HashTable<TableEntry>> = partial
-            .shards
-            .iter()
-            .map(|entries| {
-                let mut table: HashTable<TableEntry> = HashTable::new();
-                entries.iter().for_each(|t| {
-                    table.insert_unique(t.hashcode as _, t.clone(), TableEntry::hashcode);
-                });
-                table
-            })
-            .collect();
-
-        let hash: ShardedHashTable<TableEntry> = ShardedHashTable {
-            shard_data: partial.shard_data,
-            shards,
-        };
-
-        Ok(SortedWritesTable {
+        let hash = ShardedHashTable::<TableEntry>::default();
+        let rebuild_index = Index::new(partial.to_rebuild.clone(), ColumnIndex::new());
+        let mut ret = SortedWritesTable {
             generation: partial.generation,
             data: partial.data,
             hash,
@@ -218,9 +229,11 @@ impl<'de> Deserialize<'de> for SortedWritesTable {
             pending_state: partial.pending_state,
             merge: Arc::new(|_, _, _, _| true),
             to_rebuild: partial.to_rebuild,
-            rebuild_index: partial.rebuild_index,
+            rebuild_index,
             subset_tracker: partial.subset_tracker,
-        })
+        };
+        ret.rebuild_hash();
+        Ok(ret)
     }
 }
 
@@ -229,21 +242,8 @@ impl Serialize for SortedWritesTable {
     where
         S: Serializer,
     {
-        let serialized_shards: Vec<Vec<TableEntry>> = self
-            .hash
-            .shards
-            .iter()
-            .map(|shard| {
-                let mut v: Vec<_> = shard.iter().cloned().collect();
-                v.sort_by_key(|entry| entry.hashcode);
-                v
-            })
-            .collect();
-
         let mut state = serializer.serialize_struct("SortedWritesTable", 11)?;
         state.serialize_field("generation", &self.generation)?;
-        state.serialize_field("shard_data", &self.hash.shard_data())?;
-        state.serialize_field("shards", &serialized_shards)?;
         state.serialize_field("data", &self.data)?;
         state.serialize_field("n_keys", &self.n_keys)?;
         state.serialize_field("n_columns", &self.n_columns)?;
@@ -251,7 +251,6 @@ impl Serialize for SortedWritesTable {
         state.serialize_field("offsets", &self.offsets)?;
         state.serialize_field("pending_state", &self.pending_state)?;
         state.serialize_field("to_rebuild", &self.to_rebuild)?;
-        state.serialize_field("rebuild_index", &self.rebuild_index)?;
         state.serialize_field("subset_tracker", &self.subset_tracker)?;
 
         state.end()
@@ -621,6 +620,10 @@ impl Table for SortedWritesTable {
             &self.data.get_row(row).unwrap()[0..self.n_keys] == key
         })?;
         Some(self.data.get_row(id).unwrap()[col.index()])
+    }
+
+    fn stabilize(&mut self) {
+        self.rehash();
     }
 }
 
@@ -1312,6 +1315,25 @@ impl SortedWritesTable {
             &mut self.offsets,
             &mut self.hash,
         )
+    }
+
+    fn rebuild_hash_impl(n_keys: usize, rows: &mut Rows, hash: &mut ShardedHashTable<TableEntry>) {
+        for (id, r) in rows.data.iter().enumerate() {
+            let (shard, hc) = hash_code(hash.shard_data(), r, n_keys);
+            hash.mut_shards()[shard.index()].insert_unique(
+                hc as _,
+                TableEntry {
+                    hashcode: hc as _,
+                    row: RowId { rep: id as u32 },
+                },
+                TableEntry::hashcode,
+            );
+        }
+    }
+
+    fn rebuild_hash(&mut self) {
+        self.generation = self.generation.inc();
+        Self::rebuild_hash_impl(self.n_keys, &mut self.data, &mut self.hash)
     }
 }
 

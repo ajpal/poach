@@ -27,8 +27,7 @@ use crate::{
     offsets::{RowId, Subset, SubsetRef},
     pool::{with_pool_set, PoolSet, Pooled},
     row_buffer::{RowBuffer, TaggedRowBuffer},
-    DisplacedTable, DisplacedTableWithProvenance,
-    QueryEntry, TableId, Variable,
+    DisplacedTable, DisplacedTableWithProvenance, QueryEntry, TableId, Variable,
 };
 
 define_id!(pub ColumnId, u32, "a particular column in a table");
@@ -345,6 +344,9 @@ pub trait Table: Any + Send + Sync {
     /// MutationBuffer that is then dropped may not take effect until the next call to
     /// [`Table::merge`].
     fn new_buffer(&self) -> Box<dyn MutationBuffer>;
+
+    /// Flush all stale data structures and prepare for serialization
+    fn stabilize(&mut self) {}
 }
 
 /// A trait specifying a buffer of pending mutations for a [`Table`].
@@ -553,7 +555,9 @@ impl<'de> Deserialize<'de> for WrappedTable {
         } else if inner.as_any().is::<DisplacedTableWithProvenance>() {
             wrapper::<DisplacedTableWithProvenance>()
         } else {
-            return Err(serde::de::Error::custom("unknown table type for WrappedTable"));
+            return Err(serde::de::Error::custom(
+                "unknown table type for WrappedTable",
+            ));
         };
 
         Ok(WrappedTable { inner, wrapper })
@@ -662,6 +666,10 @@ impl WrappedTable {
     ) {
         self.as_ref()
             .lookup_with_default_vectorized(mask, bindings, args, col, default, out_var)
+    }
+
+    pub fn stabilize(&mut self) {
+        self.inner.stabilize();
     }
 }
 

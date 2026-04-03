@@ -318,7 +318,7 @@ impl EGraph {
             }
             NCommand::MultiExtract(span, variants, exprs) => {
                 let res_exprs = exprs
-                    .into_iter()
+                    .iter()
                     .map(|expr| {
                         self.type_info
                             .typecheck_expr(symbol_gen, expr, &Default::default())

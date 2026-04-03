@@ -1176,6 +1176,10 @@ impl EGraph {
     pub fn set_report_level(&mut self, level: ReportLevel) {
         self.report_level = level;
     }
+
+    pub fn stabilize(&mut self) {
+        self.db.stabilize();
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]

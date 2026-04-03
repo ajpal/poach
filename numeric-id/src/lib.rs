@@ -438,7 +438,8 @@ macro_rules! define_id {
         #[derive(Copy, Clone, Default)]
         #[doc = $doc]
         $v struct $name {
-            rep: $repr,
+            // visibility hack for serialization
+            pub rep: $repr,
         }
 
         impl serde::Serialize for $name {

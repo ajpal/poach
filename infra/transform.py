@@ -1,4 +1,5 @@
 import json
+import pandas
 import os
 from pathlib import Path
 
@@ -111,3 +112,18 @@ class TimelineAggregator:
     def save(self):
         os.makedirs(self.output_dir, exist_ok=True)
         save_json(self.data_path, self.aggregated)
+
+class CSVAggregator:
+    def __init__(self, output_dir):
+        self.output_dir = Path(output_dir)
+        self.data_path = self.output_dir / "data.csv"
+        self.records = []
+
+    def add_file(self, input_file):
+        df = pandas.read_csv(input_file)
+        self.records.append(df)
+
+    def save(self):
+        os.makedirs(self.output_dir, exist_ok=True)
+        combined = pandas.concat(self.records)
+        combined.to_csv(self.data_path, index=False)

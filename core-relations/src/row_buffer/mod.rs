@@ -6,7 +6,7 @@ use std::{cell::Cell, mem, ops::Deref};
 use crate::numeric_id::NumericId;
 use egglog_concurrency::ParallelVecWriter;
 use rayon::iter::ParallelIterator;
-use serde::{ser::SerializeStruct, Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use smallvec::SmallVec;
 
 use crate::{
@@ -35,21 +35,79 @@ impl<'de> Deserialize<'de> for RowBuffer {
     where
         D: Deserializer<'de>,
     {
-        #[derive(Deserialize)]
-        struct Partial {
-            n_columns: usize,
-            total_rows: usize,
-            data: Vec<Cell<Value>>,
+        struct RowBufferVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for RowBufferVisitor {
+            type Value = RowBuffer;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("Expecting a byte array")
+            }
+
+            fn visit_bytes<E>(self, bytes: &[u8]) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                let mut it = bytes.iter();
+                let n_columns = deserialize_compressed(&mut it);
+                let total_rows = deserialize_compressed(&mut it);
+                let mut data = <Vec<Cell<Value>>>::new();
+                for _i in 0..n_columns * total_rows {
+                    data.push(Cell::new(Value::new(deserialize_compressed(&mut it))));
+                }
+                Ok(RowBuffer {
+                    n_columns: n_columns.try_into().unwrap(),
+                    total_rows: total_rows.try_into().unwrap(),
+                    data: Pooled::new(data),
+                })
+            }
         }
 
-        let helper = Partial::deserialize(deserializer)?;
-
-        Ok(RowBuffer {
-            n_columns: helper.n_columns,
-            total_rows: helper.total_rows,
-            data: Pooled::new(helper.data),
-        })
+        deserializer.deserialize_bytes(RowBufferVisitor)
     }
+}
+
+/// Serialize an u32
+/// The highest bit of each byte represents whether this is the last byte (0 = no; 1 = yes).
+/// The lower seven bits encodes seven bits from the number.
+/// This encoding uses fewer than 4 bytes if the number is small as shown in the following function.
+/// ```
+/// fn get_n_compressed_bytes(x: u32) -> usize {
+///     if x < (1u32 << 7) {
+///         1
+///     } else if x < (1u32 << 14) {
+///         2
+///     } else if x < (1u32 << 21) {
+///         3
+///     } else if x < (1u32 << 28) {
+///         4
+///     } else {
+///         5
+///     }
+/// }
+/// ```
+/// In practice, small number usually out-proportions large numbers, so this encoding saves space.
+
+fn compressed_serialize(buf: &mut Vec<u8>, x: u32) {
+    let mut rem = x;
+    while rem >= (1u32 << 7) {
+        buf.push((rem & ((1u32 << 7) - 1)).try_into().unwrap());
+        rem = rem >> 7;
+    }
+    buf.push((rem | (1u32 << 7)).try_into().unwrap());
+}
+
+fn deserialize_compressed<'a, T: Iterator<Item = &'a u8>>(it: &mut T) -> u32 {
+    let mut ret = 0u32;
+    let mut delta = 0u32;
+    let mut val: u32 = <u8>::into(*it.next().unwrap());
+    while val < (1u32 << 7) {
+        ret = ret | (val << delta);
+        delta += 7;
+        val = <u8>::into(*it.next().unwrap());
+    }
+    let last = (val ^ (1u32 << 7)) << delta;
+    ret | last
 }
 
 impl Serialize for RowBuffer {
@@ -57,11 +115,13 @@ impl Serialize for RowBuffer {
     where
         S: serde::Serializer,
     {
-        let mut state = serializer.serialize_struct("RowBuffer", 3)?;
-        state.serialize_field("n_columns", &self.n_columns)?;
-        state.serialize_field("total_rows", &self.total_rows)?;
-        state.serialize_field("data", &*self.data)?;
-        state.end()
+        let mut buf = Vec::new();
+        compressed_serialize(&mut buf, self.n_columns.try_into().unwrap());
+        compressed_serialize(&mut buf, self.total_rows.try_into().unwrap());
+        for r in self.data.iter() {
+            compressed_serialize(&mut buf, r.get().rep);
+        }
+        serializer.serialize_bytes(&buf)
     }
 }
 
