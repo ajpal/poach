@@ -572,6 +572,7 @@ dependencies = [
  "egglog-reports",
  "egglog-union-find",
  "fixedbitset",
+ "flexbuffers",
  "hashbrown 0.16.0",
  "indexmap",
  "log",
