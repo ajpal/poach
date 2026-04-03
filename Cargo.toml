@@ -108,6 +108,7 @@ harness = false
 
 [[test]]
 name = "files"
+path = "tests/passing/files.rs"
 harness = false
 required-features = ["bin"]
 

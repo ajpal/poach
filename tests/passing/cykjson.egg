@@ -28,14 +28,14 @@
        (NT a f1 f2))))
 
 
-(input Prod "./tests/cykjson_Prod.csv")
-(input End "./tests/cykjson_End.csv")
+(input Prod "./tests/passing/cykjson_Prod.csv")
+(input End "./tests/passing/cykjson_End.csv")
 
 ; small size 801
-(input getString "./tests/cykjson_small_token.csv")
+(input getString "./tests/passing/cykjson_small_token.csv")
 
 ; medium size 7821 but runs for 2 min.
-;(input getString "./tests/cykjson_medium_token.csv")
+;(input getString "./tests/passing/cykjson_medium_token.csv")
 
 (run 10000)
 
