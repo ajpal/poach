@@ -9,7 +9,6 @@ use crate::numeric_id::{define_id, DenseIdMap, IdVec, NumericId};
 use egglog_concurrency::ConcurrentVec;
 use rustc_hash::FxHasher;
 use serde::{ser::SerializeStruct, Deserialize, Deserializer, Serialize};
-use serde_json::{from_value, to_value};
 
 use crate::{pool::Clear, Subset, TableId, TableVersion, WrappedTable};
 
@@ -46,7 +45,15 @@ where
         let mut s = serializer.serialize_struct("InternTable", 3)?;
         s.serialize_field("vals", &self.vals)?;
 
-        let mut serializable_data: Vec<Vec<(serde_json::Value, serde_json::Value)>> = Vec::new();
+        fn to_flexbuffer_bytes<T: Serialize>(
+            value: &T,
+        ) -> Result<Vec<u8>, flexbuffers::SerializationError> {
+            let mut serializer = flexbuffers::FlexbufferSerializer::new();
+            value.serialize(&mut serializer)?;
+            Ok(Vec::from(serializer.view()))
+        }
+
+        let mut serializable_data: Vec<Vec<(Vec<u8>, Vec<u8>)>> = Vec::new();
         for shard in &self.data {
             let shard = shard
                 .lock()
@@ -54,13 +61,13 @@ where
             let mut inner = Vec::new();
             for (k, v) in shard.iter() {
                 inner.push((
-                    to_value(k).map_err(serde::ser::Error::custom)?,
-                    to_value(v).map_err(serde::ser::Error::custom)?,
+                    to_flexbuffer_bytes(k).map_err(serde::ser::Error::custom)?,
+                    to_flexbuffer_bytes(v).map_err(serde::ser::Error::custom)?,
                 ));
             }
 
             // Sort by the serialized key to guarantee deterministic order
-            inner.sort_by(|(k1, _), (k2, _)| k1.to_string().cmp(&k2.to_string()));
+            inner.sort_by(|(k1, _), (k2, _)| k1.cmp(k2));
 
             serializable_data.push(inner)
         }
@@ -80,11 +87,19 @@ where
     where
         D: Deserializer<'de>,
     {
+        fn from_flexbuffer_bytes<T>(bytes: &[u8]) -> Result<T, Box<dyn std::error::Error>>
+        where
+            T: for<'a> Deserialize<'a>,
+        {
+            let reader = flexbuffers::Reader::get_root(bytes)?;
+            T::deserialize(reader).map_err(Box::<dyn std::error::Error>::from)
+        }
+
         // Helper struct matching the serialized shape
         #[derive(Deserialize)]
         struct Partial<K> {
             vals: Arc<ConcurrentVec<K>>,
-            data: Vec<Vec<(serde_json::Value, serde_json::Value)>>,
+            data: Vec<Vec<(Vec<u8>, Vec<u8>)>>,
             shards_log2: u32,
         }
 
@@ -96,9 +111,9 @@ where
             .into_iter()
             .map(|shard_vec| {
                 let mut map = hashbrown::HashMap::new();
-                for (k_val, v_val) in shard_vec {
-                    let k: K = from_value(k_val).unwrap();
-                    let v: V = from_value(v_val).unwrap();
+                for (k_bytes, v_bytes) in shard_vec {
+                    let k: K = from_flexbuffer_bytes(&k_bytes).unwrap();
+                    let v: V = from_flexbuffer_bytes(&v_bytes).unwrap();
                     map.insert(k, v);
                 }
                 Arc::new(Mutex::new(map))
