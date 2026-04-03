@@ -83,6 +83,7 @@ impl Debug for BaseValuePrinter<'_> {
 pub struct BaseValues {
     type_ids: HashMap<TypeId, BaseValueId>,
     tables: DenseIdMap<BaseValueId, Box<dyn DynamicInternTable>>,
+    pending_tables: HashMap<String, (BaseValueId, Vec<u8>)>,
 }
 
 impl<'de> Deserialize<'de> for BaseValues {
@@ -99,14 +100,31 @@ impl<'de> Deserialize<'de> for BaseValues {
 
         let mut tables = DenseIdMap::default();
         let mut type_ids = HashMap::new();
+        let mut pending_tables = HashMap::new();
         for (id, value) in partial.tables {
-            let table = deserialize_dyn(value).map_err(de::Error::custom)?;
-            let type_id = table.get_type_id();
-            type_ids.insert(type_id, id);
-            tables.insert(id, table);
+            match deserialize_dyn(value) {
+                Ok(DeserializeDynOutcome::Ready(table)) => {
+                    let type_id = table.get_type_id();
+                    type_ids.insert(type_id, id);
+                    tables.insert(id, table);
+                }
+                Ok(DeserializeDynOutcome::Pending {
+                    base_value_type,
+                    table_bytes,
+                }) => {
+                    pending_tables.insert(base_value_type, (id, table_bytes));
+                }
+                Err(err) => {
+                    return Err(de::Error::custom(err));
+                }
+            }
         }
 
-        Ok(BaseValues { type_ids, tables })
+        Ok(BaseValues {
+            type_ids,
+            tables,
+            pending_tables,
+        })
     }
 }
 
@@ -121,6 +139,15 @@ impl Serialize for BaseValues {
         for (id, table) in self.tables.iter() {
             let serialized_table = table.serialize_dyn().map_err(serde::ser::Error::custom)?;
             table_entries.push((id, serialized_table));
+        }
+        for (base_value_type, (id, table_bytes)) in &self.pending_tables {
+            table_entries.push((
+                *id,
+                BaseInternTableErased {
+                    table_bytes: table_bytes.clone(),
+                    base_value_type: base_value_type.clone(),
+                },
+            ));
         }
 
         state.serialize_field("tables", &table_entries)?;
@@ -138,6 +165,18 @@ impl BaseValues {
     /// Register the given type `P` as a base value type in this registry.
     pub fn register_type<P: BaseValue>(&mut self) -> BaseValueId {
         let type_id = TypeId::of::<P>();
+        if let Some(id) = self.type_ids.get(&type_id) {
+            return *id;
+        }
+        if let Some((id, table_bytes)) = self.pending_tables.remove(&P::type_id_string()) {
+            let reader = flexbuffers::Reader::get_root(table_bytes.as_slice())
+                .expect("pending base value table was not valid flexbuffers");
+            let table: InternTable<P, Value> = InternTable::deserialize(reader)
+                .expect("pending base value table did not match registered type");
+            self.tables.insert(id, Box::new(BaseInternTable { table }));
+            self.type_ids.insert(type_id, id);
+            return id;
+        }
         let next_id = BaseValueId::from_usize(self.type_ids.len());
         let id = *self.type_ids.entry(type_id).or_insert(next_id);
         self.tables
@@ -415,26 +454,32 @@ impl<T: std::ops::BitXor<Output = T>> std::ops::BitXor for Boxed<T> {
 
 fn deserialize_dyn(
     erased: BaseInternTableErased,
-) -> Result<Box<dyn DynamicInternTable>, Box<dyn std::error::Error>> {
+) -> Result<DeserializeDynOutcome, Box<dyn std::error::Error>> {
     fn parse_table<P: BaseValue>(
-        bytes: &[u8],
+        table_bytes: &[u8],
     ) -> Result<InternTable<P, Value>, Box<dyn std::error::Error>> {
-        let reader = flexbuffers::Reader::get_root(bytes)?;
-        InternTable::<P, Value>::deserialize(reader).map_err(Box::<dyn std::error::Error>::from)
+        let reader = flexbuffers::Reader::get_root(table_bytes)?;
+        InternTable::deserialize(reader).map_err(Box::<dyn std::error::Error>::from)
     }
 
     match erased.base_value_type.as_str() {
         "Unit" => {
             let table: InternTable<(), Value> = parse_table(&erased.table_bytes)?;
-            Ok(Box::new(BaseInternTable { table }))
+            Ok(DeserializeDynOutcome::Ready(Box::new(BaseInternTable {
+                table,
+            })))
         }
         "Bool" => {
             let table: InternTable<bool, Value> = parse_table(&erased.table_bytes)?;
-            Ok(Box::new(BaseInternTable { table }))
+            Ok(DeserializeDynOutcome::Ready(Box::new(BaseInternTable {
+                table,
+            })))
         }
         "String" => {
             let table: InternTable<String, Value> = parse_table(&erased.table_bytes)?;
-            Ok(Box::new(BaseInternTable { table }))
+            Ok(DeserializeDynOutcome::Ready(Box::new(BaseInternTable {
+                table,
+            })))
         }
         "StaticStr" => {
             panic!("can't deserialize static strings")
@@ -443,68 +488,109 @@ fn deserialize_dyn(
         }
         "Rational64" => {
             let table: InternTable<Rational64, Value> = parse_table(&erased.table_bytes)?;
-            Ok(Box::new(BaseInternTable { table }))
+            Ok(DeserializeDynOutcome::Ready(Box::new(BaseInternTable {
+                table,
+            })))
         }
         "u8" => {
             let table: InternTable<u8, Value> = parse_table(&erased.table_bytes)?;
-            Ok(Box::new(BaseInternTable { table }))
+            Ok(DeserializeDynOutcome::Ready(Box::new(BaseInternTable {
+                table,
+            })))
         }
         "u16" => {
             let table: InternTable<u16, Value> = parse_table(&erased.table_bytes)?;
-            Ok(Box::new(BaseInternTable { table }))
+            Ok(DeserializeDynOutcome::Ready(Box::new(BaseInternTable {
+                table,
+            })))
         }
         "u32" => {
             let table: InternTable<u32, Value> = parse_table(&erased.table_bytes)?;
-            Ok(Box::new(BaseInternTable { table }))
+            Ok(DeserializeDynOutcome::Ready(Box::new(BaseInternTable {
+                table,
+            })))
         }
         "u64" => {
             let table: InternTable<u64, Value> = parse_table(&erased.table_bytes)?;
-            Ok(Box::new(BaseInternTable { table }))
+            Ok(DeserializeDynOutcome::Ready(Box::new(BaseInternTable {
+                table,
+            })))
         }
         "usize" => {
             let table: InternTable<usize, Value> = parse_table(&erased.table_bytes)?;
-            Ok(Box::new(BaseInternTable { table }))
+            Ok(DeserializeDynOutcome::Ready(Box::new(BaseInternTable {
+                table,
+            })))
         }
         "i8" => {
             let table: InternTable<i8, Value> = parse_table(&erased.table_bytes)?;
-            Ok(Box::new(BaseInternTable { table }))
+            Ok(DeserializeDynOutcome::Ready(Box::new(BaseInternTable {
+                table,
+            })))
         }
         "i16" => {
             let table: InternTable<i16, Value> = parse_table(&erased.table_bytes)?;
-            Ok(Box::new(BaseInternTable { table }))
+            Ok(DeserializeDynOutcome::Ready(Box::new(BaseInternTable {
+                table,
+            })))
         }
         "i32" => {
             let table: InternTable<i32, Value> = parse_table(&erased.table_bytes)?;
-            Ok(Box::new(BaseInternTable { table }))
+            Ok(DeserializeDynOutcome::Ready(Box::new(BaseInternTable {
+                table,
+            })))
         }
         "i64" => {
             let table: InternTable<i64, Value> = parse_table(&erased.table_bytes)?;
-            Ok(Box::new(BaseInternTable { table }))
+            Ok(DeserializeDynOutcome::Ready(Box::new(BaseInternTable {
+                table,
+            })))
         }
         "isize" => {
             let table: InternTable<isize, Value> = parse_table(&erased.table_bytes)?;
-            Ok(Box::new(BaseInternTable { table }))
+            Ok(DeserializeDynOutcome::Ready(Box::new(BaseInternTable {
+                table,
+            })))
         }
 
         "Boxed<alloc::string::String>" => {
             let table: InternTable<Boxed<String>, Value> = parse_table(&erased.table_bytes)?;
-            Ok(Box::new(BaseInternTable { table }))
+            Ok(DeserializeDynOutcome::Ready(Box::new(BaseInternTable {
+                table,
+            })))
         }
         "Boxed<ordered_float::OrderedFloat<f64>>" => {
             let table: InternTable<Boxed<ordered_float::OrderedFloat<f64>>, Value> =
                 parse_table(&erased.table_bytes)?;
-            Ok(Box::new(BaseInternTable { table }))
+            Ok(DeserializeDynOutcome::Ready(Box::new(BaseInternTable {
+                table,
+            })))
         }
         "Boxed<num_bigint::bigint::BigInt>" => {
             let table: InternTable<Boxed<BigInt>, Value> = parse_table(&erased.table_bytes)?;
-            Ok(Box::new(BaseInternTable { table }))
+            Ok(DeserializeDynOutcome::Ready(Box::new(BaseInternTable {
+                table,
+            })))
         }
 
         "Boxed<num_rational::Ratio<num_bigint::bigint::BigInt>>" => {
             let table: InternTable<Boxed<Ratio<BigInt>>, Value> = parse_table(&erased.table_bytes)?;
-            Ok(Box::new(BaseInternTable { table }))
+            Ok(DeserializeDynOutcome::Ready(Box::new(BaseInternTable {
+                table,
+            })))
         }
 
-        _ => Err(format!("Unknown BaseValue type: {}", erased.base_value_type).into()),
+        _ => Ok(DeserializeDynOutcome::Pending {
+            base_value_type: erased.base_value_type,
+            table_bytes: erased.table_bytes,
+        }),
     }
+}
+
+enum DeserializeDynOutcome {
+    Ready(Box<dyn DynamicInternTable>),
+    Pending {
+        base_value_type: String,
+        table_bytes: Vec<u8>,
+    },
 }
