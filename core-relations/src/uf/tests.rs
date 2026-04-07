@@ -1,4 +1,6 @@
 use crate::numeric_id::NumericId;
+use flexbuffers::FlexbufferSerializer;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     common::Value,
@@ -97,4 +99,33 @@ fn displaced_proof() {
             },
         ]
     )
+}
+
+#[test]
+fn displaced_roundtrip_rebuilds_runtime_state() {
+    empty_execution_state!(e);
+    let mut d = DisplacedTable::default();
+    {
+        let mut buf = d.new_buffer();
+        buf.stage_insert(&[v(0), v(1), v(0)]);
+        buf.stage_insert(&[v(2), v(3), v(1)]);
+        buf.stage_insert(&[v(1), v(3), v(2)]);
+    }
+    d.merge(&mut e);
+
+    let mut serializer = FlexbufferSerializer::new();
+    d.serialize(&mut serializer).unwrap();
+    let reader = flexbuffers::Reader::get_root(serializer.view()).unwrap();
+    let restored = DisplacedTable::deserialize(reader).unwrap();
+
+    let mut rows = Vec::new();
+    restored.scan_generic(restored.all().as_ref(), |_, row| rows.push(row.to_vec()));
+    assert_eq!(
+        rows,
+        vec![
+            vec![v(1), v(0), v(0)],
+            vec![v(3), v(0), v(1)],
+            vec![v(2), v(0), v(2)],
+        ]
+    );
 }

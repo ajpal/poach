@@ -10,7 +10,7 @@ use crate::numeric_id::{DenseIdMap, NumericId};
 use crossbeam_queue::SegQueue;
 use indexmap::IndexMap;
 use petgraph::{algo::dijkstra, graph::NodeIndex, visit::EdgeRef, Direction, Graph};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{
     action::ExecutionState,
@@ -54,25 +54,61 @@ type UnionFind = crate::union_find::UnionFind<Value>;
 /// `ts` is the current timestamp. Note that all tie-breaks and other encoding
 /// decisions are made internally, so there may not literally be a row added
 /// with this value.
-#[derive(Serialize, Deserialize)]
 pub struct DisplacedTable {
-    #[serde(skip)]
     uf: UnionFind, // should be canonicalized by serialization time
     // serializable as an array of integers
     // the only IDs are leaders (because it's been canonicalized)
     // k columns, k-1 are args, kth is the ID
     // enode is the row index
     // on deserialize: need to recompute this from `displaced`
-    #[serde(skip)]
     displaced: Vec<(Value, Value)>, // this is "the table" everything else can be recomputed from this
     // can even recanonicalize on serialization to get rid of dead things
-    #[serde(skip)]
     changed: bool,
-    #[serde(skip)]
     lookup_table: HashMap<Value, RowId>,
-    #[serde(skip)]
     buffered_writes: Arc<SegQueue<RowBuffer>>, // should be empty by the time we serialize
                                                // deserialize can just make an empty one
+}
+
+impl Serialize for DisplacedTable {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        #[derive(Serialize)]
+        struct Partial {
+            rows: Vec<[Value; 3]>,
+        }
+
+        let rows = self
+            .displaced
+            .iter()
+            .map(|(child, ts)| [*child, self.uf.find_naive(*child), *ts])
+            .collect();
+
+        Partial { rows }.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for DisplacedTable {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Partial {
+            rows: Vec<[Value; 3]>,
+        }
+
+        let partial = Partial::deserialize(deserializer)?;
+        let mut table = DisplacedTable::default();
+        for row in partial.rows {
+            table
+                .insert_impl(&row)
+                .expect("serialized displaced rows should reconstruct the table");
+        }
+        table.changed = false;
+        Ok(table)
+    }
 }
 
 struct Canonicalizer<'a> {

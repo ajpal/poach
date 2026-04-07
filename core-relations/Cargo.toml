@@ -16,7 +16,7 @@ egglog-numeric-id = { workspace = true }
 egglog-union-find = { workspace = true }
 egglog-reports = { workspace = true }
 hashbrown = { workspace = true }
-indexmap = { workspace = true }
+indexmap = { workspace = true, features = ["serde"] }
 rustc-hash = { workspace = true }
 fixedbitset = { workspace = true }
 smallvec = { workspace = true }
@@ -37,7 +37,7 @@ once_cell = { workspace = true }
 serde = { workspace = true }
 typetag = { workspace = true }
 serde_json = { workspace = true }
-ordered-float = { workspace = true }
+ordered-float = { workspace = true, features = ["serde"] }
 num-bigint = { workspace = true }
 flexbuffers.workspace = true
 
