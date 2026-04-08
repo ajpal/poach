@@ -470,6 +470,11 @@ fn poach(
                     .collect::<Vec<_>>()
                     .join("\n");
 
+                if extracts.trim().is_empty() {
+                    timed_egraph.write_timeline(&out_dir.join(format!("{name}-timeline.json")))?;
+                    return Ok(());
+                }
+
                 let extract_cmds = timed_egraph
                     .egraphs
                     .last_mut()
