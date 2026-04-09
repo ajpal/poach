@@ -1,6 +1,6 @@
-use poach::EGraph;
+use poach::{EGraph};
 
-use std::{fs::File, path::PathBuf};
+use std::{fs::File, path::PathBuf, process::exit};
 
 use clap::{Args, Parser, Subcommand};
 
@@ -128,36 +128,43 @@ fn serve(arg: ServeArgs) {
         None => {
             let mut egraph = EGraph::default();
 
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(1)
-            .build_global()
-            .unwrap();
-        egraph.repl(poach::RunMode::Normal);
-/*        
-    } else {
-        for input in &args.inputs {
-            let program = std::fs::read_to_string(input).unwrap_or_else(|_| {
-                let arg = input.to_string_lossy();
-                panic!("Failed to read file {arg}")
-            });
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(1)
+                .build_global()
+                .unwrap();
 
-            match run_commands(
-                &mut egraph,
-                Some(input.to_str().unwrap().into()),
-                &program,
-                io::stdout(),
-                args.mode,
-            ) {
-                Ok(None) => {}
-                _ => std::process::exit(1),
+            match egraph.repl(poach::RunMode::Normal) {
+                Ok(_) => {}
+                _ => {
+                    exit(-1);
+                }
             }
-*/
         }
         Some(cmd) => {
             match cmd {
-                ServeCommands::Single{input_file: _} => {
-                    //TODO
-                    panic!("Single not implemented");
+                ServeCommands::Single{input_file: input} => {
+                    let mut egraph = EGraph::default();
+
+                    rayon::ThreadPoolBuilder::new()
+                        .num_threads(1)
+                        .build_global()
+                        .unwrap();
+
+                    let program = std::fs::read_to_string(input.as_path()).unwrap_or_else(|_| {
+                        let arg = input.to_string_lossy();
+                        panic!("Failed to read file {arg}")
+                    });
+
+                    match egraph.parse_and_run_program(Some(input.to_str().unwrap().into()), &program) {
+                        Ok(msgs) => {
+                            for msg in msgs {
+                                print!("{msg}");
+                            }
+                        }
+                        _ => {
+                            exit(-1);
+                        }
+                    }
                 }
                 ServeCommands::Batch{input_dir:_, output_dir:_} => {
                     //TODO
