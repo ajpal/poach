@@ -29,8 +29,8 @@ struct TrainArgs {
     #[arg(short, long)]
     debug: bool,
 
-    /// Requires a directory
-    training_set_dir: PathBuf,
+    /// Requires a directory or a file
+    training_set: PathBuf,
 
     /// Requires a file
     output_model_file: PathBuf,
