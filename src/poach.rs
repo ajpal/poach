@@ -1,4 +1,4 @@
-use poach::EGraph;
+use poach::{EGraph};
 
 use std::{fs::File, path::PathBuf, process::exit};
 
@@ -155,6 +155,9 @@ fn serve(arg: ServeArgs) {
                         panic!("Failed to read file {arg}")
                     });
 
+                    match egraph
+                        .parse_and_run_program(Some(input.to_str().unwrap().into()), &program)
+                    {
                     match egraph
                         .parse_and_run_program(Some(input.to_str().unwrap().into()), &program)
                     {
