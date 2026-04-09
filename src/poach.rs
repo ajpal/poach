@@ -1,7 +1,8 @@
-use std::path::PathBuf;
+use poach::EGraph;
+
+use std::{fs::File, path::PathBuf};
 
 use clap::{Args, Parser, Subcommand};
-
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
@@ -106,23 +107,67 @@ pub fn poach () {
             fine_tune(arg);
         }
         Commands::Test(arg) => {
-            println!("test({:?})", arg);
+            eprintln!("test({:?})", arg);
+            //TODO: run vanilla egglog tests
         }
     }
     // TODO handle report IO
 }
 
+/// VanillaEgglog's model is just unit
+/// Still, it would create an empty file
 fn train(arg : TrainArgs) {
-    println!("train({:?})", arg);
-    //TODO
+    let _ = File::create(arg.output_model_file.as_path());
 }
 
+/// VanillaEgglog
 fn serve(arg: ServeArgs) {
-    println!("serve({:?})", arg);
-    //TODO
+    match arg.serve_command {
+        None => {
+            let mut egraph = EGraph::default();
+
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build_global()
+            .unwrap();
+        egraph.repl(poach::RunMode::Normal);
+/*        
+    } else {
+        for input in &args.inputs {
+            let program = std::fs::read_to_string(input).unwrap_or_else(|_| {
+                let arg = input.to_string_lossy();
+                panic!("Failed to read file {arg}")
+            });
+
+            match run_commands(
+                &mut egraph,
+                Some(input.to_str().unwrap().into()),
+                &program,
+                io::stdout(),
+                args.mode,
+            ) {
+                Ok(None) => {}
+                _ => std::process::exit(1),
+            }
+*/
+        }
+        Some(cmd) => {
+            match cmd {
+                ServeCommands::Single{input_file: _} => {
+                    //TODO
+                    panic!("Single not implemented");
+                }
+                ServeCommands::Batch{input_dir:_, output_dir:_} => {
+                    //TODO
+                    panic!("Batch not implemented");
+                }
+            }
+        }
+    }
 }
 
+/// VanillaEgglog's model is just unit
+/// Still, it would create an empty file
 fn fine_tune(arg: FineTuneArgs) {
-    println!("fine_tune({:?})", arg);
-    //TODO
+    let _ = File::create(arg.output_model_file.as_path());
 }
