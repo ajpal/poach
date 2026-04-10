@@ -1,10 +1,16 @@
 use poach::EGraph;
 
-use std::{fs::File, path::PathBuf, process::exit};
+use std::{
+    fs::File,
+    io::{self, Write},
+    path::PathBuf,
+    process::exit,
+    time::Instant,
+};
 
 use clap::{Args, Parser, Subcommand};
 
-use crate::report::{RunReport, with_report};
+use crate::report::{MetricValue, RunReport, with_report};
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
@@ -121,7 +127,7 @@ fn train(arg: TrainArgs) -> RunReport {
 
 /// VanillaEgglog
 fn serve(arg: ServeArgs) -> RunReport {
-    let (_, report) = with_report("serve", |_reporter| match arg.serve_command {
+    let (_, report) = with_report("serve", |reporter| match arg.serve_command {
         None => {
             let mut egraph = EGraph::default();
 
@@ -139,28 +145,51 @@ fn serve(arg: ServeArgs) -> RunReport {
         }
         Some(cmd) => match cmd {
             ServeCommands::Single { input_file: input } => {
-                let mut egraph = EGraph::default();
+                let started_at = Instant::now();
 
-                rayon::ThreadPoolBuilder::new()
-                    .num_threads(1)
-                    .build_global()
-                    .unwrap();
-
-                let program = std::fs::read_to_string(input.as_path()).unwrap_or_else(|_| {
-                    let arg = input.to_string_lossy();
-                    panic!("Failed to read file {arg}")
+                let program = reporter.time("read_input", || {
+                    std::fs::read_to_string(input.as_path())
+                        .map_err(|_| format!("Failed to read file {}", input.display()))
                 });
-
-                match egraph.parse_and_run_program(Some(input.to_str().unwrap().into()), &program) {
-                    Ok(msgs) => {
-                        for msg in msgs {
-                            print!("{msg}");
-                        }
-                    }
-                    _ => {
+                let program = match program {
+                    Ok(program) => program,
+                    Err(err) => {
+                        eprintln!("{err}");
                         exit(-1);
                     }
-                }
+                };
+                reporter.record_size("input_bytes", MetricValue::Bytes(program.len() as u64));
+
+                let mut egraph = reporter.time("build_egraph", || {
+                    rayon::ThreadPoolBuilder::new()
+                        .num_threads(1)
+                        .build_global()
+                        .unwrap();
+                    EGraph::default()
+                });
+
+                let outputs = reporter.time("run_program", || {
+                    egraph.parse_and_run_program(Some(input.display().to_string()), &program)
+                });
+                let outputs = match outputs {
+                    Ok(outputs) => outputs,
+                    Err(err) => {
+                        eprintln!("{err}");
+                        exit(-1);
+                    }
+                };
+
+                reporter.record_size("command_outputs", MetricValue::Count(outputs.len() as u64));
+                reporter.record_size("egraph_tuples", MetricValue::Count(egraph.num_tuples() as u64));
+
+                reporter.time("print_outputs", || {
+                    let mut stdout = io::stdout();
+                    for output in outputs {
+                        write!(stdout, "{output}").expect("failed to write command output");
+                    }
+                });
+
+                reporter.record_timing("serve", started_at.elapsed());
             }
             ServeCommands::Batch {
                 input_dir: _,
