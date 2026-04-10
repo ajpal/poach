@@ -1,8 +1,10 @@
-use poach::{EGraph};
+use poach::EGraph;
 
 use std::{fs::File, path::PathBuf, process::exit};
 
 use clap::{Args, Parser, Subcommand};
+
+use crate::report::{RunReport, with_report};
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
@@ -62,13 +64,16 @@ enum ServeCommands {
     ///   reads a single .egg file
     ///   which means it is closed
     ///   prints output to stdout
-    Single {input_file: PathBuf},
+    Single { input_file: PathBuf },
     /// Batch input:
     ///   reads all .egg files in the input directory
     ///   writes outputs files to the output directory
     ///   the order of the input files should not matter
     ///   this means the model only needs to be loaded once for all
-    Batch {input_dir: PathBuf, output_dir: PathBuf},
+    Batch {
+        input_dir: PathBuf,
+        output_dir: PathBuf,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -91,38 +96,32 @@ struct FineTuneArgs {
 }
 
 #[derive(Debug, Args)]
-struct TestArgs{
-}
+struct TestArgs {}
 
-pub fn poach () {
+pub fn poach() {
     let cli = Cli::parse();
-    match cli.command {
-        Commands::Train(arg) => {
-            train(arg);
-        }
-        Commands::Serve(arg) => {
-            serve(arg);
-        }
-        Commands::FineTune(arg) => {
-            fine_tune(arg);
-        }
-        Commands::Test(arg) => {
-            eprintln!("test({:?})", arg);
-            //TODO: run vanilla egglog tests
-        }
-    }
-    // TODO handle report IO
+    let report = match cli.command {
+        Commands::Train(arg) => train(arg),
+        Commands::Serve(arg) => serve(arg),
+        Commands::FineTune(arg) => fine_tune(arg),
+        Commands::Test(_) => todo!("test not yet implemented"),
+    };
+
+    println!("{}", report);
 }
 
 /// VanillaEgglog's model is just unit
 /// Still, it would create an empty file
-fn train(arg : TrainArgs) {
-    let _ = File::create(arg.output_model_file.as_path());
+fn train(arg: TrainArgs) -> RunReport {
+    let (_, report) = with_report("train", |_reporter| {
+        let _ = File::create(arg.output_model_file.as_path());
+    });
+    report
 }
 
 /// VanillaEgglog
-fn serve(arg: ServeArgs) {
-    match arg.serve_command {
+fn serve(arg: ServeArgs) -> RunReport {
+    let (_, report) = with_report("serve", |_reporter| match arg.serve_command {
         None => {
             let mut egraph = EGraph::default();
 
@@ -138,43 +137,48 @@ fn serve(arg: ServeArgs) {
                 }
             }
         }
-        Some(cmd) => {
-            match cmd {
-                ServeCommands::Single{input_file: input} => {
-                    let mut egraph = EGraph::default();
+        Some(cmd) => match cmd {
+            ServeCommands::Single { input_file: input } => {
+                let mut egraph = EGraph::default();
 
-                    rayon::ThreadPoolBuilder::new()
-                        .num_threads(1)
-                        .build_global()
-                        .unwrap();
+                rayon::ThreadPoolBuilder::new()
+                    .num_threads(1)
+                    .build_global()
+                    .unwrap();
 
-                    let program = std::fs::read_to_string(input.as_path()).unwrap_or_else(|_| {
-                        let arg = input.to_string_lossy();
-                        panic!("Failed to read file {arg}")
-                    });
+                let program = std::fs::read_to_string(input.as_path()).unwrap_or_else(|_| {
+                    let arg = input.to_string_lossy();
+                    panic!("Failed to read file {arg}")
+                });
 
-                    match egraph.parse_and_run_program(Some(input.to_str().unwrap().into()), &program) {
-                        Ok(msgs) => {
-                            for msg in msgs {
-                                print!("{msg}");
-                            }
-                        }
-                        _ => {
-                            exit(-1);
+                match egraph.parse_and_run_program(Some(input.to_str().unwrap().into()), &program) {
+                    Ok(msgs) => {
+                        for msg in msgs {
+                            print!("{msg}");
                         }
                     }
-                }
-                ServeCommands::Batch{input_dir:_, output_dir:_} => {
-                    //TODO
-                    panic!("Batch not implemented");
+                    _ => {
+                        exit(-1);
+                    }
                 }
             }
-        }
-    }
+            ServeCommands::Batch {
+                input_dir: _,
+                output_dir: _,
+            } => {
+                //TODO
+                panic!("Batch not implemented");
+            }
+        },
+    });
+    report
 }
 
 /// VanillaEgglog's model is just unit
 /// Still, it would create an empty file
-fn fine_tune(arg: FineTuneArgs) {
-    let _ = File::create(arg.output_model_file.as_path());
+fn fine_tune(arg: FineTuneArgs) -> RunReport {
+    let (_, report) = with_report("fine_tune", |_reporter| {
+        let _ = File::create(arg.output_model_file.as_path());
+    });
+    report
 }
