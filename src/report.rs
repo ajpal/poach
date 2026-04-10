@@ -2,6 +2,7 @@ use std::fmt::{self, Display, Formatter};
 use std::time::{Duration, Instant};
 
 use hashbrown::HashMap;
+use serde::Serialize;
 use tracing_subscriber::Registry;
 
 #[derive(Default)]
@@ -16,25 +17,36 @@ struct SpanStats {
     total: Duration,
 }
 
+#[derive(Serialize)]
 pub struct RunReport {
     command: String,
     timing: TimingReport,
     sizes: Vec<SizeMetric>,
 }
 
+#[derive(Serialize)]
 pub struct TimingReport {
+    #[serde(with = "serde_millis")]
     total: Duration,
     // Each entry is (step name, invocation count, elapsed time).
-    steps: Vec<(String, u64, Duration)>,
+    steps: Vec<TimingStep>,
 }
 
-#[derive(Clone)]
+#[derive(Serialize)]
+struct TimingStep {
+    name: String,
+    count: u64,
+    #[serde(with = "serde_millis")]
+    total: Duration,
+}
+
+#[derive(Clone, Serialize)]
 pub struct SizeMetric {
     name: String,
     value: MetricValue,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
 pub enum MetricValue {
     Count(u64),
     Bytes(u64),
@@ -75,9 +87,13 @@ impl Reporter {
             .spans
             .iter()
             .filter(|(name, _)| name.as_str() != "command")
-            .map(|(name, stats)| (name.clone(), stats.count, stats.total))
+            .map(|(name, stats)| TimingStep {
+                name: name.clone(),
+                count: stats.count,
+                total: stats.total,
+            })
             .collect();
-        steps.sort_by(|left, right| right.2.cmp(&left.2));
+        steps.sort_by(|left, right| right.total.cmp(&left.total));
 
         RunReport {
             command: command.into(),
@@ -119,26 +135,26 @@ impl Display for RunReport {
 impl Display for TimingReport {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         writeln!(f, "timing:")?;
-        writeln!(f, "  total: {}", round(self.total))?;
+        writeln!(f, "  total: {}", self.total.as_secs_f64())?;
         if self.steps.is_empty() {
             writeln!(f, "  steps: none recorded")?;
             return Ok(());
         }
 
         writeln!(f, "  breakdown:")?;
-        for (name, count, total) in &self.steps {
-            let avg = if *count == 0 {
+        for step in &self.steps {
+            let avg = if step.count == 0 {
                 Duration::default()
             } else {
-                Duration::from_secs_f64(total.as_secs_f64() / *count as f64)
+                Duration::from_secs_f64(step.total.as_secs_f64() / step.count as f64)
             };
             writeln!(
                 f,
                 "    {}: total={}, count={}, avg={}",
-                name,
-                round(*total),
-                count,
-                round(avg),
+                step.name,
+                step.total.as_secs_f64(),
+                step.count,
+                avg.as_secs_f64(),
             )?;
         }
         Ok(())
@@ -174,8 +190,4 @@ impl Display for MetricValue {
             MetricValue::Bytes(value) => write!(f, "{} bytes", value),
         }
     }
-}
-
-fn round(duration: Duration) -> String {
-    format!("{:.3} ms", duration.as_secs_f64() * 1_000.0)
 }

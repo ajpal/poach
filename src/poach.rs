@@ -16,6 +16,10 @@ use crate::report::{MetricValue, RunReport, with_report};
 #[command(version, about)]
 #[command(propagate_version = true)]
 struct Cli {
+    /// Directory where run reports are written as JSON
+    #[arg(short, long)]
+    output_dir: PathBuf,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -106,6 +110,8 @@ struct TestArgs {}
 
 pub fn poach() {
     let cli = Cli::parse();
+    let output_dir = cli.output_dir;
+    let report_path = output_dir.join("report.json");
     let report = match cli.command {
         Commands::Train(arg) => train(arg),
         Commands::Serve(arg) => serve(arg),
@@ -113,7 +119,27 @@ pub fn poach() {
         Commands::Test(_) => todo!("test not yet implemented"),
     };
 
-    println!("{}", report);
+    if let Some(parent) = report_path.parent() {
+        std::fs::create_dir_all(parent).unwrap_or_else(|err| {
+            panic!(
+                "Failed to create report directory {}: {err}",
+                parent.display()
+            )
+        });
+    }
+
+    let report_file = File::create(&report_path).unwrap_or_else(|err| {
+        panic!(
+            "Failed to create report file {}: {err}",
+            report_path.display()
+        )
+    });
+    serde_json::to_writer_pretty(report_file, &report).unwrap_or_else(|err| {
+        panic!(
+            "Failed to write report file {}: {err}",
+            report_path.display()
+        )
+    });
 }
 
 /// VanillaEgglog's model is just unit
@@ -180,7 +206,10 @@ fn serve(arg: ServeArgs) -> RunReport {
                 };
 
                 reporter.record_size("command_outputs", MetricValue::Count(outputs.len() as u64));
-                reporter.record_size("egraph_tuples", MetricValue::Count(egraph.num_tuples() as u64));
+                reporter.record_size(
+                    "egraph_tuples",
+                    MetricValue::Count(egraph.num_tuples() as u64),
+                );
 
                 reporter.time("print_outputs", || {
                     let mut stdout = io::stdout();
