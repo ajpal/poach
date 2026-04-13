@@ -18,7 +18,7 @@ use egglog_ast::util::ListDisplay;
 pub use expr::*;
 pub use parse::*;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 /// The egglog internal representation of already compiled rules
 pub(crate) enum Ruleset {
     /// Represents a ruleset with a set of rules.
@@ -63,6 +63,7 @@ where
     },
     CoreAction(GenericAction<Head, Leaf>),
     Extract(Span, GenericExpr<Head, Leaf>, GenericExpr<Head, Leaf>),
+    MultiExtract(Span, GenericExpr<Head, Leaf>, Vec<GenericExpr<Head, Leaf>>),
     RunSchedule(GenericSchedule<Head, Leaf>),
     PrintOverallStatistics(Span, Option<String>),
     Check(Span, Vec<GenericFact<Head, Leaf>>),
@@ -135,6 +136,9 @@ where
             GenericNCommand::Extract(span, expr, variants) => {
                 GenericCommand::Extract(span.clone(), expr.clone(), variants.clone())
             }
+            GenericNCommand::MultiExtract(span, variants, exprs) => {
+                GenericCommand::MultiExtract(span.clone(), variants.clone(), exprs.clone())
+            }
             GenericNCommand::Check(span, facts) => {
                 GenericCommand::Check(span.clone(), facts.clone())
             }
@@ -191,6 +195,11 @@ where
             GenericNCommand::Extract(span, expr, variants) => {
                 GenericNCommand::Extract(span, expr.visit_exprs(f), variants.visit_exprs(f))
             }
+            GenericNCommand::MultiExtract(span, variants, exprs) => GenericNCommand::MultiExtract(
+                span,
+                variants.visit_exprs(f),
+                exprs.into_iter().map(|expr| expr.visit_exprs(f)).collect(),
+            ),
             GenericNCommand::Check(span, facts) => GenericNCommand::Check(
                 span,
                 facts.into_iter().map(|fact| fact.visit_exprs(f)).collect(),
@@ -600,6 +609,9 @@ where
     /// (common subexpressions are not shared in the cost
     /// model).
     Extract(Span, GenericExpr<Head, Leaf>, GenericExpr<Head, Leaf>),
+    /// Extract multiple terms from the egraph,
+    /// as if `extract` were called multiple times in a row.
+    MultiExtract(Span, GenericExpr<Head, Leaf>, Vec<GenericExpr<Head, Leaf>>),
     /// Runs a [`Schedule`], which specifies
     /// rulesets and the number of times to run them.
     ///
@@ -715,6 +727,9 @@ where
             GenericCommand::Action(a) => write!(f, "{a}"),
             GenericCommand::Extract(_span, expr, variants) => {
                 write!(f, "(extract {expr} {variants})")
+            }
+            GenericCommand::MultiExtract(_span, variants, exprs) => {
+                write!(f, "(multi-extract {variants} {})", ListDisplay(exprs, " "))
             }
             GenericCommand::Sort(_span, name, None) => {
                 let name = sanitize_internal_name(name);
@@ -924,7 +939,7 @@ where
 pub type FunctionDecl = GenericFunctionDecl<String, String>;
 pub(crate) type ResolvedFunctionDecl = GenericFunctionDecl<ResolvedCall, ResolvedVar>;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum FunctionSubtype {
     Constructor,
     Relation,
@@ -943,7 +958,7 @@ impl Display for FunctionSubtype {
 
 /// Represents the declaration of a function
 /// directly parsed from source syntax.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct GenericFunctionDecl<Head, Leaf>
 where
     Head: Clone + Display,
@@ -987,7 +1002,7 @@ impl Display for Variant {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Schema {
     pub input: Vec<String>,
     pub output: String,
@@ -1338,6 +1353,14 @@ where
             GenericCommand::Extract(span, expr, variants) => {
                 GenericCommand::Extract(span, expr.make_unresolved(), variants.make_unresolved())
             }
+            GenericCommand::MultiExtract(span, variants, exprs) => GenericCommand::MultiExtract(
+                span,
+                variants.make_unresolved(),
+                exprs
+                    .into_iter()
+                    .map(|expr| expr.make_unresolved())
+                    .collect(),
+            ),
             GenericCommand::RunSchedule(schedule) => {
                 GenericCommand::RunSchedule(schedule.make_unresolved())
             }

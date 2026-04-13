@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 use crate::{ast::ResolvedVar, core::ResolvedCall};
 
 pub(crate) type BuildHasher = std::hash::BuildHasherDefault<rustc_hash::FxHasher>;
@@ -7,13 +9,13 @@ pub(crate) type HEntry<'a, A, B> = hashbrown::hash_map::Entry<'a, A, B, BuildHas
 pub type IndexMap<K, V> = indexmap::IndexMap<K, V, BuildHasher>;
 pub type IndexSet<K> = indexmap::IndexSet<K, BuildHasher>;
 
-pub use egglog_ast::generic_ast_helpers::INTERNAL_SYMBOL_PREFIX;
 pub use egglog_ast::generic_ast_helpers::sanitize_internal_name;
+pub use egglog_ast::generic_ast_helpers::INTERNAL_SYMBOL_PREFIX;
 
 /// Generates fresh symbols for internal use during typechecking and flattening.
 /// These are guaranteed not to collide with the
-/// user's symbols because they use a reserved prefix.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// user's symbols because they use $.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SymbolGen {
     count: usize,
     reserved_string: String,

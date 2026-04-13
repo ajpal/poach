@@ -58,13 +58,16 @@ impl ContainerValue for FunctionContainer {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct FunctionSort {
     name: String,
+    #[serde(with = "arc_sort_vec_serde")]
     inputs: Vec<ArcSort>,
+    #[serde(with = "arc_sort_serde")]
     output: ArcSort,
     // store all the arcsorts for functions that were added as partial args to this function sort
     // so that we can retrieve them during extraction
+    #[serde(skip, default)]
     partial_arcsorts: Arc<Mutex<Vec<ArcSort>>>,
 }
 
@@ -362,9 +365,10 @@ impl Primitive for Ctor {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ResolvedFunction {
     pub id: ResolvedFunctionId,
+    #[serde(skip, default)]
     pub partial_arcsorts: Vec<ArcSort>,
     pub name: String,
 }
@@ -397,9 +401,13 @@ impl Hash for ResolvedFunction {
     }
 }
 
-impl BaseValue for ResolvedFunction {}
+impl BaseValue for ResolvedFunction {
+    fn type_id_string() -> String {
+        "ResolvedFn".into()
+    }
+}
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ResolvedFunctionId {
     Lookup(egglog_bridge::TableAction),
     Prim(ExternalFunctionId),

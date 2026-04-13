@@ -1,6 +1,6 @@
 use crate::{util::HashMap, *};
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) struct Names {
     seen: HashMap<String, Span>,
     global_aliases: HashMap<String, (String, Span)>,
@@ -78,6 +78,7 @@ impl Names {
                 inner.check_shadowing(command)
             }
             ResolvedNCommand::Extract(..) => Ok(()),
+            ResolvedNCommand::MultiExtract(..) => Ok(()),
             ResolvedNCommand::RunSchedule(..) => Ok(()),
             ResolvedNCommand::PrintOverallStatistics(..) => Ok(()),
             ResolvedNCommand::PrintFunction(..) => Ok(()),

@@ -14,6 +14,7 @@ use crate::{ast::ResolvedVar, core::GenericAtomTerm, core::ResolvedCoreRule, uti
 ///
 /// The matches that are not chosen in this iteration will be delayed
 /// to the next iteration.
+#[typetag::serde]
 pub trait Scheduler: dyn_clone::DynClone + Send + Sync {
     /// Whether or not the rules can be considered as saturated (i.e.,
     /// `run_report.updated == false`).
@@ -274,9 +275,10 @@ impl EGraph {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct SchedulerRecord {
     scheduler: Box<dyn Scheduler>,
+
     rule_info: HashMap<String, SchedulerRuleInfo>,
 }
 
@@ -284,7 +286,7 @@ pub(crate) struct SchedulerRecord {
 /// we split a rule (rule query action) into a worklist relation
 /// two rules (rule query (worklist vars false)) and
 /// (rule (worklist vars false) (action ... (delete (worklist vars false))))
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct SchedulerRuleInfo {
     matches: Arc<Mutex<Vec<Value>>>,
     should_seek: bool,
@@ -398,11 +400,12 @@ impl SchedulerRuleInfo {
 mod test {
     use super::*;
 
-    #[derive(Clone)]
+    #[derive(Clone, Serialize, Deserialize)]
     struct FirstNScheduler {
         n: usize,
     }
 
+    #[typetag::serde]
     impl Scheduler for FirstNScheduler {
         fn filter_matches(&mut self, _rule: &str, _ruleset: &str, matches: &mut Matches) -> bool {
             if matches.match_size() <= self.n {
@@ -449,12 +452,10 @@ mod test {
             );
 
             // Because of semi-naive, the exact rules that are run are more than just `test-rule`
-            assert!(
-                report
-                    .search_and_apply_time_per_rule
-                    .keys()
-                    .all(|k| k.starts_with("test-rule"))
-            );
+            assert!(report
+                .search_and_apply_time_per_rule
+                .keys()
+                .all(|k| k.starts_with("test-rule")));
             assert_eq!(
                 report.merge_time_per_ruleset.keys().collect::<Vec<_>>(),
                 [&"test".into()]

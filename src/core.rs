@@ -40,17 +40,19 @@ impl<Head> HeadOrEq<Head> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpecializedPrimitive {
-    primitive: PrimitiveWithId,
-    input: Vec<ArcSort>,
-    output: ArcSort,
+    pub(crate) primitive: PrimitiveWithId,
+    #[serde(with = "arc_sort_vec_serde")]
+    pub(crate) input: Vec<ArcSort>,
+    #[serde(with = "arc_sort_serde")]
+    pub(crate) output: ArcSort,
 }
 
 impl SpecializedPrimitive {
     /// Get the name of this primitive
     pub fn name(&self) -> &str {
-        self.primitive.0.name()
+        self.primitive.prim.name()
     }
 
     /// Get the output sort of this primitive
@@ -65,13 +67,13 @@ impl SpecializedPrimitive {
 
     /// Get the external function ID of this primitive
     pub(crate) fn external_id(&self) -> ExternalFunctionId {
-        self.primitive.1
+        self.primitive.id
     }
 }
 
 impl PartialEq for SpecializedPrimitive {
     fn eq(&self, other: &Self) -> bool {
-        self.primitive.1 == other.primitive.1
+        self.primitive.id == other.primitive.id
     }
 }
 
@@ -79,11 +81,11 @@ impl Eq for SpecializedPrimitive {}
 
 impl Hash for SpecializedPrimitive {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.primitive.1.hash(state);
+        self.primitive.id.hash(state);
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ResolvedCall {
     Func(FuncType),
     Primitive(SpecializedPrimitive),
@@ -200,7 +202,7 @@ impl IsFunc for String {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum GenericAtomTerm<Leaf> {
     Var(Span, Leaf),
     Literal(Span, Literal),
@@ -280,7 +282,7 @@ impl std::fmt::Display for AtomTerm {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct GenericAtom<Head, Leaf> {
     pub span: Span,
     pub head: Head,
@@ -336,7 +338,7 @@ impl Atom<String> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Query<Head, Leaf> {
     pub atoms: Vec<GenericAtom<Head, Leaf>>,
 }
@@ -409,7 +411,7 @@ impl std::fmt::Display for Query<ResolvedCall, String> {
                 writeln!(
                     f,
                     "({} {})",
-                    filter.head.primitive.0.name(),
+                    filter.head.primitive.prim.name(),
                     ListDisplay(&filter.args, " ")
                 )?;
             }
@@ -442,7 +444,7 @@ impl<Leaf: Clone> Query<ResolvedCall, Leaf> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum GenericCoreAction<Head, Leaf> {
     Let(Span, Leaf, Head, Vec<GenericAtomTerm<Leaf>>),
     LetAtomTerm(Span, Leaf, GenericAtomTerm<Leaf>),
@@ -459,7 +461,7 @@ pub enum GenericCoreAction<Head, Leaf> {
 
 pub type CoreAction = GenericCoreAction<String, String>;
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct GenericCoreActions<Head, Leaf>(pub(crate) Vec<GenericCoreAction<Head, Leaf>>);
 pub(crate) type ResolvedCoreActions = GenericCoreActions<ResolvedCall, ResolvedVar>;
 
@@ -862,7 +864,7 @@ where
 /// `body` can contain `Eq` atoms, which denotes equality constraints, so the `Head`
 /// for `body` needs to be a `HeadOrEq<Head>`, while `head` does not have equality
 /// constraints.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GenericCoreRule<HeadQ, HeadA, Leaf> {
     pub span: Span,
     pub body: Query<HeadQ, Leaf>,

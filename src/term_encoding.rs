@@ -1053,6 +1053,7 @@ impl<'a> TermState<'a> {
             | ResolvedNCommand::PrintFunction(..) => {
                 res.push(command.to_command().make_unresolved());
             }
+            ResolvedNCommand::MultiExtract(..) => {}            
             ResolvedNCommand::Extract(..) => {
                 // TODO we just omit extract for now, support in future
             }

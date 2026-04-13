@@ -21,7 +21,8 @@ mod core;
 pub mod extract;
 pub mod prelude;
 pub mod scheduler;
-mod serialize;
+mod serialize_vis;
+pub mod size;
 pub mod sort;
 mod term_encoding;
 mod termdag;
@@ -29,18 +30,22 @@ mod typechecking;
 pub mod util;
 pub use command_macro::{CommandMacro, CommandMacroRegistry};
 
+pub mod serialize_size;
+
 // This is used to allow the `add_primitive` macro to work in
 // both this crate and other crates by referring to `::egglog`.
+extern crate flexbuffers;
 extern crate self as egglog;
+use anyhow::{Context, Result};
+use ast::*;
 pub use ast::{ResolvedExpr, ResolvedFact, ResolvedVar};
 #[cfg(feature = "bin")]
 pub use cli::*;
 use constraint::{Constraint, Problem, SimpleTypeConstraint, TypeConstraint};
-pub use core::{Atom, AtomTerm};
+pub use core::{Atom, AtomTerm, ResolvedCall};
 use core::{CoreActionContext, ResolvedAtomTerm};
-pub use core::{ResolvedCall, SpecializedPrimitive};
+use core_relations::{make_external_func, ExternalFunctionId};
 pub use core_relations::{BaseValue, ContainerValue, ExecutionState, Value};
-use core_relations::{ExternalFunctionId, make_external_func};
 use csv::Writer;
 pub use egglog_add_primitive::add_primitive;
 use egglog_ast::generic_ast::{Change, GenericExpr, Literal};
@@ -53,19 +58,25 @@ use egglog_numeric_id as numeric_id;
 use egglog_reports::{ReportLevel, RunReport};
 use extract::{CostModel, DefaultCost, Extractor, TreeAdditiveCostModel};
 use indexmap::map::Entry;
-use log::{Level, log_enabled};
+use log::{log_enabled, Level};
 use numeric_id::DenseIdMap;
 use prelude::*;
 use scheduler::{SchedulerId, SchedulerRecord};
-pub use serialize::{SerializeConfig, SerializeOutput, SerializedNode};
+use serde::ser::SerializeStruct;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use serialize_size::GenerateSizeReport;
+pub use serialize_vis::{SerializeConfig, SerializeOutput, SerializedNode};
+use size::GetSizePrimitive;
 use sort::*;
+use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
-use std::fs::File;
+use std::fs::{self, read_to_string, File};
 use std::hash::Hash;
-use std::io::{Read, Write as _};
+use std::io::{BufWriter, Read, Write as _};
 use std::iter::once;
 use std::ops::Deref;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
 pub use termdag::{Term, TermDag, TermId};
@@ -75,14 +86,292 @@ pub use typechecking::TypeInfo;
 use util::*;
 
 use crate::ast::desugar::desugar_command;
-use crate::ast::*;
 use crate::core::{GenericActionsExt, ResolvedRuleExt};
 pub use crate::term_encoding::file_supports_proofs;
-use crate::term_encoding::{EncodingState, TermState, command_supports_proof_encoding};
+use crate::term_encoding::{command_supports_proof_encoding, EncodingState, TermState};
 
 pub const GLOBAL_NAME_PREFIX: &str = "$";
 
 pub type ArcSort = Arc<dyn Sort>;
+
+impl dyn Sort {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+pub mod arc_sort_serde {
+    use serde::{Deserializer, Serializer};
+
+    use super::*;
+
+    pub fn serialize<S>(sort: &ArcSort, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        SerializableSort(sort.clone()).serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<ArcSort, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let SerializableSort(sort) = SerializableSort::deserialize(deserializer)?;
+        Ok(sort)
+    }
+}
+
+pub mod arc_sort_vec_serde {
+    use serde::{Deserializer, Serializer};
+
+    use super::*;
+
+    pub fn serialize<S>(v: &Vec<ArcSort>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let serializable: Vec<SerializableSort> = v.iter().cloned().map(SerializableSort).collect();
+        serializable.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<ArcSort>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let v: Vec<SerializableSort> = Vec::deserialize(deserializer)?;
+        let v: Vec<ArcSort> = v.into_iter().map(|SerializableSort(s)| s).collect();
+        Ok(v)
+    }
+}
+
+pub mod arc_sort_map_serde {
+    use hashbrown::HashMap;
+    use serde::{Deserializer, Serializer};
+
+    use super::*;
+
+    pub fn serialize<S>(m: &HashMap<String, ArcSort>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let serializable: HashMap<String, SerializableSort> = m
+            .into_iter()
+            .map(|(k, v)| (k.clone(), SerializableSort(v.clone())))
+            .collect();
+        serializable.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<HashMap<String, ArcSort>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let m: HashMap<String, SerializableSort> = HashMap::deserialize(deserializer)?;
+        let m: HashMap<String, ArcSort> = m
+            .into_iter()
+            .map(|(k, SerializableSort(v))| (k, v))
+            .collect();
+        Ok(m)
+    }
+}
+
+#[derive(Clone)]
+pub struct SerializableSort(pub ArcSort);
+
+impl<'de> Deserialize<'de> for SerializableSort {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(tag = "type", content = "data")]
+        enum SortRepr {
+            FunctionSort(FunctionSort),
+            EqSort(EqSort),
+            BaseSort(String),
+            MapSort {
+                name: String,
+                #[serde(with = "arc_sort_serde")]
+                key: ArcSort,
+                #[serde(with = "arc_sort_serde")]
+                value: ArcSort,
+            },
+            MultiSetSort {
+                name: String,
+                #[serde(with = "arc_sort_serde")]
+                element: ArcSort,
+            },
+            SetSort {
+                name: String,
+                #[serde(with = "arc_sort_serde")]
+                element: ArcSort,
+            },
+            VecSort {
+                name: String,
+                #[serde(with = "arc_sort_serde")]
+                element: ArcSort,
+            },
+        }
+        let repr = SortRepr::deserialize(deserializer)?;
+        let arc: ArcSort = match repr {
+            SortRepr::FunctionSort(function_sort) => Arc::new(function_sort),
+            SortRepr::EqSort(eq_sort) => Arc::new(eq_sort),
+            SortRepr::BaseSort(name) => match name.as_str() {
+                "BigIntSort" => BigIntSort.to_arcsort(),
+                "BigRatSort" => BigRatSort.to_arcsort(),
+                "BoolSort" => BoolSort.to_arcsort(),
+                "F64Sort" => F64Sort.to_arcsort(),
+                "I64Sort" => I64Sort.to_arcsort(),
+                "StringSort" => StringSort.to_arcsort(),
+                "UnitSort" => UnitSort.to_arcsort(),
+                _ => {
+                    return Err(serde::de::Error::custom(format!(
+                        "Unknown BaseSort {}",
+                        name
+                    )));
+                }
+            },
+            SortRepr::MapSort { name, key, value } => (MapSort { name, key, value }).to_arcsort(),
+            SortRepr::MultiSetSort { name, element } => {
+                (MultiSetSort { name, element }).to_arcsort()
+            }
+            SortRepr::SetSort { name, element } => (SetSort { name, element }).to_arcsort(),
+            SortRepr::VecSort { name, element } => (VecSort { name, element }).to_arcsort(),
+        };
+        Ok(SerializableSort(arc))
+    }
+}
+
+impl Serialize for SerializableSort {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let sort = &self.0;
+
+        let mut s = serializer.serialize_struct("SerializableSort", 2)?;
+
+        // Figure out which kind of sort we have
+        if let Some(sort) = sort.as_any().downcast_ref::<EqSort>() {
+            s.serialize_field("type", "EqSort")?;
+            s.serialize_field("data", sort)?;
+            s.end()
+        } else if let Some(sort) = sort.as_any().downcast_ref::<FunctionSort>() {
+            s.serialize_field("type", "FunctionSort")?;
+            s.serialize_field("data", sort)?;
+            s.end()
+        } else if sort
+            .as_any()
+            .downcast_ref::<BaseSortImpl<BigIntSort>>()
+            .is_some()
+        {
+            s.serialize_field("type", "BaseSort")?;
+            s.serialize_field("data", "BigIntSort")?;
+            s.end()
+        } else if sort
+            .as_any()
+            .downcast_ref::<BaseSortImpl<BigRatSort>>()
+            .is_some()
+        {
+            s.serialize_field("type", "BaseSort")?;
+            s.serialize_field("data", "BigRatSort")?;
+            s.end()
+        } else if sort
+            .as_any()
+            .downcast_ref::<BaseSortImpl<BoolSort>>()
+            .is_some()
+        {
+            s.serialize_field("type", "BaseSort")?;
+            s.serialize_field("data", "BoolSort")?;
+            s.end()
+        } else if sort
+            .as_any()
+            .downcast_ref::<BaseSortImpl<F64Sort>>()
+            .is_some()
+        {
+            s.serialize_field("type", "BaseSort")?;
+            s.serialize_field("data", "F64Sort")?;
+            s.end()
+        } else if sort
+            .as_any()
+            .downcast_ref::<BaseSortImpl<I64Sort>>()
+            .is_some()
+        {
+            s.serialize_field("type", "BaseSort")?;
+            s.serialize_field("data", "I64Sort")?;
+            s.end()
+        } else if sort
+            .as_any()
+            .downcast_ref::<BaseSortImpl<StringSort>>()
+            .is_some()
+        {
+            s.serialize_field("type", "BaseSort")?;
+            s.serialize_field("data", "StringSort")?;
+            s.end()
+        } else if sort
+            .as_any()
+            .downcast_ref::<BaseSortImpl<UnitSort>>()
+            .is_some()
+        {
+            s.serialize_field("type", "BaseSort")?;
+            s.serialize_field("data", "UnitSort")?;
+            s.end()
+        } else if let Some(sort) = sort.as_any().downcast_ref::<ContainerSortImpl<MapSort>>() {
+            let inner = &sort.0;
+
+            s.serialize_field("type", "MapSort")?;
+            s.serialize_field(
+                "data",
+                &json!({
+                    "name": &inner.name,
+                    "key": &SerializableSort(inner.key.clone()),
+                    "value": &SerializableSort(inner.value.clone())
+                }),
+            )?;
+            s.end()
+        } else if let Some(sort) = sort
+            .as_any()
+            .downcast_ref::<ContainerSortImpl<MultiSetSort>>()
+        {
+            let inner = &sort.0;
+
+            s.serialize_field("type", "MultiSetSort")?;
+            s.serialize_field(
+                "data",
+                &json!({
+                    "name": &inner.name,
+                    "element": &SerializableSort(inner.element.clone())
+                }),
+            )?;
+            s.end()
+        } else if let Some(sort) = sort.as_any().downcast_ref::<ContainerSortImpl<SetSort>>() {
+            let inner = &sort.0;
+
+            s.serialize_field("type", "SetSort")?;
+            s.serialize_field(
+                "data",
+                &json!({
+                    "name": &inner.name,
+                    "element": &SerializableSort(inner.element.clone())
+                }),
+            )?;
+            s.end()
+        } else if let Some(sort) = sort.as_any().downcast_ref::<ContainerSortImpl<VecSort>>() {
+            let inner = &sort.0;
+
+            s.serialize_field("type", "VecSort")?;
+            s.serialize_field(
+                "data",
+                &json!({
+                    "name": &inner.name,
+                    "element": &SerializableSort(inner.element.clone())
+                }),
+            )?;
+            s.end()
+        } else {
+            Err(serde::ser::Error::custom("Unknown sort implementation"))
+        }
+    }
+}
 
 /// A trait for implementing custom primitive operations in egglog.
 ///
@@ -117,6 +406,8 @@ pub enum CommandOutput {
     ExtractBest(TermDag, DefaultCost, TermId),
     /// The variants of a function found after extracting
     ExtractVariants(TermDag, Vec<TermId>),
+    /// The variants of multiple functions found after extracting
+    MultiExtractVariants(TermDag, Vec<Vec<TermId>>),
     /// The report from all runs
     OverallStatistics(RunReport),
     /// A printed function and all its values
@@ -145,6 +436,17 @@ impl std::fmt::Display for CommandOutput {
                 writeln!(f, "(")?;
                 for expr in terms {
                     writeln!(f, "   {}", termdag.to_string(*expr))?;
+                }
+                writeln!(f, ")")
+            }
+            CommandOutput::MultiExtractVariants(termdag, terms) => {
+                writeln!(f, "(")?;
+                for variants in terms {
+                    writeln!(f, "   (")?;
+                    for expr in variants {
+                        writeln!(f, "      {}", termdag.to_string(*expr))?;
+                    }
+                    writeln!(f, "   )")?;
                 }
                 writeln!(f, ")")
             }
@@ -206,27 +508,37 @@ impl std::fmt::Display for CommandOutput {
 /// let mut egraph = EGraph::default();
 /// egraph.parse_and_run_program(None, "(datatype Math (Num i64) (Add Math Math))").unwrap();
 /// ```
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct EGraph {
     backend: egglog_bridge::EGraph,
+
     pub parser: Parser,
+
     names: check_shadowing::Names,
     /// pushed_egraph forms a linked list of pushed egraphs.
     /// Pop reverts the egraph to the last pushed egraph.
     pushed_egraph: Option<Box<Self>>,
+
     functions: IndexMap<String, Function>,
+
     rulesets: IndexMap<String, Ruleset>,
     pub fact_directory: Option<PathBuf>,
     pub seminaive: bool,
+
     type_info: TypeInfo,
     /// The run report unioned over all runs so far.
     overall_run_report: RunReport,
+
     schedulers: DenseIdMap<SchedulerId, SchedulerRecord>,
+
+    #[serde(skip)]
     commands: IndexMap<String, Arc<dyn UserDefinedCommand>>,
     strict_mode: bool,
     warned_about_missing_global_prefix: bool,
     /// Registry for command-level macros
+    #[serde(skip)]
     command_macros: CommandMacroRegistry,
+    #[serde(skip)]
     proof_state: EncodingState,
 }
 
@@ -235,6 +547,7 @@ pub struct EGraph {
 ///
 /// Compared to an external function, a user-defined command is more powerful because
 /// it has an exclusive access to the e-graph.
+#[typetag::serde]
 pub trait UserDefinedCommand: Send + Sync {
     /// Run the command with the given arguments.
     fn update(&self, egraph: &mut EGraph, args: &[Expr]) -> Result<Option<CommandOutput>, Error>;
@@ -244,7 +557,7 @@ pub trait UserDefinedCommand: Send + Sync {
 ///
 /// This contains the schema information of the function and
 /// the backend id of the function in the e-graph.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Function {
     decl: ResolvedFunctionDecl,
     schema: ResolvedSchema,
@@ -269,9 +582,11 @@ impl Function {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ResolvedSchema {
+    #[serde(with = "arc_sort_vec_serde")]
     pub input: Vec<ArcSort>,
+    #[serde(with = "arc_sort_serde")]
     pub output: ArcSort,
 }
 
@@ -860,6 +1175,69 @@ impl EGraph {
         Ok(RunReport::singleton(ruleset, iteration_report))
     }
 
+    fn restore_deserialized_runtime(&mut self) -> Result<(), Error> {
+        self.type_info.restore_deserialized_runtime_metadata();
+        self.type_info.clear_primitives();
+
+        let mut sorts = self
+            .type_info
+            .all_sorts()
+            .into_iter()
+            .map(|sort| (sort.name().to_owned(), sort))
+            .collect::<std::collections::BTreeMap<_, _>>();
+        for builtin in ["Unit", "String", "bool", "i64", "f64", "BigInt", "BigRat"] {
+            if let Some(sort) = sorts.remove(builtin) {
+                sort.register_primitives(self);
+            }
+        }
+        add_primitive!(self, "!=" = |a: #, b: #| -?> () {
+            (a != b).then_some(())
+        });
+        add_primitive!(self, "value-eq" = |a: #, b: #| -?> () {
+            (a == b).then_some(())
+        });
+        add_primitive!(self, "ordering-min" = |a: #, b: #| -> # {
+            if a < b { a } else { b }
+        });
+        add_primitive!(self, "ordering-max" = |a: #, b: #| -> # {
+            if a > b { a } else { b }
+        });
+        for (_, sort) in sorts {
+            sort.register_primitives(self);
+        }
+        self.backend.restore_deserialized_runtime();
+
+        let mut restored_rulesets = IndexMap::default();
+        let rulesets = std::mem::take(&mut self.rulesets);
+
+        for (ruleset_name, ruleset) in rulesets {
+            let restored = match ruleset {
+                Ruleset::Rules(rules) => {
+                    let mut restored_rules = IndexMap::default();
+                    for (rule_name, (core_rule, _)) in rules {
+                        let rule_id = {
+                            let mut translator = BackendRule::new(
+                                self.backend.new_rule(&rule_name, self.seminaive),
+                                &self.functions,
+                                &self.type_info,
+                            );
+                            translator.query(&core_rule.body, false);
+                            translator.actions(&core_rule.head)?;
+                            translator.build()
+                        };
+                        restored_rules.insert(rule_name, (core_rule, rule_id));
+                    }
+                    Ruleset::Rules(restored_rules)
+                }
+                Ruleset::Combined(sub_rulesets) => Ruleset::Combined(sub_rulesets),
+            };
+            restored_rulesets.insert(ruleset_name, restored);
+        }
+
+        self.rulesets = restored_rulesets;
+        Ok(())
+    }
+
     fn add_rule(&mut self, rule: ast::ResolvedRule) -> Result<String, Error> {
         // Disable union_to_set optimization in proof or term encoding mode, since
         // it expects only `union` on constructors (not set).
@@ -1072,7 +1450,10 @@ impl EGraph {
         }
     }
 
-    fn run_command(&mut self, command: ResolvedNCommand) -> Result<Option<CommandOutput>, Error> {
+    fn run_command(
+        &mut self,
+        command: ResolvedNCommand,
+    ) -> Result<Option<CommandOutput>, Error> {
         match command {
             // Sorts are already declared during typechecking
             ResolvedNCommand::Sort(_span, name, _presort_and_args) => {
@@ -1172,6 +1553,52 @@ impl EGraph {
                     }
                     Ok(Some(CommandOutput::ExtractVariants(termdag, terms)))
                 };
+            }
+            ResolvedNCommand::MultiExtract(span, variants, exprs) => {
+                let sorts = exprs.iter().map(|expr| expr.output_type()).collect();
+
+                let xs: Vec<_> = exprs
+                    .iter()
+                    .map(|expr| self.eval_resolved_expr(span.clone(), expr))
+                    .collect::<Result<_, _>>()?;
+                let n = self.eval_resolved_expr(span, &variants)?;
+                let n: i64 = self.backend.base_values().unwrap(n);
+                if n < 0 {
+                    panic!("Cannot extract negative number of variants");
+                }
+
+                let mut termdag = TermDag::default();
+
+                let extractor = Extractor::compute_costs_from_rootsorts(
+                    Some(sorts),
+                    self,
+                    TreeAdditiveCostModel::default(),
+                );
+
+                let terms: Vec<_> = xs
+                    .iter()
+                    .zip(exprs.iter())
+                    .map(|(x, expr)| {
+                        let variants: Vec<_> = extractor
+                            .extract_variants_with_sort(
+                                self,
+                                &mut termdag,
+                                *x,
+                                n as usize,
+                                expr.output_type(),
+                            )
+                            .iter()
+                            .map(|e| e.1)
+                            .collect();
+                        if log_enabled!(Level::Info) {
+                            let expr_str = expr.to_string();
+                            log::info!("extracted {} variants for {expr_str}", variants.len());
+                        }
+                        variants
+                    })
+                    .collect();
+
+                return Ok(Some(CommandOutput::MultiExtractVariants(termdag, terms)));
             }
             ResolvedNCommand::Push(n) => {
                 (0..n).for_each(|_| self.push());
@@ -1598,7 +2025,7 @@ impl EGraph {
     pub fn value_to_container<T: ContainerValue>(
         &self,
         x: Value,
-    ) -> Option<impl Deref<Target = T>> {
+    ) -> Option<impl Deref<Target = T> + use<'_, T>> {
         self.backend.container_values().get_val::<T>(x)
     }
 
@@ -1648,6 +2075,10 @@ impl EGraph {
     pub fn get_canonical_value(&self, val: Value, sort: &ArcSort) -> Value {
         self.backend
             .get_canon_repr(val, sort.column_ty(&self.backend))
+    }
+
+    pub fn stabilize(&mut self) {
+        self.backend.stabilize();
     }
 }
 
@@ -1726,7 +2157,7 @@ impl<'a> BackendRule<'a> {
                         })
                 });
                 assert!(ps.len() == 1, "options for {name}: {ps:?}");
-                ResolvedFunctionId::Prim(ps.into_iter().next().unwrap().1)
+                ResolvedFunctionId::Prim(ps.into_iter().next().unwrap().id)
             } else {
                 panic!("no callable for {name}");
             };
