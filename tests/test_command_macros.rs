@@ -1,4 +1,4 @@
-use crate::util::INTERNAL_SYMBOL_PREFIX;
+use egglog::util::INTERNAL_SYMBOL_PREFIX;
 use egglog::ast::*;
 use egglog::util::FreshGen;
 use egglog::*;
