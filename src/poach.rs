@@ -1,7 +1,15 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::{Args, Parser, Subcommand};
 
+use poach::EGraph;
+
+use std::fs::File;
+use std::io::prelude::*;
+
+use flexbuffers::FlexbufferSerializer;
+
+use serde::Serialize;
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
@@ -112,9 +120,53 @@ pub fn poach () {
     // TODO handle report IO
 }
 
+// TODO add report events
+
+// mut is necessary due to possible canonicalization before serializing
+fn serialize_egraph_to_file(egraph: &mut EGraph, output_file: &Path) {
+    // TODO: canonicalize before serialization
+    // egraph.stabilize();
+
+    let mut buf = FlexbufferSerializer::new();
+    Serialize::serialize(egraph, &mut buf).expect("Failed to serialize the egraph to Flexbuffer");
+
+    let Ok(mut file) = File::create(output_file) else {
+        panic!("Failed to create file");
+    };
+    file.write_all(buf.view());
+}
+
+fn deserialize_egraph_from_file(egraph_file: &Path) -> EGraph {
+    //TODO: must guarantee everything has been reloaded.
+    let mut egraph = EGraph::default();
+
+    return egraph;
+}
+
+/// SerializeEgraph assumes a single input egglog program
 fn train(arg : TrainArgs) {
-    println!("train({:?})", arg);
-    //TODO
+    let mut egraph = EGraph::default();
+
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build_global()
+        .unwrap();
+
+    let input = arg.training_set;
+
+    let program = std::fs::read_to_string(input.as_path()).unwrap_or_else(|_| {
+        let arg = input.to_string_lossy();
+        panic!("Failed to read file {arg}")
+    });
+
+    match egraph.parse_and_run_program(Some(input.to_str().unwrap().into()), &program) {
+        Ok(_) => {
+            serialize_egraph_to_file(&mut egraph, arg.output_model_file.as_path());
+        }
+        _ => {
+            panic!("Failed to execute {:}", input.to_string_lossy());
+        }
+    }
 }
 
 fn serve(arg: ServeArgs) {
