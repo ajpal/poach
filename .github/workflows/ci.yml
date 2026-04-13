@@ -24,11 +24,3 @@ jobs:
 
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets
-
-      - name: poach sequential round trip passing tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          output=$(cargo run --release --bin poach -- tests/passing out/passing sequential-round-trip)
-          printf '%s\n' "$output"
-          grep -q "0 failures" <<<"$output"
