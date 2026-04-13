@@ -3,12 +3,16 @@ use std::time::{Duration, Instant};
 
 use hashbrown::HashMap;
 use serde::Serialize;
-use tracing_subscriber::Registry;
 
 #[derive(Default)]
 pub struct Reporter {
     spans: HashMap<String, SpanStats>,
     sizes: Vec<SizeMetric>,
+}
+
+pub struct Timer {
+    name: String,
+    started_at: Instant,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -53,26 +57,26 @@ pub enum MetricValue {
 }
 
 impl Reporter {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self::default()
     }
 
-    pub fn time<T>(&mut self, step_name: &'static str, run: impl FnOnce() -> T) -> T {
-        let started_at = Instant::now();
-        let result = tracing::info_span!("step", step_name).in_scope(run);
-        self.record_span_time(step_name, started_at.elapsed());
-        result
+    pub fn start_timer(&self, name: String) -> Timer {
+        Timer {
+            name,
+            started_at: Instant::now(),
+        }
     }
 
-    pub fn record_size(&mut self, name: impl Into<String>, value: MetricValue) {
-        self.sizes.push(SizeMetric {
-            name: name.into(),
-            value,
-        });
+    pub fn finish_timer(&mut self, timer: Timer) {
+        self.record_span_time(&timer.name, timer.started_at.elapsed());
     }
 
-    pub fn record_timing(&mut self, name: impl Into<String>, elapsed: Duration) {
-        let name = name.into();
+    pub fn record_size(&mut self, name: String, value: MetricValue) {
+        self.sizes.push(SizeMetric { name, value });
+    }
+
+    pub fn record_timing(&mut self, name: String, elapsed: Duration) {
         self.record_span_time(&name, elapsed);
     }
 
@@ -82,7 +86,7 @@ impl Reporter {
         entry.total += elapsed;
     }
 
-    fn build_report(&self, command: impl Into<String>) -> RunReport {
+    pub fn build_report(&self, command: String) -> RunReport {
         let mut steps: Vec<_> = self
             .spans
             .iter()
@@ -96,7 +100,7 @@ impl Reporter {
         steps.sort_by(|left, right| right.total.cmp(&left.total));
 
         RunReport {
-            command: command.into(),
+            command,
             timing: TimingReport {
                 total: self
                     .spans
@@ -108,19 +112,6 @@ impl Reporter {
             sizes: self.sizes.clone(),
         }
     }
-}
-
-pub fn with_report<T>(command: &str, run: impl FnOnce(&mut Reporter) -> T) -> (T, RunReport) {
-    let mut reporter = Reporter::new();
-    let subscriber = Registry::default();
-    let result = tracing::subscriber::with_default(subscriber, || {
-        let started_at = Instant::now();
-        let result = tracing::info_span!("command", command).in_scope(|| run(&mut reporter));
-        reporter.record_span_time("command", started_at.elapsed());
-        result
-    });
-    let report = reporter.build_report(command);
-    (result, report)
 }
 
 impl Display for RunReport {
