@@ -5,10 +5,12 @@ use std::{
     mem::{self, MaybeUninit},
     ops::Deref,
     sync::{
-        Mutex,
         atomic::{AtomicUsize, Ordering},
+        Mutex,
     },
 };
+
+use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize};
 
 use crate::{MutexReader, ReadOptimizedLock};
 
@@ -25,6 +27,59 @@ pub struct ConcurrentVec<T> {
     head: AtomicUsize,
     /// Used to synchronize writes.
     write_lock: Mutex<()>,
+}
+
+impl<T: Serialize> Serialize for ConcurrentVec<T> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let len = self.head.load(std::sync::atomic::Ordering::Acquire);
+
+        let data = self.data.read();
+
+        let vec = &*data;
+
+        // Serialize only initialized entries.
+        let mut seq = serializer.serialize_seq(Some(len))?;
+        for cell in vec.iter().take(len) {
+            unsafe {
+                // SAFETY: this cell is among the first `head` entries, so it is initialized and contains valid `T`.
+                let cell_ptr = cell.as_ptr();
+                let t_ref: &T = &*(*cell_ptr).0.get();
+                seq.serialize_element(t_ref)?;
+            }
+        }
+
+        seq.end()
+    }
+}
+
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for ConcurrentVec<T> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let values: Vec<T> = Vec::<T>::deserialize(deserializer)?;
+        let head = values.len();
+
+        // Allocate uninitialized backing store
+        let mut backing = Vec::with_capacity(head);
+        for _ in 0..head {
+            backing.push(MaybeUninit::uninit());
+        }
+
+        // Fill initialized portion
+        for (i, v) in values.into_iter().enumerate() {
+            backing[i] = MaybeUninit::new(SyncUnsafeCell(UnsafeCell::new(v)));
+        }
+
+        Ok(ConcurrentVec {
+            data: ReadOptimizedLock::new(backing),
+            head: AtomicUsize::new(head),
+            write_lock: Mutex::new(()),
+        })
+    }
 }
 
 impl<T> Default for ConcurrentVec<T> {

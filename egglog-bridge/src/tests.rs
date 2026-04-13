@@ -3,15 +3,15 @@ use std::{
     hash::Hash,
     slice,
     sync::{
-        Arc,
         atomic::{AtomicUsize, Ordering},
+        Arc,
     },
     thread,
 };
 
 use crate::core_relations;
 use crate::core_relations::{
-    ContainerValue, ExternalFunctionId, Rebuilder, Value, make_external_func,
+    make_external_func, ContainerValue, ExternalFunctionId, Rebuilder, Value,
 };
 use crate::numeric_id::NumericId;
 use log::debug;
@@ -19,8 +19,8 @@ use num_rational::Rational64;
 use once_cell::sync::Lazy;
 
 use crate::{
-    ColumnTy, DefaultVal, EGraph, FunctionConfig, FunctionId, MergeFn, ProofStore, QueryEntry,
-    add_expressions, define_rule,
+    add_expressions, define_rule, ColumnTy, DefaultVal, EGraph, FunctionConfig, FunctionId,
+    MergeFn, ProofStore, QueryEntry,
 };
 
 /// Run a simple associativity/commutativity test. In addition to testing that the rules properly
@@ -229,7 +229,7 @@ fn math_subsume() {
 fn math_test(mut egraph: EGraph, can_subsume: bool) {
     const N: usize = 8;
     let rational_ty = egraph.base_values_mut().register_type::<Rational64>();
-    let string_ty = egraph.base_values_mut().register_type::<&'static str>();
+    let string_ty = egraph.base_values_mut().register_type::<String>();
     // tables
     let diff = egraph.add_table(FunctionConfig {
         schema: vec![ColumnTy::Id, ColumnTy::Id, ColumnTy::Id],
@@ -411,9 +411,9 @@ fn math_test(mut egraph: EGraph, can_subsume: bool) {
         let two = egraph.base_values_mut().get(Rational64::new(2, 1));
         let three = egraph.base_values_mut().get(Rational64::new(3, 1));
         let seven = egraph.base_values_mut().get(Rational64::new(7, 1));
-        let x_str = egraph.base_values_mut().get::<&'static str>("x");
-        let y_str = egraph.base_values_mut().get::<&'static str>("y");
-        let five_str = egraph.base_values_mut().get::<&'static str>("five");
+        let x_str = egraph.base_values_mut().get::<String>("x".to_string());
+        let y_str = egraph.base_values_mut().get::<String>("y".to_string());
+        let five_str = egraph.base_values_mut().get::<String>("five".to_string());
         add_expressions! {
             [egraph]
 

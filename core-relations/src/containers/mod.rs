@@ -9,12 +9,15 @@
 //! functions than base values.
 
 use std::{
-    any::{Any, TypeId},
+    any::{type_name, Any},
     hash::{Hash, Hasher},
     ops::Deref,
 };
 
-use crate::numeric_id::{DenseIdMap, IdVec, NumericId, define_id};
+use crate::{
+    common::InternTable,
+    numeric_id::{define_id, DenseIdMap, IdVec, NumericId},
+};
 use crossbeam_queue::SegQueue;
 use dashmap::SharedValue;
 use rayon::{
@@ -22,13 +25,14 @@ use rayon::{
     prelude::*,
 };
 use rustc_hash::FxHasher;
+use serde::{Deserialize, Serialize};
 
 use crate::{
-    ColumnId, CounterId, ExecutionState, Offset, SubsetRef, TableId, TaggedRowBuffer, Value,
-    WrappedTable,
     common::{DashMap, IndexSet, SubsetTracker},
     parallel_heuristics::{parallelize_inter_container_op, parallelize_intra_container_op},
     table_spec::Rebuilder,
+    ColumnId, CounterId, ExecutionState, Offset, SubsetRef, TableId, TaggedRowBuffer, Value,
+    WrappedTable,
 };
 
 #[cfg(test)]
@@ -45,31 +49,14 @@ impl<T: Fn(&mut ExecutionState, Value, Value) -> Value + Clone + Send + Sync> Me
 // Implements `Clone` for `Box<dyn MergeFn>`.
 dyn_clone::clone_trait_object!(MergeFn);
 
-#[derive(Clone, Default)]
-struct ContainerIds {
-    ids: IndexSet<TypeId>,
-}
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Debug)]
+struct SerializableTypeId(String);
 
-impl ContainerIds {
-    fn insert(&mut self, ty: TypeId) -> ContainerValueId {
-        if let Some(idx) = self.ids.get_index_of(&ty) {
-            ContainerValueId::from_usize(idx)
-        } else {
-            let idx = self.ids.len();
-            self.ids.insert(ty);
-            ContainerValueId::from_usize(idx)
-        }
-    }
-
-    fn get(&self, ty: &TypeId) -> Option<ContainerValueId> {
-        self.ids.get_index_of(ty).map(ContainerValueId::from_usize)
-    }
-}
-
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct ContainerValues {
     subset_tracker: SubsetTracker,
-    container_ids: ContainerIds,
+    container_ids: InternTable<SerializableTypeId, ContainerValueId>,
+    #[serde(skip)]
     data: DenseIdMap<ContainerValueId, Box<dyn DynamicContainerEnv + Send + Sync>>,
 }
 
@@ -79,7 +66,11 @@ impl ContainerValues {
     }
 
     fn get<C: ContainerValue>(&self) -> Option<&ContainerEnv<C>> {
-        let id = self.container_ids.get(&TypeId::of::<C>())?;
+        let id = self
+            .container_ids
+            // We are using type names as unique identifiers despite explicitly being told not to do this by the type_name docs
+            // this is bad and we should not do anything like this in the real version, but this is a prototype (TM) so they can't stop us.
+            .intern(&SerializableTypeId(type_name::<C>().to_string()));
         let res = self.data.get(id)?.as_any();
         Some(res.downcast_ref::<ContainerEnv<C>>().unwrap())
     }
@@ -166,7 +157,11 @@ impl ContainerValues {
         id_counter: CounterId,
         merge_fn: impl MergeFn + 'static,
     ) -> ContainerValueId {
-        let id = self.container_ids.insert(TypeId::of::<C>());
+        let id = self
+            .container_ids
+            // We are using type names as unique identifiers despite explicitly being told not to do this by the type_name docs
+            // this is bad and we should not do anything like this in the real version, but this is a prototype (TM) so they can't stop us.
+            .intern(&SerializableTypeId(type_name::<C>().to_string()));
         self.data.get_or_insert(id, || {
             Box::new(ContainerEnv::<C>::new(Box::new(merge_fn), id_counter))
         });

@@ -5,8 +5,8 @@
 use std::{
     ops::Deref,
     sync::{
-        Arc,
         atomic::{AtomicBool, Ordering},
+        Arc,
     },
 };
 
@@ -16,14 +16,15 @@ use crate::{
     numeric_id::{DenseIdMap, NumericId},
 };
 use egglog_concurrency::NotificationList;
+use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
 use crate::{
-    BaseValues, ContainerValues, ExternalFunctionId, WrappedTable,
     common::Value,
     free_join::{CounterId, Counters, ExternalFunctions, TableId, TableInfo, Variable},
-    pool::{Clear, Pooled, with_pool_set},
+    pool::{with_pool_set, Clear, Pooled},
     table_spec::{ColumnId, MutationBuffer},
+    BaseValues, ContainerValues, ExternalFunctionId, WrappedTable,
 };
 
 use self::mask::{Mask, MaskIter, ValueSource};
@@ -82,7 +83,7 @@ impl From<CounterId> for WriteVal {
 }
 
 /// A value that can be written to the database during a merge action.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum MergeVal {
     /// A fresh value from the given counter.
     Counter(CounterId),

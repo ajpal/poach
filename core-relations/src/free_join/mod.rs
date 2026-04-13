@@ -2,35 +2,36 @@
 use std::{
     mem,
     sync::{
-        Arc,
         atomic::{AtomicUsize, Ordering},
+        Arc,
     },
 };
 
 use crate::{
     common::IndexSet,
     hash_index::IndexCatalog,
-    numeric_id::{DenseIdMap, DenseIdMapWithReuse, NumericId, define_id},
+    numeric_id::{define_id, DenseIdMap, DenseIdMapWithReuse, NumericId},
 };
 use egglog_concurrency::{NotificationList, ResettableOnceLock};
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
 use crate::{
-    BaseValues, ContainerValues, PoolSet, QueryEntry, TupleIndex, Value,
     action::{
-        Bindings, DbView,
         mask::{Mask, MaskIter, ValueSource},
+        Bindings, DbView,
     },
     dependency_graph::DependencyGraph,
     hash_index::{ColumnIndex, Index, IndexBase},
     offsets::Subset,
     parallel_heuristics::parallelize_db_level_op,
-    pool::{Pool, Pooled, with_pool_set},
+    pool::{with_pool_set, Pool, Pooled},
     query::{Query, RuleSetBuilder},
     table_spec::{
         ColumnId, Constraint, MutationBuffer, Table, TableSpec, WrappedTable, WrappedTableRef,
     },
+    BaseValues, ContainerValues, PoolSet, QueryEntry, TupleIndex, Value,
 };
 
 use self::plan::Plan;
@@ -54,6 +55,7 @@ impl Variable {
 }
 
 define_id!(pub TableId, u32, "a table in the database");
+
 define_id!(pub(crate) ActionId, u32, "an identifier picking out the RHS of a rule");
 
 #[derive(Debug)]
@@ -112,11 +114,14 @@ pub(crate) struct VarInfo {
 pub(crate) type HashIndex = Arc<ResettableOnceLock<Index<TupleIndex>>>;
 pub(crate) type HashColumnIndex = Arc<ResettableOnceLock<Index<ColumnIndex>>>;
 
+#[derive(Serialize, Deserialize)]
 pub struct TableInfo {
     pub(crate) name: Option<Arc<str>>,
     pub(crate) spec: TableSpec,
     pub(crate) table: WrappedTable,
+    #[serde(skip)]
     pub(crate) indexes: IndexCatalog<SmallVec<[ColumnId; 4]>, HashIndex>,
+    #[serde(skip)]
     pub(crate) column_indexes: IndexCatalog<ColumnId, HashColumnIndex>,
 }
 
@@ -239,7 +244,7 @@ dyn_clone::clone_trait_object!(ExternalFunction);
 pub(crate) type ExternalFunctions =
     DenseIdMapWithReuse<ExternalFunctionId, Box<dyn ExternalFunction>>;
 
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 pub(crate) struct Counters(DenseIdMap<CounterId, AtomicUsize>);
 
 impl Clone for Counters {
@@ -267,7 +272,7 @@ impl Counters {
 /// A collection of tables and indexes over them.
 ///
 /// A database also owns the memory pools used by its tables.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Database {
     // NB: some fields are pub(crate) to allow some internal modules to avoid
     // borrowing the whole table.
@@ -277,6 +282,7 @@ pub struct Database {
     // and incrementing locally. Note that the batch size shouldn't be too big
     // because we keep an array per id in the UF.
     pub(crate) counters: Counters,
+    #[serde(skip)]
     pub(crate) external_functions: ExternalFunctions,
     container_values: ContainerValues,
     /// `notification_list` contains the list of tables that have been modified since the last call
@@ -726,6 +732,12 @@ impl Database {
     pub(crate) fn plan_query(&mut self, query: Query) -> Plan {
         plan::plan_query(query)
     }
+
+    pub fn stabilize(&mut self) {
+        for (_, t) in self.tables.iter_mut() {
+            t.table.stabilize();
+        }
+    }
 }
 
 impl Drop for Database {
@@ -752,12 +764,10 @@ fn get_index_from_tableinfo(table_info: &TableInfo, cols: &[ColumnId]) -> HashIn
     index.get_or_update(|index| {
         index.refresh(table_info.table.as_ref());
     });
-    debug_assert!(
-        !index
-            .get()
-            .unwrap()
-            .needs_refresh(table_info.table.as_ref())
-    );
+    debug_assert!(!index
+        .get()
+        .unwrap()
+        .needs_refresh(table_info.table.as_ref()));
     index
 }
 
@@ -774,11 +784,9 @@ fn get_column_index_from_tableinfo(table_info: &TableInfo, col: ColumnId) -> Has
     index.get_or_update(|index| {
         index.refresh(table_info.table.as_ref());
     });
-    debug_assert!(
-        !index
-            .get()
-            .unwrap()
-            .needs_refresh(table_info.table.as_ref())
-    );
+    debug_assert!(!index
+        .get()
+        .unwrap()
+        .needs_refresh(table_info.table.as_ref()));
     index
 }

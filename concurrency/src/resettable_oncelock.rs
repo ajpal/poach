@@ -22,6 +22,12 @@ pub struct ResettableOnceLock<T> {
     update: Once,
 }
 
+impl<T: Default> Default for ResettableOnceLock<T> {
+    fn default() -> Self {
+        Self::new(T::default())
+    }
+}
+
 unsafe impl<T: Send> Send for ResettableOnceLock<T> {}
 unsafe impl<T: Send> Sync for ResettableOnceLock<T> {}
 

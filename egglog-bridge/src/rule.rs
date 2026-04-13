@@ -11,19 +11,20 @@ use crate::core_relations::{
     ColumnId, Constraint, CounterId, ExternalFunctionId, PlanStrategy, QueryBuilder,
     RuleBuilder as CoreRuleBuilder, RuleSetBuilder, TableId, Value, WriteVal,
 };
-use crate::numeric_id::{DenseIdMap, NumericId, define_id};
+use crate::numeric_id::{define_id, DenseIdMap, NumericId};
 use anyhow::Context;
 use hashbrown::HashSet;
 use log::debug;
+use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use thiserror::Error;
 
 use crate::syntax::SourceSyntax;
-use crate::{CachedPlanInfo, NOT_SUBSUMED, RowVals, SUBSUMED, SchemaMath};
 use crate::{
-    ColumnTy, DefaultVal, EGraph, FunctionId, Result, RuleId, RuleInfo, Timestamp,
     proof_spec::{ProofBuilder, RebuildVars},
+    ColumnTy, DefaultVal, EGraph, FunctionId, Result, RuleId, RuleInfo, Timestamp,
 };
+use crate::{CachedPlanInfo, RowVals, SchemaMath, NOT_SUBSUMED, SUBSUMED};
 
 define_id!(pub VariableId, u32, "A variable in an egglog query");
 define_id!(pub AtomId, u32, "an atom in an egglog query");
@@ -38,7 +39,7 @@ impl VariableId {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Variable {
     pub id: VariableId,
     pub name: Option<Box<str>>,
@@ -52,7 +53,7 @@ enum RuleBuilderError {
     ArityMismatch { expected: usize, got: usize },
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct VarInfo {
     ty: ColumnTy,
     name: Option<Box<str>>,
@@ -61,7 +62,7 @@ struct VarInfo {
     term_var: Variable,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum QueryEntry {
     Var(Variable),
     Const {
@@ -115,7 +116,7 @@ impl<T: Fn(&mut Bindings, &mut CoreRuleBuilder) -> Result<()> + Clone + Send + S
 dyn_clone::clone_trait_object!(Brc);
 type BuildRuleCallback = Box<dyn Brc>;
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct Query {
     uf_table: TableId,
     id_counter: CounterId,
@@ -127,6 +128,7 @@ pub(crate) struct Query {
     atom_proofs: Vec<Variable>,
     atoms: Vec<(TableId, Vec<QueryEntry>, SchemaMath)>,
     /// An optional callback to wire up proof-related metadata before running the RHS of a rule.
+    #[serde(skip)]
     build_reason: Option<BuildRuleCallback>,
     /// The builders for queries in this module essentially wrap the lower-level
     /// builders from the `core_relations` crate. A single egglog rule can turn
@@ -134,6 +136,7 @@ pub(crate) struct Query {
     /// series of callbacks that will iteratively build up a low-level rule that
     /// looks like the high-level rule, passing along an environment that keeps
     /// track of the mappings between low and high-level variables.
+    #[serde(skip)]
     add_rule: Vec<BuildRuleCallback>,
     /// If set, execute a single rule (rather than O(atoms.len()) rules) during
     /// seminaive, with the given atom as the focus.

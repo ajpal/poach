@@ -10,17 +10,19 @@
 //! The main complexity in the implementation here is to avoid contention in the common case that
 //! someone is notifying a table that has already been notified by a different thread.
 use std::sync::{
-    Arc, Mutex,
     atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
 };
 
 use crate::ConcurrentVec;
 use egglog_numeric_id::NumericId;
+use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
 /// Tracks which dense numeric identifiers have been notified since the last reset.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct NotificationList<K: NumericId> {
+    #[serde(skip, default)]
     inner: Arc<Inner<K>>,
 }
 

@@ -8,22 +8,23 @@ use std::{iter, sync::Arc};
 
 use crate::core_relations;
 use crate::core_relations::{
-    ColumnId, CounterId, ExecutionState, ExternalFunctionId, MergeVal, RuleBuilder, TableId, Value,
-    WriteVal, make_external_func,
+    make_external_func, ColumnId, CounterId, ExecutionState, ExternalFunctionId, MergeVal,
+    RuleBuilder, TableId, Value, WriteVal,
 };
-use crate::numeric_id::{DenseIdMap, IdVec, NumericId, define_id};
-use crate::{EGraph, NOT_SUBSUMED, ProofReason, QueryEntry, ReasonSpecId, Result, SchemaMath};
+use crate::numeric_id::{define_id, DenseIdMap, IdVec, NumericId};
+use crate::{EGraph, ProofReason, QueryEntry, ReasonSpecId, Result, SchemaMath, NOT_SUBSUMED};
+use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
 use crate::{
-    ColumnTy, FunctionId, RuleId,
     proof_spec::ProofBuilder,
     rule::{AtomId, Bindings, VariableId},
+    ColumnTy, FunctionId, RuleId,
 };
 
 define_id!(pub SyntaxId, u32, "an offset into a Syntax DAG.");
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TopLevelLhsExpr {
     /// Simply requires the presence of a term matching the given [`SourceExpr`].
     Exists(SyntaxId),
@@ -33,7 +34,7 @@ pub enum TopLevelLhsExpr {
 
 /// Representative source syntax for _one line_ of an egglog query, namely, the left-hand-side of
 /// an egglog rule.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SourceExpr {
     /// A constant.
     Const { ty: ColumnTy, val: Value },
@@ -65,8 +66,8 @@ pub enum SourceExpr {
 }
 
 /// A data-structure representing an egglog query. Essentially, multiple [`SourceExpr`]s, one per
-/// line, along with a backing store accounting for subterms indexed by [`SyntaxId`].
-#[derive(Debug, Clone, Default)]
+/// line, along with a backing store accounting for subterms indexed by [`SyntaxId].
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SourceSyntax {
     pub(crate) backing: IdVec<SyntaxId, SourceExpr>,
     pub(crate) vars: Vec<(VariableId, ColumnTy)>,
@@ -105,7 +106,7 @@ impl SourceSyntax {
 
 /// The data associated with a proof of a given term whose premises are given by a
 /// [`SourceSyntax`].
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct RuleData {
     pub(crate) rule_id: RuleId,
     pub(crate) syntax: SourceSyntax,

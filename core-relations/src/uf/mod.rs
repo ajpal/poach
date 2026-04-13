@@ -9,10 +9,10 @@ use std::{
 use crate::numeric_id::{DenseIdMap, NumericId};
 use crossbeam_queue::SegQueue;
 use indexmap::IndexMap;
-use petgraph::{Direction, Graph, algo::dijkstra, graph::NodeIndex, visit::EdgeRef};
+use petgraph::{algo::dijkstra, graph::NodeIndex, visit::EdgeRef, Direction, Graph};
+use serde::{Deserialize, Serialize};
 
 use crate::{
-    TableChange, TaggedRowBuffer,
     action::ExecutionState,
     common::{HashMap, IndexSet, Value},
     offsets::{OffsetRange, RowId, Subset, SubsetRef},
@@ -22,6 +22,7 @@ use crate::{
         ColumnId, Constraint, Generation, MutationBuffer, Offset, Rebuilder, Row, Table, TableSpec,
         TableVersion, WrappedTableRef,
     },
+    TableChange, TaggedRowBuffer,
 };
 
 #[cfg(test)]
@@ -53,12 +54,25 @@ type UnionFind = crate::union_find::UnionFind<Value>;
 /// `ts` is the current timestamp. Note that all tie-breaks and other encoding
 /// decisions are made internally, so there may not literally be a row added
 /// with this value.
+#[derive(Serialize, Deserialize)]
 pub struct DisplacedTable {
-    uf: UnionFind,
-    displaced: Vec<(Value, Value)>,
+    #[serde(skip)]
+    uf: UnionFind, // should be canonicalized by serialization time
+    // serializable as an array of integers
+    // the only IDs are leaders (because it's been canonicalized)
+    // k columns, k-1 are args, kth is the ID
+    // enode is the row index
+    // on deserialize: need to recompute this from `displaced`
+    #[serde(skip)]
+    displaced: Vec<(Value, Value)>, // this is "the table" everything else can be recomputed from this
+    // can even recanonicalize on serialization to get rid of dead things
+    #[serde(skip)]
     changed: bool,
+    #[serde(skip)]
     lookup_table: HashMap<Value, RowId>,
-    buffered_writes: Arc<SegQueue<RowBuffer>>,
+    #[serde(skip)]
+    buffered_writes: Arc<SegQueue<RowBuffer>>, // should be empty by the time we serialize
+                                               // deserialize can just make an empty one
 }
 
 struct Canonicalizer<'a> {
@@ -259,11 +273,16 @@ impl MutationBuffer for UfBuffer {
     }
 }
 
+#[typetag::serde]
 impl Table for DisplacedTable {
     fn dyn_clone(&self) -> Box<dyn Table> {
         Box::new(self.clone())
     }
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
     fn spec(&self) -> TableSpec {
@@ -539,6 +558,24 @@ pub struct DisplacedTableWithProvenance {
     buffered_writes: Arc<SegQueue<RowBuffer>>,
 }
 
+impl<'de> Deserialize<'de> for DisplacedTableWithProvenance {
+    fn deserialize<D>(_deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        todo!()
+    }
+}
+
+impl Serialize for DisplacedTableWithProvenance {
+    fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        todo!()
+    }
+}
+
 #[derive(Copy, Clone, Eq, PartialEq)]
 struct ProofEdge {
     reason: ProofReason,
@@ -765,6 +802,7 @@ impl DisplacedTableWithProvenance {
     }
 }
 
+#[typetag::serde]
 impl Table for DisplacedTableWithProvenance {
     fn refine_one(&self, mut subset: Subset, c: &Constraint) -> Subset {
         subset.retain(|row| self.eval(c, row));
@@ -848,6 +886,10 @@ impl Table for DisplacedTableWithProvenance {
         Box::new(self.clone())
     }
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
     fn clear(&mut self) {

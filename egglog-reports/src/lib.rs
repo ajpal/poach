@@ -1,6 +1,6 @@
 use clap::clap_derive::ValueEnum;
 use rustc_hash::FxHasher;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     fmt::{Display, Formatter},
     hash::BuildHasherDefault,
@@ -11,7 +11,7 @@ use web_time::Duration;
 pub(crate) type HashMap<K, V> = hashbrown::HashMap<K, V, BuildHasherDefault<FxHasher>>;
 pub(crate) type IndexSet<T> = indexmap::IndexSet<T, BuildHasherDefault<FxHasher>>;
 
-#[derive(ValueEnum, Default, Serialize, Debug, Clone, Copy)]
+#[derive(ValueEnum, Default, Serialize, Deserialize, Debug, Clone, Copy)]
 pub enum ReportLevel {
     /// Report only the time taken in each search/apply, merge, rebuild phase.
     #[default]
@@ -115,10 +115,11 @@ impl IterationReport {
 /// the database was updated.
 /// Calling `union` on two run reports adds the timing
 /// information together.
-#[derive(Debug, Serialize, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RunReport {
     // Since `IterationReport`s are immutable, we can reference count them to avoid
     // expensive cloning when e-graphs are cloned.
+    #[serde(skip)]
     pub iterations: Vec<Arc<IterationReport>>,
     /// If any changes were made to the database.
     pub updated: bool,

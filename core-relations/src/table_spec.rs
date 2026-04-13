@@ -10,20 +10,24 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use crate::numeric_id::{DenseIdMap, NumericId, define_id};
+use crate::{
+    numeric_id::{define_id, DenseIdMap, NumericId},
+    SortedWritesTable,
+};
+use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
 use crate::{
-    QueryEntry, TableId, Variable,
     action::{
-        Bindings, ExecutionState,
         mask::{Mask, MaskIter, ValueSource},
+        Bindings, ExecutionState,
     },
     common::Value,
     hash_index::{ColumnIndex, IndexBase, TupleIndex},
     offsets::{RowId, Subset, SubsetRef},
-    pool::{PoolSet, Pooled, with_pool_set},
+    pool::{with_pool_set, PoolSet, Pooled},
     row_buffer::{RowBuffer, TaggedRowBuffer},
+    DisplacedTable, DisplacedTableWithProvenance, QueryEntry, TableId, Variable,
 };
 
 define_id!(pub ColumnId, u32, "a particular column in a table");
@@ -39,7 +43,7 @@ define_id!(
 );
 
 /// The version of a table.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct TableVersion {
     /// New major generations invalidate all existing RowIds for a table.
     pub major: Generation,
@@ -50,7 +54,7 @@ pub struct TableVersion {
     // NB: we may want to make `Offset` and `RowId` the same.
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct TableSpec {
     /// The number of key columns for the table.
     pub n_keys: usize,
@@ -143,6 +147,7 @@ pub struct Row {
 }
 
 /// An interface for a table.
+#[typetag::serde]
 pub trait Table: Any + Send + Sync {
     /// A variant of clone that returns a boxed trait object; this trait object
     /// must contain all of the data associated with the current table.
@@ -177,6 +182,9 @@ pub trait Table: Any + Send + Sync {
     /// Implementors should be able to implement this method by returning
     /// `self`.
     fn as_any(&self) -> &dyn Any;
+
+    /// A mutable variant of [`Table::as_any`] for downcasting.
+    fn as_any_mut(&mut self) -> &mut dyn Any;
 
     /// The schema of the table.
     ///
@@ -336,6 +344,9 @@ pub trait Table: Any + Send + Sync {
     /// MutationBuffer that is then dropped may not take effect until the next call to
     /// [`Table::merge`].
     fn new_buffer(&self) -> Box<dyn MutationBuffer>;
+
+    /// Flush all stale data structures and prepare for serialization
+    fn stabilize(&mut self) {}
 }
 
 /// A trait specifying a buffer of pending mutations for a [`Table`].
@@ -358,6 +369,7 @@ pub trait MutationBuffer: Any + Send + Sync {
     fn fresh_handle(&self) -> Box<dyn MutationBuffer>;
 }
 
+#[derive(Default)]
 struct WrapperImpl<T>(PhantomData<T>);
 
 pub(crate) fn wrapper<T: Table>() -> Box<dyn TableWrapper> {
@@ -520,6 +532,38 @@ pub struct WrappedTable {
     wrapper: Box<dyn TableWrapper>,
 }
 
+impl Serialize for WrappedTable {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // serialize table only, wrapper can be recomputed
+        self.inner.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for WrappedTable {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let inner: Box<dyn Table> = Deserialize::deserialize(deserializer)?;
+        let wrapper = if inner.as_any().is::<SortedWritesTable>() {
+            wrapper::<SortedWritesTable>()
+        } else if inner.as_any().is::<DisplacedTable>() {
+            wrapper::<DisplacedTable>()
+        } else if inner.as_any().is::<DisplacedTableWithProvenance>() {
+            wrapper::<DisplacedTableWithProvenance>()
+        } else {
+            return Err(serde::de::Error::custom(
+                "unknown table type for WrappedTable",
+            ));
+        };
+
+        Ok(WrappedTable { inner, wrapper })
+    }
+}
+
 impl WrappedTable {
     pub(crate) fn new<T: Table>(inner: T) -> Self {
         let wrapper = wrapper::<T>();
@@ -533,6 +577,10 @@ impl WrappedTable {
             inner: self.inner.dyn_clone(),
             wrapper: self.wrapper.dyn_clone(),
         }
+    }
+
+    pub fn as_any_mut(&mut self) -> &mut dyn Any {
+        self.inner.as_any_mut()
     }
 
     pub(crate) fn as_ref(&self) -> WrappedTableRef<'_> {
@@ -619,6 +667,10 @@ impl WrappedTable {
         self.as_ref()
             .lookup_with_default_vectorized(mask, bindings, args, col, default, out_var)
     }
+
+    pub fn stabilize(&mut self) {
+        self.inner.stabilize();
+    }
 }
 
 impl Deref for WrappedTable {
@@ -663,10 +715,9 @@ pub(crate) trait TableWrapper: Send + Sync {
     fn scan(&self, table: &dyn Table, subset: SubsetRef) -> TaggedRowBuffer {
         let arity = table.spec().arity();
         let mut buf = TaggedRowBuffer::new(arity);
-        assert!(
-            self.scan_bounded(table, subset, Offset::new(0), usize::MAX, &mut buf)
-                .is_none()
-        );
+        assert!(self
+            .scan_bounded(table, subset, Offset::new(0), usize::MAX, &mut buf)
+            .is_none());
         buf
     }
 

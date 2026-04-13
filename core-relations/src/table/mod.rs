@@ -10,8 +10,8 @@ use std::{
     hash::Hasher,
     mem,
     sync::{
-        Arc, Weak,
         atomic::{AtomicUsize, Ordering},
+        Arc, Weak,
     },
 };
 
@@ -20,10 +20,10 @@ use crossbeam_queue::SegQueue;
 use hashbrown::HashTable;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 use rustc_hash::FxHasher;
+use serde::{ser::SerializeStruct, Deserialize, Deserializer, Serialize, Serializer};
 use sharded_hash_table::ShardedHashTable;
 
 use crate::{
-    Pooled, TableChange, TableId,
     action::ExecutionState,
     common::{HashMap, ShardData, ShardId, SubsetTracker, Value},
     hash_index::{ColumnIndex, Index},
@@ -35,6 +35,7 @@ use crate::{
         ColumnId, Constraint, Generation, MutationBuffer, Offset, Row, Table, TableSpec,
         TableVersion,
     },
+    Pooled, TableChange, TableId,
 };
 
 mod rebuild;
@@ -56,6 +57,35 @@ pub(crate) struct TableEntry {
     row: RowId,
 }
 
+impl Serialize for TableEntry {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut bytes = [0u8; 12];
+        let b1 = self.hashcode.to_be_bytes();
+        bytes[..b1.len()].copy_from_slice(&b1);
+        let b2 = self.row.rep.to_be_bytes();
+        bytes[b1.len()..].copy_from_slice(&b2);
+        serializer.serialize_bytes(&bytes)
+    }
+}
+
+impl<'de> Deserialize<'de> for TableEntry {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let bytes = <[u8; 12]>::deserialize(deserializer).expect("Failed to parse TabelEntry");
+        Ok(TableEntry {
+            hashcode: u64::from_be_bytes(bytes[..8].try_into().unwrap()),
+            row: RowId {
+                rep: u32::from_be_bytes(bytes[8..].try_into().unwrap()),
+            },
+        })
+    }
+}
+
 impl TableEntry {
     fn hashcode(&self) -> u64 {
         // We keep the cast here to make it easy to switch to HashCode=u32.
@@ -70,7 +100,7 @@ impl TableEntry {
 ///
 /// This type is a thin wrapper around `RowBuffer`. The big difference is that
 /// it keeps track of how many stale rows are present.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, Default)]
 struct Rows {
     data: RowBuffer,
     scratch: RowBuffer,
@@ -101,13 +131,21 @@ impl Rows {
 
     fn get_row(&self, row: RowId) -> Option<&[Value]> {
         let row = self.data.get_row(row);
-        if row[0].is_stale() { None } else { Some(row) }
+        if row[0].is_stale() {
+            None
+        } else {
+            Some(row)
+        }
     }
 
     /// A variant of `get_row` without bounds-checking on `row`.
     unsafe fn get_row_unchecked(&self, row: RowId) -> Option<&[Value]> {
         let row = unsafe { self.data.get_row_unchecked(row) };
-        if row[0].is_stale() { None } else { Some(row) }
+        if row[0].is_stale() {
+            None
+        } else {
+            Some(row)
+        }
     }
 
     fn add_row(&mut self, row: &[Value]) -> RowId {
@@ -151,6 +189,74 @@ pub struct SortedWritesTable {
     subset_tracker: SubsetTracker,
 }
 
+// Manual impls for (de)serialization here instead of on ShardedHashTable so that we
+// can use the fact that we know TableEntry stores its hashcode for rebuilding the HashTable after.
+
+impl<'de> Deserialize<'de> for SortedWritesTable {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Partial {
+            generation: Generation,
+            data: Rows,
+
+            n_keys: usize,
+            n_columns: usize,
+            sort_by: Option<ColumnId>,
+            offsets: Vec<(Value, RowId)>,
+
+            pending_state: Arc<PendingState>,
+
+            to_rebuild: Vec<ColumnId>,
+            //rebuild_index: Index<ColumnIndex>,
+            subset_tracker: SubsetTracker,
+        }
+
+        let partial = Partial::deserialize(deserializer)?;
+
+        let hash = ShardedHashTable::<TableEntry>::default();
+        let rebuild_index = Index::new(partial.to_rebuild.clone(), ColumnIndex::new());
+        let mut ret = SortedWritesTable {
+            generation: partial.generation,
+            data: partial.data,
+            hash,
+            n_keys: partial.n_keys,
+            n_columns: partial.n_columns,
+            sort_by: partial.sort_by,
+            offsets: partial.offsets,
+            pending_state: partial.pending_state,
+            merge: Arc::new(|_, _, _, _| true),
+            to_rebuild: partial.to_rebuild,
+            rebuild_index,
+            subset_tracker: partial.subset_tracker,
+        };
+        ret.rebuild_hash();
+        Ok(ret)
+    }
+}
+
+impl Serialize for SortedWritesTable {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("SortedWritesTable", 11)?;
+        state.serialize_field("generation", &self.generation)?;
+        state.serialize_field("data", &self.data)?;
+        state.serialize_field("n_keys", &self.n_keys)?;
+        state.serialize_field("n_columns", &self.n_columns)?;
+        state.serialize_field("sort_by", &self.sort_by)?;
+        state.serialize_field("offsets", &self.offsets)?;
+        state.serialize_field("pending_state", &self.pending_state)?;
+        state.serialize_field("to_rebuild", &self.to_rebuild)?;
+        state.serialize_field("subset_tracker", &self.subset_tracker)?;
+
+        state.end()
+    }
+}
+
 impl Clone for SortedWritesTable {
     fn clone(&self) -> SortedWritesTable {
         SortedWritesTable {
@@ -175,7 +281,7 @@ impl Clone for SortedWritesTable {
 /// We use this to handle empty keys, where the deletion API needs to handle "row buffers of empty
 /// rows". The goal here is to keep most of the API RowBuffer-centric and avoid complicating the
 /// code too much: actual code that was optimized to handle arity 0 would look a bit different.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 enum ArbitraryRowBuffer {
     NonEmpty(RowBuffer),
     Empty { rows: usize },
@@ -286,11 +392,16 @@ impl Drop for Buffer {
     }
 }
 
+#[typetag::serde]
 impl Table for SortedWritesTable {
     fn dyn_clone(&self) -> Box<dyn Table> {
         Box::new(self.clone())
     }
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
     fn clear(&mut self) {
@@ -510,6 +621,16 @@ impl Table for SortedWritesTable {
         })?;
         Some(self.data.get_row(id).unwrap()[col.index()])
     }
+
+    fn stabilize(&mut self) {
+        self.rehash();
+    }
+}
+
+impl SortedWritesTable {
+    pub fn set_merge(&mut self, merge: Box<MergeFn>) {
+        self.merge = merge.into();
+    }
 }
 
 impl SortedWritesTable {
@@ -573,7 +694,7 @@ impl SortedWritesTable {
                         let (actual_shard, hc) = hash_code(shard_data, to_remove, self.n_keys);
                         assert_eq!(actual_shard, shard_id);
                         if let Ok(entry) = shard.find_entry(hc, |entry| {
-                            entry.hashcode == (hc as _)
+                            entry.hashcode == hc
                                 && &self.data.get_row(entry.row).unwrap()[0..self.n_keys]
                                     == to_remove
                         }) {
@@ -612,7 +733,7 @@ impl SortedWritesTable {
                         let (actual_shard, hc) = hash_code(shard_data, to_remove, self.n_keys);
                         assert_eq!(actual_shard, shard_id);
                         if let Ok(entry) = shard.find_entry(hc, |entry| {
-                            entry.hashcode == (hc as _)
+                            entry.hashcode == hc
                                 && &self.data.get_row(entry.row).unwrap()[0..self.n_keys]
                                     == to_remove
                         }) {
@@ -978,7 +1099,11 @@ impl SortedWritesTable {
                 Constraint::GeConst { col, val } => res &= row[col.index()] >= *val,
             }
         }
-        if res { Some(row) } else { None }
+        if res {
+            Some(row)
+        } else {
+            None
+        }
     }
 
     fn maybe_rehash(&mut self) {
@@ -1191,6 +1316,25 @@ impl SortedWritesTable {
             &mut self.hash,
         )
     }
+
+    fn rebuild_hash_impl(n_keys: usize, rows: &mut Rows, hash: &mut ShardedHashTable<TableEntry>) {
+        for (id, r) in rows.data.iter().enumerate() {
+            let (shard, hc) = hash_code(hash.shard_data(), r, n_keys);
+            hash.mut_shards()[shard.index()].insert_unique(
+                hc as _,
+                TableEntry {
+                    hashcode: hc as _,
+                    row: RowId { rep: id as u32 },
+                },
+                TableEntry::hashcode,
+            );
+        }
+    }
+
+    fn rebuild_hash(&mut self) {
+        self.generation = self.generation.inc();
+        Self::rebuild_hash_impl(self.n_keys, &mut self.data, &mut self.hash)
+    }
 }
 
 fn get_entry(
@@ -1234,11 +1378,110 @@ fn hash_code(shard_data: ShardData, row: &[Value], n_keys: usize) -> (ShardId, u
 }
 
 /// A simple struct for packaging up pending mutations to a `SortedWritesTable`.
+#[derive(Serialize, Deserialize)]
+struct PendingStateSerde {
+    pending_rows: Vec<(ShardId, Vec<RowBuffer>)>,
+    pending_removals: Vec<(ShardId, Vec<ArbitraryRowBuffer>)>,
+    total_removals: usize,
+    total_rows: usize,
+}
+#[derive(Default)]
 struct PendingState {
     pending_rows: DenseIdMap<ShardId, SegQueue<RowBuffer>>,
     pending_removals: DenseIdMap<ShardId, SegQueue<ArbitraryRowBuffer>>,
     total_removals: AtomicUsize,
     total_rows: AtomicUsize,
+}
+
+fn snapshot_segqueue<T: Clone>(queue: &SegQueue<T>) -> Vec<T> {
+    let mut buf = Vec::new();
+    let mut tmp = Vec::new();
+
+    while let Some(item) = queue.pop() {
+        buf.push(item.clone());
+        tmp.push(item);
+    }
+    // restore items
+    for item in tmp {
+        queue.push(item);
+    }
+
+    buf
+}
+
+impl Serialize for PendingState {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // Snapshot the queues into serializable Vecs
+        let pending_rows_snapshot: Vec<(_, Vec<RowBuffer>)> = self
+            .pending_rows
+            .iter()
+            .map(|(k, q)| (k, snapshot_segqueue(q)))
+            .collect();
+
+        let pending_removals_snapshot: Vec<(_, Vec<ArbitraryRowBuffer>)> = self
+            .pending_removals
+            .iter()
+            .map(|(k, q)| (k, snapshot_segqueue(q)))
+            .collect();
+
+        let mut s = serializer.serialize_struct("PendingState", 4)?;
+        s.serialize_field("pending_rows", &pending_rows_snapshot)?;
+        s.serialize_field("pending_removals", &pending_removals_snapshot)?;
+        s.serialize_field(
+            "total_removals",
+            &self.total_removals.load(Ordering::Relaxed),
+        )?;
+        s.serialize_field("total_rows", &self.total_rows.load(Ordering::Relaxed))?;
+        s.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for PendingState {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // Define a helper that matches the serialized structure
+        #[derive(Deserialize)]
+        struct Partial {
+            pending_rows: Vec<(ShardId, Vec<RowBuffer>)>,
+            pending_removals: Vec<(ShardId, Vec<ArbitraryRowBuffer>)>,
+            total_removals: usize,
+            total_rows: usize,
+        }
+
+        let helper = Partial::deserialize(deserializer)?;
+
+        // Rebuild DenseIdMap<ShardId, SegQueue<RowBuffer>>
+        let mut pending_rows = DenseIdMap::default();
+        for (shard_id, rows_vec) in helper.pending_rows {
+            let q = SegQueue::new();
+            for row in rows_vec {
+                q.push(row);
+            }
+            pending_rows.insert(shard_id, q);
+        }
+
+        // Rebuild DenseIdMap<ShardId, SegQueue<ArbitraryRowBuffer>>
+        let mut pending_removals = DenseIdMap::default();
+        for (shard_id, removals_vec) in helper.pending_removals {
+            let q = SegQueue::new();
+            for removal in removals_vec {
+                q.push(removal);
+            }
+            pending_removals.insert(shard_id, q);
+        }
+
+        Ok(PendingState {
+            pending_rows,
+            pending_removals,
+            total_removals: AtomicUsize::new(helper.total_removals),
+            total_rows: AtomicUsize::new(helper.total_rows),
+        })
+    }
 }
 
 impl PendingState {

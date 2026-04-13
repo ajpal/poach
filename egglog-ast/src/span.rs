@@ -1,28 +1,49 @@
 use std::fmt::{self, Debug, Display};
 use std::sync::Arc;
 
+use serde::{Deserialize, Serialize};
+
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub enum Span {
     Panic,
     Egglog(Arc<EgglogSpan>),
     Rust(Arc<RustSpan>),
+    POACH,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+impl serde::Serialize for Span {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_unit()
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Span {
+    fn deserialize<D>(_: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Ok(Self::POACH)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct EgglogSpan {
     pub file: Arc<SrcFile>,
     pub i: usize,
     pub j: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RustSpan {
-    pub file: &'static str,
+    pub file: String,
     pub line: u32,
     pub column: u32,
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize)]
 pub struct SrcFile {
     pub name: Option<String>,
     pub contents: String,
@@ -53,6 +74,7 @@ impl Span {
             Span::Panic => panic!("Span::Panic in Span::string"),
             Span::Rust(_) => panic!("Span::Rust cannot track end position"),
             Span::Egglog(span) => &span.file.contents[span.i..span.j],
+            Span::POACH => "From POACH deserialization",
         }
     }
 }
@@ -95,6 +117,7 @@ impl Display for Span {
                     }
                 }
             }
+            Span::POACH => write!(f, "From POACH deserialization"),
         }
     }
 }

@@ -7,8 +7,8 @@ use crate::common::{ShardData, ShardId};
 
 #[derive(Clone)]
 pub(crate) struct ShardedHashTable<T> {
-    shard_data: ShardData,
-    shards: Vec<HashTable<T>>,
+    pub shard_data: ShardData,
+    pub shards: Vec<HashTable<T>>,
 }
 
 impl<T> Default for ShardedHashTable<T> {
