@@ -1176,6 +1176,12 @@ impl EGraph {
         self.type_info.restore_deserialized_runtime_metadata();
         self.type_info.clear_primitives();
 
+        // Re-register runtime sort storage with the backend. Container sort
+        // registries are transient and are not serialized with the egraph.
+        for sort in self.type_info.all_sorts() {
+            sort.register_type(&mut self.backend);
+        }
+
         let mut sorts = self
             .type_info
             .all_sorts()

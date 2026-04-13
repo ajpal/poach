@@ -532,13 +532,61 @@ pub struct WrappedTable {
     wrapper: Box<dyn TableWrapper>,
 }
 
+#[derive(Serialize)]
+#[serde(tag = "type", content = "data")]
+enum SerializableWrappedTable<'a> {
+    SortedWrites(&'a SortedWritesTable),
+    CanonicalDisplaced(CanonicalDisplacedTable),
+    CanonicalDisplacedWithProvenance(CanonicalDisplacedTableWithProvenance),
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type", content = "data")]
+enum DeserializableWrappedTable {
+    SortedWrites(SortedWritesTable),
+    CanonicalDisplaced(CanonicalDisplacedTable),
+    CanonicalDisplacedWithProvenance(CanonicalDisplacedTableWithProvenance),
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct CanonicalDisplacedTable {
+    rows: Vec<[Value; 3]>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct CanonicalDisplacedTableWithProvenance {
+    rows: Vec<[Value; 4]>,
+}
+
 impl Serialize for WrappedTable {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        // serialize table only, wrapper can be recomputed
-        self.inner.serialize(serializer)
+        let serialized =
+            if let Some(table) = self.inner.as_any().downcast_ref::<SortedWritesTable>() {
+                SerializableWrappedTable::SortedWrites(table)
+            } else if let Some(table) = self.inner.as_any().downcast_ref::<DisplacedTable>() {
+                SerializableWrappedTable::CanonicalDisplaced(CanonicalDisplacedTable {
+                    rows: table.serialized_rows(),
+                })
+            } else if let Some(table) = self
+                .inner
+                .as_any()
+                .downcast_ref::<DisplacedTableWithProvenance>()
+            {
+                SerializableWrappedTable::CanonicalDisplacedWithProvenance(
+                    CanonicalDisplacedTableWithProvenance {
+                        rows: table.serialized_rows(),
+                    },
+                )
+            } else {
+                return Err(serde::ser::Error::custom(
+                    "unknown table type for WrappedTable",
+                ));
+            };
+
+        serialized.serialize(serializer)
     }
 }
 
@@ -547,7 +595,15 @@ impl<'de> Deserialize<'de> for WrappedTable {
     where
         D: serde::Deserializer<'de>,
     {
-        let inner: Box<dyn Table> = Deserialize::deserialize(deserializer)?;
+        let inner: Box<dyn Table> = match DeserializableWrappedTable::deserialize(deserializer)? {
+            DeserializableWrappedTable::SortedWrites(table) => Box::new(table),
+            DeserializableWrappedTable::CanonicalDisplaced(table) => {
+                Box::new(DisplacedTable::from_serialized_rows(&table.rows))
+            }
+            DeserializableWrappedTable::CanonicalDisplacedWithProvenance(table) => Box::new(
+                DisplacedTableWithProvenance::from_serialized_rows(&table.rows),
+            ),
+        };
         let wrapper = if inner.as_any().is::<SortedWritesTable>() {
             wrapper::<SortedWritesTable>()
         } else if inner.as_any().is::<DisplacedTable>() {
