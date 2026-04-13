@@ -1,6 +1,6 @@
-use egglog::util::INTERNAL_SYMBOL_PREFIX;
 use egglog::ast::*;
 use egglog::util::FreshGen;
+use egglog::util::INTERNAL_SYMBOL_PREFIX;
 use egglog::*;
 use egglog_ast::span::{RustSpan, Span};
 use std::sync::Arc;
