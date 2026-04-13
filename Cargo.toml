@@ -89,6 +89,9 @@ keywords = ["e-graphs", "persistence"]
 license = "MIT"
 readme = "README.md"
 
+[lib]
+name = "egglog"
+
 
 [[bench]]
 name = "ci_benchmarking"
