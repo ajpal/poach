@@ -1,25 +1,12 @@
-use poach::EGraph;
-
-use std::{
-    fs::File,
-    io::{self, Write},
-    path::PathBuf,
-    process::exit,
-    time::Instant,
-};
+use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
 
-use crate::report::{MetricValue, RunReport, with_report};
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
 #[command(propagate_version = true)]
 struct Cli {
-    /// Directory where run reports are written as JSON
-    #[arg(short, long)]
-    output_dir: PathBuf,
-
     #[command(subcommand)]
     command: Commands,
 }
@@ -74,16 +61,13 @@ enum ServeCommands {
     ///   reads a single .egg file
     ///   which means it is closed
     ///   prints output to stdout
-    Single { input_file: PathBuf },
+    Single {input_file: PathBuf},
     /// Batch input:
     ///   reads all .egg files in the input directory
     ///   writes outputs files to the output directory
     ///   the order of the input files should not matter
     ///   this means the model only needs to be loaded once for all
-    Batch {
-        input_dir: PathBuf,
-        output_dir: PathBuf,
-    },
+    Batch {input_dir: PathBuf, output_dir: PathBuf},
 }
 
 #[derive(Debug, Args)]
@@ -106,137 +90,39 @@ struct FineTuneArgs {
 }
 
 #[derive(Debug, Args)]
-struct TestArgs {}
+struct TestArgs{
+}
 
-pub fn poach() {
+pub fn poach () {
     let cli = Cli::parse();
-    let output_dir = cli.output_dir;
-    let report_path = output_dir.join("report.json");
-    let report = match cli.command {
-        Commands::Train(arg) => train(arg),
-        Commands::Serve(arg) => serve(arg),
-        Commands::FineTune(arg) => fine_tune(arg),
-        Commands::Test(_) => todo!("test not yet implemented"),
-    };
-
-    if let Some(parent) = report_path.parent() {
-        std::fs::create_dir_all(parent).unwrap_or_else(|err| {
-            panic!(
-                "Failed to create report directory {}: {err}",
-                parent.display()
-            )
-        });
-    }
-
-    let report_file = File::create(&report_path).unwrap_or_else(|err| {
-        panic!(
-            "Failed to create report file {}: {err}",
-            report_path.display()
-        )
-    });
-    serde_json::to_writer_pretty(report_file, &report).unwrap_or_else(|err| {
-        panic!(
-            "Failed to write report file {}: {err}",
-            report_path.display()
-        )
-    });
-}
-
-/// VanillaEgglog's model is just unit
-/// Still, it would create an empty file
-fn train(arg: TrainArgs) -> RunReport {
-    let (_, report) = with_report("train", |_reporter| {
-        let _ = File::create(arg.output_model_file.as_path());
-    });
-    report
-}
-
-/// VanillaEgglog
-fn serve(arg: ServeArgs) -> RunReport {
-    let (_, report) = with_report("serve", |reporter| match arg.serve_command {
-        None => {
-            let mut egraph = EGraph::default();
-
-            rayon::ThreadPoolBuilder::new()
-                .num_threads(1)
-                .build_global()
-                .unwrap();
-
-            match egraph.repl(poach::RunMode::Normal) {
-                Ok(_) => {}
-                _ => {
-                    exit(-1);
-                }
-            }
+    match cli.command {
+        Commands::Train(arg) => {
+            train(arg);
         }
-        Some(cmd) => match cmd {
-            ServeCommands::Single { input_file: input } => {
-                let started_at = Instant::now();
-
-                let program = reporter.time("read_input", || {
-                    std::fs::read_to_string(input.as_path())
-                        .map_err(|_| format!("Failed to read file {}", input.display()))
-                });
-                let program = match program {
-                    Ok(program) => program,
-                    Err(err) => {
-                        eprintln!("{err}");
-                        exit(-1);
-                    }
-                };
-                reporter.record_size("input_bytes", MetricValue::Bytes(program.len() as u64));
-
-                let mut egraph = reporter.time("build_egraph", || {
-                    rayon::ThreadPoolBuilder::new()
-                        .num_threads(1)
-                        .build_global()
-                        .unwrap();
-                    EGraph::default()
-                });
-
-                let outputs = reporter.time("run_program", || {
-                    egraph.parse_and_run_program(Some(input.display().to_string()), &program)
-                });
-                let outputs = match outputs {
-                    Ok(outputs) => outputs,
-                    Err(err) => {
-                        eprintln!("{err}");
-                        exit(-1);
-                    }
-                };
-
-                reporter.record_size("command_outputs", MetricValue::Count(outputs.len() as u64));
-                reporter.record_size(
-                    "egraph_tuples",
-                    MetricValue::Count(egraph.num_tuples() as u64),
-                );
-
-                reporter.time("print_outputs", || {
-                    let mut stdout = io::stdout();
-                    for output in outputs {
-                        write!(stdout, "{output}").expect("failed to write command output");
-                    }
-                });
-
-                reporter.record_timing("serve", started_at.elapsed());
-            }
-            ServeCommands::Batch {
-                input_dir: _,
-                output_dir: _,
-            } => {
-                //TODO
-                panic!("Batch not implemented");
-            }
-        },
-    });
-    report
+        Commands::Serve(arg) => {
+            serve(arg);
+        }
+        Commands::FineTune(arg) => {
+            fine_tune(arg);
+        }
+        Commands::Test(arg) => {
+            println!("test({:?})", arg);
+        }
+    }
+    // TODO handle report IO
 }
 
-/// VanillaEgglog's model is just unit
-/// Still, it would create an empty file
-fn fine_tune(arg: FineTuneArgs) -> RunReport {
-    let (_, report) = with_report("fine_tune", |_reporter| {
-        let _ = File::create(arg.output_model_file.as_path());
-    });
-    report
+fn train(arg : TrainArgs) {
+    println!("train({:?})", arg);
+    //TODO
+}
+
+fn serve(arg: ServeArgs) {
+    println!("serve({:?})", arg);
+    //TODO
+}
+
+fn fine_tune(arg: FineTuneArgs) {
+    println!("fine_tune({:?})", arg);
+    //TODO
 }
