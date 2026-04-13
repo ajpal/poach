@@ -146,6 +146,10 @@ egglog-numeric-id = { workspace = true }
 egglog-add-primitive = { workspace = true }
 egglog-reports = { workspace = true }
 serde_json = { workspace = true }
+serde = { workspace = true }
+tracing-subscriber = "0.3.23"
+tracing = "0.1.44"
+serde_millis = "0.1.1"
 
 [build-dependencies]
 chrono = { workspace = true, features = ["now"], optional = true }
