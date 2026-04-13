@@ -79,13 +79,10 @@ impl Serialize for DisplacedTable {
             rows: Vec<[Value; 3]>,
         }
 
-        let rows = self
-            .displaced
-            .iter()
-            .map(|(child, ts)| [*child, self.uf.find_naive(*child), *ts])
-            .collect();
-
-        Partial { rows }.serialize(serializer)
+        Partial {
+            rows: self.serialized_rows(),
+        }
+        .serialize(serializer)
     }
 }
 
@@ -100,14 +97,7 @@ impl<'de> Deserialize<'de> for DisplacedTable {
         }
 
         let partial = Partial::deserialize(deserializer)?;
-        let mut table = DisplacedTable::default();
-        for row in partial.rows {
-            table
-                .insert_impl(&row)
-                .expect("serialized displaced rows should reconstruct the table");
-        }
-        table.changed = false;
-        Ok(table)
+        Ok(Self::from_serialized_rows(&partial.rows))
     }
 }
 
@@ -517,6 +507,24 @@ impl Table for DisplacedTable {
 }
 
 impl DisplacedTable {
+    pub(crate) fn serialized_rows(&self) -> Vec<[Value; 3]> {
+        self.displaced
+            .iter()
+            .map(|(child, ts)| [*child, self.uf.find_naive(*child), *ts])
+            .collect()
+    }
+
+    pub(crate) fn from_serialized_rows(rows: &[[Value; 3]]) -> Self {
+        let mut table = DisplacedTable::default();
+        for row in rows {
+            table
+                .insert_impl(row)
+                .expect("serialized displaced rows should reconstruct the table");
+        }
+        table.changed = false;
+        table
+    }
+
     pub fn underlying_uf(&self) -> &UnionFind {
         &self.uf
     }
@@ -595,20 +603,34 @@ pub struct DisplacedTableWithProvenance {
 }
 
 impl<'de> Deserialize<'de> for DisplacedTableWithProvenance {
-    fn deserialize<D>(_deserializer: D) -> Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        todo!()
+        #[derive(Deserialize)]
+        struct Partial {
+            rows: Vec<[Value; 4]>,
+        }
+
+        let partial = Partial::deserialize(deserializer)?;
+        Ok(Self::from_serialized_rows(&partial.rows))
     }
 }
 
 impl Serialize for DisplacedTableWithProvenance {
-    fn serialize<S>(&self, _serializer: S) -> Result<S::Ok, S::Error>
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        todo!()
+        #[derive(Serialize)]
+        struct Partial {
+            rows: Vec<[Value; 4]>,
+        }
+
+        Partial {
+            rows: self.serialized_rows(),
+        }
+        .serialize(serializer)
     }
 }
 
@@ -632,6 +654,38 @@ pub enum ProofReason {
 }
 
 impl DisplacedTableWithProvenance {
+    pub(crate) fn serialized_rows(&self) -> Vec<[Value; 4]> {
+        let mut rows = self
+            .proof_graph
+            .edge_references()
+            .filter_map(|edge| {
+                let ProofReason::Forward(reason) = edge.weight().reason else {
+                    return None;
+                };
+                Some((
+                    edge.id().index(),
+                    [
+                        *self.proof_graph.node_weight(edge.source()).unwrap(),
+                        *self.proof_graph.node_weight(edge.target()).unwrap(),
+                        edge.weight().ts,
+                        reason,
+                    ],
+                ))
+            })
+            .collect::<Vec<_>>();
+        rows.sort_unstable_by_key(|(idx, _)| *idx);
+        rows.into_iter().map(|(_, row)| row).collect()
+    }
+
+    pub(crate) fn from_serialized_rows(rows: &[[Value; 4]]) -> Self {
+        let mut table = DisplacedTableWithProvenance::default();
+        for row in rows {
+            table.insert_impl(row);
+        }
+        table.base.changed = false;
+        table
+    }
+
     fn expand(&self, row: RowId) -> [Value; 4] {
         let [v1, v2, v3] = self.base.expand(row);
         let (child, parent) = self.displaced[row.index()];

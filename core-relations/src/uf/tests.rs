@@ -6,7 +6,7 @@ use crate::{
     common::Value,
     table_spec::{ColumnId, Constraint, Table},
     uf::ProofReason,
-    DisplacedTableWithProvenance, ProofStep,
+    DisplacedTableWithProvenance, ProofStep, WrappedTable,
 };
 
 use super::DisplacedTable;
@@ -120,6 +120,79 @@ fn displaced_roundtrip_rebuilds_runtime_state() {
 
     let mut rows = Vec::new();
     restored.scan_generic(restored.all().as_ref(), |_, row| rows.push(row.to_vec()));
+    assert_eq!(
+        rows,
+        vec![
+            vec![v(1), v(0), v(0)],
+            vec![v(3), v(0), v(1)],
+            vec![v(2), v(0), v(2)],
+        ]
+    );
+}
+
+#[test]
+fn displaced_proof_roundtrip_rebuilds_runtime_state() {
+    empty_execution_state!(e);
+    let p1 = Value::new(1000);
+    let p2 = p1.inc();
+    let p3 = p2.inc();
+    let mut d = DisplacedTableWithProvenance::default();
+    {
+        let mut buf = d.new_buffer();
+        buf.stage_insert(&[v(0), v(1), v(0), p1]);
+        buf.stage_insert(&[v(2), v(3), v(0), p2]);
+        buf.stage_insert(&[v(2), v(0), v(1), p3]);
+    }
+    d.merge(&mut e);
+
+    let mut serializer = FlexbufferSerializer::new();
+    d.serialize(&mut serializer).unwrap();
+    let reader = flexbuffers::Reader::get_root(serializer.view()).unwrap();
+    let restored = DisplacedTableWithProvenance::deserialize(reader).unwrap();
+
+    let proof = restored.get_proof(v(0), v(3)).unwrap();
+    assert_eq!(
+        proof,
+        vec![
+            ProofStep {
+                lhs: v(0),
+                rhs: v(2),
+                reason: ProofReason::Backward(p3),
+            },
+            ProofStep {
+                lhs: v(2),
+                rhs: v(3),
+                reason: ProofReason::Forward(p2),
+            },
+        ]
+    );
+}
+
+#[test]
+fn wrapped_displaced_table_serializes_as_canonical_snapshot() {
+    empty_execution_state!(e);
+    let mut d = DisplacedTable::default();
+    {
+        let mut buf = d.new_buffer();
+        buf.stage_insert(&[v(0), v(1), v(0)]);
+        buf.stage_insert(&[v(2), v(3), v(1)]);
+        buf.stage_insert(&[v(1), v(3), v(2)]);
+    }
+    d.merge(&mut e);
+
+    let wrapped = WrappedTable::new(d);
+    let json = serde_json::to_string(&wrapped).unwrap();
+    assert!(json.contains("CanonicalDisplaced"));
+    assert!(!json.contains("DisplacedTable"));
+
+    let restored: WrappedTable = serde_json::from_str(&json).unwrap();
+    assert!(restored.as_any().is::<DisplacedTable>());
+
+    let rows = restored
+        .scan(restored.all().as_ref())
+        .iter()
+        .map(|(_, row)| row.to_vec())
+        .collect::<Vec<_>>();
     assert_eq!(
         rows,
         vec![
