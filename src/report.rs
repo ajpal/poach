@@ -23,7 +23,7 @@ struct SpanStats {
 
 #[derive(Serialize)]
 pub struct RunReport {
-    label: String,
+    command: String,
     timing: TimingReport,
     sizes: Vec<SizeMetric>,
 }
@@ -86,7 +86,7 @@ impl Reporter {
         entry.total += elapsed;
     }
 
-    pub fn build_report(&self, label: String) -> RunReport {
+    pub fn build_report(&self, command: String) -> RunReport {
         let mut steps: Vec<_> = self
             .spans
             .iter()
@@ -100,7 +100,7 @@ impl Reporter {
         steps.sort_by(|left, right| right.total.cmp(&left.total));
 
         RunReport {
-            label,
+            command,
             timing: TimingReport {
                 total: self
                     .spans
@@ -116,7 +116,7 @@ impl Reporter {
 
 impl Display for RunReport {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln!(f, "Report for {}:", self.label)?;
+        writeln!(f, "Report for {}:", self.command)?;
         write!(f, "{}", self.timing)?;
         write_metric_section(f, "sizes", &self.sizes)?;
         Ok(())
