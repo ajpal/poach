@@ -3,6 +3,7 @@ use egglog::EGraph;
 use std::{fs::File, path::PathBuf, process::exit};
 
 use clap::{Args, Parser, Subcommand};
+use walkdir::WalkDir;
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
@@ -145,11 +146,6 @@ fn serve(arg: ServeArgs) {
                 ServeCommands::Single { input_file: input } => {
                     let mut egraph = EGraph::default();
 
-                    rayon::ThreadPoolBuilder::new()
-                        .num_threads(1)
-                        .build_global()
-                        .unwrap();
-
                     let program = std::fs::read_to_string(input.as_path()).unwrap_or_else(|_| {
                         let arg = input.to_string_lossy();
                         panic!("Failed to read file {arg}")
@@ -169,11 +165,48 @@ fn serve(arg: ServeArgs) {
                     }
                 }
                 ServeCommands::Batch {
-                    input_dir: _,
-                    output_dir: _,
+                    input_dir,
+                    output_dir,
                 } => {
-                    //TODO
-                    panic!("Batch not implemented");
+                    std::fs::create_dir_all(&output_dir).expect("Failed to create output dir");
+
+                    // input_dir must be a directory for batch mode
+                    if !input_dir.is_dir() {
+                        panic!("Input path is not a directory: {:?}", input_dir);
+                    }
+
+                    let mut input_files: Vec<PathBuf> = WalkDir::new(&input_dir)
+                        .into_iter()
+                        .filter_map(|entry| entry.ok())
+                        .filter(|entry| entry.file_type().is_file())
+                        .filter(|entry| {
+                            entry.path().extension().and_then(|s| s.to_str()) == Some("egg")
+                        })
+                        .map(|entry| entry.path().to_path_buf())
+                        .collect();
+                    input_files.sort();
+                    
+                    for input in input_files {
+                        println!("Processing {}", input.display());
+                        let mut egraph = EGraph::default();
+
+                        let program = std::fs::read_to_string(&input).expect("failed to read .egg file");
+
+                        match egraph.parse_and_run_program(
+                            Some(input.to_string_lossy().into_owned()),
+                            &program,
+                        ) {
+                            Ok(msgs) => {
+                                for msg in msgs {
+                                    print!("{msg}");
+                                }
+                            }
+                            Err(err) => {
+                                eprintln!("Failed to process {}: {err}", input.display());
+                                exit(-1);
+                            }
+                        }
+                    }
                 }
             }
         }
