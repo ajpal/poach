@@ -124,14 +124,14 @@ fn train(arg: TrainArgs) {
 
 /// VanillaEgglog
 fn serve(arg: ServeArgs) {
-    match arg.serve_command {
-        None => {
-            let mut egraph = EGraph::default();
-
-            rayon::ThreadPoolBuilder::new()
+    rayon::ThreadPoolBuilder::new()
                 .num_threads(1)
                 .build_global()
                 .unwrap();
+
+    match arg.serve_command {
+        None => {
+            let mut egraph = EGraph::default();
 
             match egraph.repl(egglog::RunMode::Normal) {
                 Ok(_) => {}
