@@ -1,4 +1,4 @@
-use poach::{EGraph};
+use egglog::EGraph;
 
 use std::{fs::File, path::PathBuf, process::exit};
 
@@ -118,7 +118,7 @@ pub fn poach() {
 
 /// VanillaEgglog's model is just unit
 /// Still, it would create an empty file
-fn train(arg : TrainArgs) {
+fn train(arg: TrainArgs) {
     let _ = File::create(arg.output_model_file.as_path());
 }
 
@@ -133,7 +133,7 @@ fn serve(arg: ServeArgs) {
                 .build_global()
                 .unwrap();
 
-            match egraph.repl(poach::RunMode::Normal) {
+            match egraph.repl(egglog::RunMode::Normal) {
                 Ok(_) => {}
                 _ => {
                     exit(-1);
@@ -142,7 +142,7 @@ fn serve(arg: ServeArgs) {
         }
         Some(cmd) => {
             match cmd {
-                ServeCommands::Single{input_file: input} => {
+                ServeCommands::Single { input_file: input } => {
                     let mut egraph = EGraph::default();
 
                     rayon::ThreadPoolBuilder::new()
@@ -155,7 +155,9 @@ fn serve(arg: ServeArgs) {
                         panic!("Failed to read file {arg}")
                     });
 
-                    match egraph.parse_and_run_program(Some(input.to_str().unwrap().into()), &program) {
+                    match egraph
+                        .parse_and_run_program(Some(input.to_str().unwrap().into()), &program)
+                    {
                         Ok(msgs) => {
                             for msg in msgs {
                                 print!("{msg}");
@@ -166,7 +168,10 @@ fn serve(arg: ServeArgs) {
                         }
                     }
                 }
-                ServeCommands::Batch{input_dir:_, output_dir:_} => {
+                ServeCommands::Batch {
+                    input_dir: _,
+                    output_dir: _,
+                } => {
                     //TODO
                     panic!("Batch not implemented");
                 }
