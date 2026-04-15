@@ -24,13 +24,20 @@ h1 {
   margin: 0 0 16px;
 }
 
-#raw-data {
-  margin: 0;
-  padding: 16px;
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
+table {
+  width: 100%;
+  border-collapse: collapse;
   border: 1px solid #ccc;
-  border-radius: 8px;
   background: #fff;
+}
+
+th,
+td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #ddd;
+  text-align: left;
+}
+
+th {
+  background: #f0f0f0;
 }
