@@ -43,3 +43,6 @@ json: $(patsubst %.egg,%.json,$(filter-out $(wildcard tests/repro-*.egg),$(wildc
 
 rm-graphs:
 	rm -f tests/*.dot tests/*.svg
+
+nightly:
+	bash infra/nightly.sh
