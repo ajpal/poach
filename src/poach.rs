@@ -1,5 +1,7 @@
-use egglog::EGraph;
-
+use egglog::{
+    report::{MetricValue, Reporter},
+    EGraph,
+};
 use std::{fs::File, path::PathBuf, process::exit};
 
 use clap::{Args, Parser, Subcommand};
@@ -61,9 +63,12 @@ struct ServeArgs {
 enum ServeCommands {
     /// Single File input:
     ///   reads a single .egg file
-    ///   which means it is closed
-    ///   prints output to stdout
-    Single { input_file: PathBuf },
+    ///   writes output file to the output directory
+    Single {
+        input_file: PathBuf,
+        output_dir: PathBuf,    
+    },
+
     /// Batch input:
     ///   reads all .egg files in the input directory
     ///   writes outputs files to the output directory
@@ -143,21 +148,56 @@ fn serve(arg: ServeArgs) {
         }
         Some(cmd) => {
             match cmd {
-                ServeCommands::Single { input_file: input } => {
+                ServeCommands::Single { input_file: input, output_dir: out_dir } => {
                     let mut egraph = EGraph::default();
+                    let mut reporter = Reporter::new();
+                    std::fs::create_dir_all(&out_dir).expect("Failed to create output dir");
 
+                    let serve_timer = reporter.start_timer("serve".to_string());
+                    let read_timer = reporter.start_timer("read_program".to_string());
                     let program = std::fs::read_to_string(input.as_path()).unwrap_or_else(|_| {
                         let arg = input.to_string_lossy();
                         panic!("Failed to read file {arg}")
                     });
+                    reporter.finish_timer(read_timer);
 
-                    match egraph
-                        .parse_and_run_program(Some(input.to_str().unwrap().into()), &program)
-                    {
+                    let run_timer = reporter.start_timer("run_program".to_string());
+                    let parsed = egraph
+                        .parser
+                        .get_program_from_string(Some(input.to_str().unwrap().into()), &program)
+                        .unwrap_or_else(|err| panic!("Failed to parse {}: {err}", input.display()));
+                    match egraph.run_program_with_reporter(parsed, &mut reporter) {
                         Ok(msgs) => {
+                            reporter.finish_timer(run_timer);
+                            let num_outputs = msgs.len() as u64;
                             for msg in msgs {
                                 print!("{msg}");
                             }
+                            reporter.finish_timer(serve_timer);
+                            reporter.record_size(
+                                "program_bytes".to_string(),
+                                MetricValue::Bytes(program.len() as u64),
+                            );
+                            reporter.record_size(
+                                "num_tuples".to_string(),
+                                MetricValue::Count(egraph.num_tuples() as u64),
+                            );
+                            reporter.record_size(
+                                "num_outputs".to_string(),
+                                MetricValue::Count(num_outputs),
+                            );
+                            let report_path = out_dir.join(
+                                input
+                                    .file_stem()
+                                    .expect("input file should have a file stem"),
+                            )
+                            .with_extension("report.json");
+                            let report_file = File::create(&report_path).expect("failed to create report file");
+                            serde_json::to_writer_pretty(
+                                report_file,
+                                &reporter.build_report(input.to_string_lossy().into_owned()),
+                            )
+                            .expect("failed to write report");
                         }
                         _ => {
                             exit(-1);
