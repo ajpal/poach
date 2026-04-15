@@ -10,7 +10,19 @@
     <main class="page">
       <h1>Poach Nightly</h1>
       <p id="status">Loading <code>data/data.json</code>...</p>
-      <pre id="raw-data"></pre>
+
+      <table id="benchmark-table">
+        <thead>
+          <tr>
+            <th>Benchmark</th>
+            <th>Running Rules</th>
+            <th>Extraction</th>
+            <th>Other</th>
+            <th>Total</th>
+          </tr>
+        </thead>
+        <tbody id="benchmark-table-body"></tbody>
+      </table>
     </main>
 
     <script type="module" src="./index.js"></script>
