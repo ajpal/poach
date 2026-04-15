@@ -24,6 +24,10 @@ h1 {
   margin: 0 0 16px;
 }
 
+#summary {
+  margin: 0 0 16px;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;

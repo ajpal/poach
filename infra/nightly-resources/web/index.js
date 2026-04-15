@@ -1,4 +1,5 @@
 const statusNode = document.querySelector("#status");
+const summaryNode = document.querySelector("#summary");
 const tableBodyNode = document.querySelector("#benchmark-table-body");
 
 load();
@@ -12,10 +13,20 @@ async function load() {
 
     const data = await response.json();
     statusNode.textContent = "Loaded data/data.json";
+    renderSummary(data.summary);
     renderBenchmarks(data.benchmarks);
   } catch (error) {
     statusNode.textContent = `Failed to load data/data.json: ${error}`;
   }
+}
+
+function renderSummary(summary) {
+  summaryNode.textContent =
+    `Benchmarks: ${summary.benchmark_count} | ` +
+    `Running Rules: ${summary.running_rules_ms} ms | ` +
+    `Extraction: ${summary.extraction_ms} ms | ` +
+    `Other: ${summary.other_ms} ms | ` +
+    `Total: ${summary.total_tagged_ms} ms`;
 }
 
 function renderBenchmarks(benchmarks) {
