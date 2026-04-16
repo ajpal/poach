@@ -1,5 +1,5 @@
-use egglog::{extract::DefaultCost, *};
-use egglog_ast::span::{RustSpan, Span};
+use poach::{extract::DefaultCost, *};
+use poach::prelude::{RustSpan, Span};
 
 #[test]
 fn globals_missing_prefix_warns_by_default() {
@@ -853,14 +853,14 @@ fn test_serialize_subsume_status() {
     assert!(serialize_output.is_complete());
     let a_id = egraph.to_node_id(
         None,
-        egglog::SerializedNode::Function {
+        SerializedNode::Function {
             name: "a".into(),
             offset: 0,
         },
     );
     let b_id = egraph.to_node_id(
         None,
-        egglog::SerializedNode::Function {
+        SerializedNode::Function {
             name: "b".into(),
             offset: 0,
         },

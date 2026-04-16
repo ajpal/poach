@@ -1221,7 +1221,7 @@ impl EGraph {
                                 expr.output_type(),
                             )
                             .iter()
-                            .map(|e| e.1.clone())
+                            .map(|e| e.1)
                             .collect();
                         if log_enabled!(Level::Info) {
                             let expr_str = expr.to_string();

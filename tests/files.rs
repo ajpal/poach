@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use egglog::*;
+use poach::*;
 use hashbrown::HashSet;
 use libtest_mimic::Trial;
 

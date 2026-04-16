@@ -1,4 +1,4 @@
-use egglog::EGraph;
+use poach::EGraph;
 
 #[test]
 fn test_desugar_includes() {
