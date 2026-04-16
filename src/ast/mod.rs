@@ -195,9 +195,11 @@ where
             GenericNCommand::Extract(span, expr, variants) => {
                 GenericNCommand::Extract(span, expr.visit_exprs(f), variants.visit_exprs(f))
             }
-            GenericNCommand::MultiExtract(span, variants, exprs) => {
-                GenericNCommand::MultiExtract(span, variants.visit_exprs(f), exprs.into_iter().map(|e| e.visit_exprs(f)).collect())
-            }
+            GenericNCommand::MultiExtract(span, variants, exprs) => GenericNCommand::MultiExtract(
+                span,
+                variants.visit_exprs(f),
+                exprs.into_iter().map(|e| e.visit_exprs(f)).collect(),
+            ),
             GenericNCommand::Check(span, facts) => GenericNCommand::Check(
                 span,
                 facts.into_iter().map(|fact| fact.visit_exprs(f)).collect(),
@@ -1351,9 +1353,11 @@ where
             GenericCommand::Extract(span, expr, variants) => {
                 GenericCommand::Extract(span, expr.make_unresolved(), variants.make_unresolved())
             }
-            GenericCommand::MultiExtract(span, variants, exprs) => {
-                GenericCommand::MultiExtract(span, variants.make_unresolved(), exprs.into_iter().map(|e| e.make_unresolved()).collect())
-            }
+            GenericCommand::MultiExtract(span, variants, exprs) => GenericCommand::MultiExtract(
+                span,
+                variants.make_unresolved(),
+                exprs.into_iter().map(|e| e.make_unresolved()).collect(),
+            ),
             GenericCommand::RunSchedule(schedule) => {
                 GenericCommand::RunSchedule(schedule.make_unresolved())
             }
