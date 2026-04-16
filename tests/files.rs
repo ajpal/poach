@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
-use poach::*;
 use hashbrown::HashSet;
 use libtest_mimic::Trial;
+use poach::*;
 
 #[derive(Clone)]
 struct Run {

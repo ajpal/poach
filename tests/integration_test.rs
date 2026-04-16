@@ -1,5 +1,5 @@
-use poach::{extract::DefaultCost, *};
 use poach::prelude::{RustSpan, Span};
+use poach::{extract::DefaultCost, *};
 
 #[test]
 fn globals_missing_prefix_warns_by_default() {
