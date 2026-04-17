@@ -1173,7 +1173,7 @@ impl EGraph {
         Ok(RunReport::singleton(ruleset, iteration_report))
     }
 
-    fn restore_deserialized_runtime(&mut self) -> Result<(), Error> {
+    pub fn restore_deserialized_runtime(&mut self) -> Result<(), Error> {
         self.type_info.restore_deserialized_runtime_metadata();
         self.type_info.clear_primitives();
 

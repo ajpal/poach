@@ -6,10 +6,11 @@ use poach::EGraph;
 
 use std::fs::File;
 use std::io::prelude::*;
+use std::process::exit;
 
-use flexbuffers::FlexbufferSerializer;
+use flexbuffers::{FlexbufferSerializer, Reader};
 
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
@@ -134,14 +135,7 @@ fn serialize_egraph_to_file(egraph: &mut EGraph, output_file: &Path) {
     let Ok(mut file) = File::create(output_file) else {
         panic!("Failed to create file");
     };
-    file.write_all(buf.view());
-}
-
-fn deserialize_egraph_from_file(egraph_file: &Path) -> EGraph {
-    //TODO: must guarantee everything has been reloaded.
-    let mut egraph = EGraph::default();
-
-    return egraph;
+    let _ = file.write_all(buf.view());
 }
 
 /// SerializeEgraph assumes a single input egglog program
@@ -170,9 +164,75 @@ fn train(arg: TrainArgs) {
     }
 }
 
+fn deserialize_egraph_from_file(egraph_file: &Path) -> EGraph {
+    let Ok(mut file) = File::open(egraph_file) else {
+        panic!("Failed to open input egraph file");
+    };
+    let mut buf = Vec::new();
+    let Ok(_) = file.read_to_end(&mut buf) else {
+        panic!("Failed to read from file");
+    };
+
+    let r = Reader::get_root(buf.as_slice()).unwrap();
+
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build_global()
+        .unwrap();
+    
+    let mut egraph = EGraph::deserialize(r).unwrap();
+
+    let Ok(_) = egraph.restore_deserialized_runtime() else {
+        panic!("Failed to restore deserialized runtime");
+    };
+
+    return egraph;
+}
+
 fn serve(arg: ServeArgs) {
-    println!("serve({:?})", arg);
-    //TODO
+    let mut egraph = deserialize_egraph_from_file(arg.model_file.as_path());
+
+    match arg.serve_command {
+        None => {
+            match egraph.repl(poach::RunMode::Normal) {
+                Ok(_) => {}
+                _ => {
+                    exit(-1);
+                }
+            }
+        }
+        Some(cmd) => {
+            match cmd {
+                ServeCommands::Single { input_file: input } => {
+
+                    let program = std::fs::read_to_string(input.as_path()).unwrap_or_else(|_| {
+                        let arg = input.to_string_lossy();
+                        panic!("Failed to read file {arg}")
+                    });
+
+                    match egraph
+                        .parse_and_run_program(Some(input.to_str().unwrap().into()), &program)
+                    {
+                        Ok(msgs) => {
+                            for msg in msgs {
+                                print!("{msg}");
+                            }
+                        }
+                        Err(e) => {
+                            panic!("Failed to execute {:} with error {:?}", input.to_string_lossy(), e);
+                        }
+                    }
+                }
+                ServeCommands::Batch {
+                    input_dir: _,
+                    output_dir: _,
+                } => {
+                    //TODO
+                    panic!("Batch not implemented");
+                }
+            }
+        }
+    }    
 }
 
 fn fine_tune(arg: FineTuneArgs) {
