@@ -89,6 +89,9 @@ keywords = ["e-graphs", "persistence"]
 license = "MIT"
 readme = "README.md"
 
+[lib]
+name = "egglog"
+
 
 [[bench]]
 name = "ci_benchmarking"
@@ -150,6 +153,7 @@ serde = { workspace = true }
 tracing-subscriber = "0.3.23"
 tracing = "0.1.44"
 serde_millis = "0.1.1"
+walkdir = "2.5.0"
 
 [build-dependencies]
 chrono = { workspace = true, features = ["now"], optional = true }
