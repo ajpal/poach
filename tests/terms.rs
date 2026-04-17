@@ -1,4 +1,4 @@
-use egglog::*;
+use poach::*;
 
 // This file tests the public API to terms.
 

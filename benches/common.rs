@@ -1,4 +1,4 @@
-use egglog::EGraph;
+use poach::{EGraph, SerializeConfig};
 use std::{fmt, sync::Once};
 
 #[global_allocator]
@@ -12,7 +12,7 @@ pub fn run_example(filename: &str, program: &str) {
         .parse_and_run_program(Some(filename.to_owned()), program)
         .unwrap();
     // test performance of serialization as well
-    egraph.serialize(egglog::SerializeConfig::default());
+    egraph.serialize(SerializeConfig::default());
     // We don't destruct the e-graph in CLI mode.
     std::mem::forget(egraph);
 }
