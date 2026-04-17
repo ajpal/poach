@@ -31,6 +31,8 @@ pub use command_macro::{CommandMacro, CommandMacroRegistry};
 
 mod size;
 pub use size::*;
+mod custom_schedulers;
+pub use custom_schedulers::*;
 
 // This is used to allow the `add_primitive` macro to work in
 // both this crate and other crates by referring to `::egglog`.
@@ -350,6 +352,8 @@ impl Default for EGraph {
 
         // Additional features ported from egglog-experimental.
         eg.add_primitive(GetSizePrimitive);
+        eg.add_command("run-schedule".into(), Arc::new(RunExtendedSchedule))
+            .unwrap();
 
         eg
     }
