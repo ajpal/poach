@@ -11,13 +11,25 @@
       <h1>Poach Nightly</h1>
       <p id="status">Loading <code>data/data.json</code>...</p>
       <div id="contents">
-        <!-- Put tables/charts/etc here -->
-         <div id="summary"></div>
+        <div id="summary"></div>
 
+        <table id="benchmark-table">
+          <thead>
+            <tr>
+              <th>Benchmark</th>
+              <th>Running Rules</th>
+              <th>Extraction</th>
+              <th>Other</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody id="benchmark-table-body"></tbody>
+        </table>
       </div>
     </main>
 
-    <script type="module" src="./index.js"></script>
     <script type="module" src="./util.js"></script>
+    <script type="module" src="./index.js"></script>
+  
   </body>
 </html>

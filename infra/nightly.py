@@ -59,10 +59,12 @@ def run_benchmarks(benchmark_dir: Path) -> None:
     REPORT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     command = [
-        str(POACH_BIN),         # poach binary
-                                # fill in other args
-        str(benchmark_dir),     # input files
-        str(REPORT_OUTPUT_DIR), # output dir
+        str(POACH_BIN),
+        "serve",
+        "empty.model",
+        "batch",
+        str(benchmark_dir),
+        str(REPORT_OUTPUT_DIR),
     ]
     print("Running benchmarks:", " ".join(command))
     subprocess.run(command, check=True, cwd=REPO_ROOT)
@@ -73,12 +75,83 @@ def aggregate_reports(benchmark_dir: Path) -> dict[str, Any]:
     if not report_files:
         raise SystemExit(f"No report files were generated under {REPORT_OUTPUT_DIR}")
 
+    benchmarks = []
+    running_rules_total = 0
+    extraction_total = 0
+    other_total = 0
+
+    for report_path in report_files:
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        relative_report_path = report_path.relative_to(OUTPUT_DIR).as_posix()
+        relative_benchmark_path = report_path.relative_to(REPORT_OUTPUT_DIR).with_suffix(".egg")
+
+        timing = report.get("timing", {})
+        steps = timing.get("steps", [])
+        running_rules_ms = sum(
+            step.get("total", 0)
+            for step in steps
+            if "running_rules" in step.get("tags", [])
+        )
+        extraction_ms = sum(
+            step.get("total", 0)
+            for step in steps
+            if "extraction" in step.get("tags", [])
+        )
+        other_ms = sum(
+            step.get("total", 0)
+            for step in steps
+            if "other" in step.get("tags", [])
+        )
+
+        running_rules_total += running_rules_ms
+        extraction_total += extraction_ms
+        other_total += other_ms
+
+        metrics = extract_size_metrics(report.get("sizes", []))
+        benchmarks.append(
+            {
+                "name": relative_benchmark_path.stem,
+                "path": relative_benchmark_path.as_posix(),
+                "report_path": relative_report_path,
+                "running_rules_ms": running_rules_ms,
+                "extraction_ms": extraction_ms,
+                "other_ms": other_ms,
+                "total_tagged_ms": running_rules_ms + extraction_ms + other_ms,
+                "report_total_ms": timing.get("total", 0),
+                "metrics": metrics,
+                "steps": steps,
+            }
+        )
+
+    benchmarks.sort(key=lambda row: row["total_tagged_ms"], reverse=True)
+
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "suite": benchmark_dir.name,
         "benchmark_root": str(benchmark_dir.relative_to(REPO_ROOT)),
-        "summary": {},
+        "summary": {
+            "benchmark_count": len(benchmarks),
+            "running_rules_ms": running_rules_total,
+            "extraction_ms": extraction_total,
+            "other_ms": other_total,
+            "total_tagged_ms": running_rules_total + extraction_total + other_total,
+        },
+        "benchmarks": benchmarks,
     }
+
+
+def extract_size_metrics(size_entries: list[dict[str, Any]]) -> dict[str, int]:
+    metrics: dict[str, int] = {}
+    for entry in size_entries:
+        name = entry.get("name")
+        value = entry.get("value", {})
+        if not name or not isinstance(value, dict):
+            continue
+        if "Count" in value:
+            metrics[name] = value["Count"]
+        elif "Bytes" in value:
+            metrics[name] = value["Bytes"]
+    return metrics
 
 
 if __name__ == "__main__":
