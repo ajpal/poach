@@ -164,8 +164,8 @@ fn train(arg: TrainArgs) {
         Ok(_) => {
             serialize_egraph_to_file(&mut egraph, arg.output_model_file.as_path());
         }
-        _ => {
-            panic!("Failed to execute {:}", input.to_string_lossy());
+        Err(e) => {
+            panic!("Failed to execute {:} with error {:?}", input.to_string_lossy(), e);
         }
     }
 }
