@@ -29,6 +29,9 @@ mod typechecking;
 pub mod util;
 pub use command_macro::{CommandMacro, CommandMacroRegistry};
 
+mod size;
+pub use size::*;
+
 // This is used to allow the `add_primitive` macro to work in
 // both this crate and other crates by referring to `::egglog`.
 extern crate self as egglog;
@@ -344,6 +347,9 @@ impl Default for EGraph {
 
         eg.rulesets
             .insert("".into(), Ruleset::Rules(Default::default()));
+
+        // Additional features ported from egglog-experimental.
+        eg.add_primitive(GetSizePrimitive);
 
         eg
     }
