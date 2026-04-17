@@ -1057,6 +1057,9 @@ impl<'a> TermState<'a> {
             ResolvedNCommand::Extract(..) => {
                 // TODO we just omit extract for now, support in future
             }
+            ResolvedNCommand::MultiExtract(..) => {
+                // TODO we just omit multi-extract for now, support in future
+            }
             ResolvedNCommand::UserDefined(..) => {
                 panic!("User defined commands unsupported in term encoding");
             }

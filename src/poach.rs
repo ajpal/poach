@@ -69,13 +69,16 @@ enum ServeCommands {
     ///   reads a single .egg file
     ///   which means it is closed
     ///   prints output to stdout
-    Single {input_file: PathBuf},
+    Single { input_file: PathBuf },
     /// Batch input:
     ///   reads all .egg files in the input directory
     ///   writes outputs files to the output directory
     ///   the order of the input files should not matter
     ///   this means the model only needs to be loaded once for all
-    Batch {input_dir: PathBuf, output_dir: PathBuf},
+    Batch {
+        input_dir: PathBuf,
+        output_dir: PathBuf,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -98,10 +101,9 @@ struct FineTuneArgs {
 }
 
 #[derive(Debug, Args)]
-struct TestArgs{
-}
+struct TestArgs {}
 
-pub fn poach () {
+pub fn poach() {
     let cli = Cli::parse();
     match cli.command {
         Commands::Train(arg) => {
@@ -143,7 +145,7 @@ fn deserialize_egraph_from_file(egraph_file: &Path) -> EGraph {
 }
 
 /// SerializeEgraph assumes a single input egglog program
-fn train(arg : TrainArgs) {
+fn train(arg: TrainArgs) {
     let mut egraph = EGraph::default();
 
     rayon::ThreadPoolBuilder::new()

@@ -127,7 +127,7 @@ graphviz = ["egraph-serialize/graphviz"]
 
 [dependencies]
 clap = { workspace = true, features = ["derive"], optional = true }
-egraph-serialize = { workspace = true}
+egraph-serialize = { workspace = true }
 env_logger = { workspace = true, optional = true }
 hashbrown = { workspace = true }
 im-rc = { workspace = true }
@@ -152,6 +152,9 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 flexbuffers = { workspace = true }
 typetag = { workspace = true }
+tracing-subscriber = "0.3.23"
+tracing = "0.1.44"
+serde_millis = "0.1.1"
 
 [build-dependencies]
 chrono = { workspace = true, features = ["now"], optional = true }

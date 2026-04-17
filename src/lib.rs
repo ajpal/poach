@@ -40,12 +40,12 @@ pub use cli::*;
 use constraint::{Constraint, Problem, SimpleTypeConstraint, TypeConstraint};
 pub use core::{Atom, AtomTerm, ResolvedCall};
 use core::{CoreActionContext, ResolvedAtomTerm};
-use core_relations::{make_external_func, ExternalFunctionId};
 pub use core_relations::{BaseValue, ContainerValue, ExecutionState, Value};
+use core_relations::{ExternalFunctionId, make_external_func};
 use csv::Writer;
 pub use egglog_add_primitive::add_primitive;
 use egglog_ast::generic_ast::{Change, GenericExpr, Literal};
-use egglog_ast::span::Span;
+use egglog_ast::span::{self, Span};
 use egglog_ast::util::ListDisplay;
 pub use egglog_bridge::FunctionRow;
 use egglog_bridge::{ColumnTy, QueryEntry};
@@ -54,7 +54,7 @@ use egglog_numeric_id as numeric_id;
 use egglog_reports::{ReportLevel, RunReport};
 use extract::{CostModel, DefaultCost, Extractor, TreeAdditiveCostModel};
 use indexmap::map::Entry;
-use log::{log_enabled, Level};
+use log::{Level, log_enabled};
 use numeric_id::DenseIdMap;
 use prelude::*;
 use scheduler::{SchedulerId, SchedulerRecord};
@@ -82,7 +82,7 @@ use util::*;
 use crate::ast::desugar::desugar_command;
 use crate::core::{GenericActionsExt, ResolvedRuleExt};
 pub use crate::term_encoding::file_supports_proofs;
-use crate::term_encoding::{command_supports_proof_encoding, EncodingState, TermState};
+use crate::term_encoding::{EncodingState, TermState, command_supports_proof_encoding};
 
 pub const GLOBAL_NAME_PREFIX: &str = "$";
 
@@ -1444,10 +1444,7 @@ impl EGraph {
         }
     }
 
-    fn run_command(
-        &mut self,
-        command: ResolvedNCommand,
-    ) -> Result<Option<CommandOutput>, Error> {
+    fn run_command(&mut self, command: ResolvedNCommand) -> Result<Option<CommandOutput>, Error> {
         match command {
             // Sorts are already declared during typechecking
             ResolvedNCommand::Sort(_span, name, _presort_and_args) => {
