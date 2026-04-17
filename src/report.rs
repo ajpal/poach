@@ -6,7 +6,7 @@ use serde::Serialize;
 
 #[derive(Default)]
 pub struct Reporter {
-    spans: HashMap<String, SpanStats>,
+    spans: HashMap<(String, Vec<String>), SpanStats>,
     sizes: Vec<SizeMetric>,
 }
 
@@ -39,6 +39,7 @@ pub struct TimingReport {
 #[derive(Serialize)]
 struct TimingStep {
     name: String,
+    tags: Vec<String>,
     count: u64,
     #[serde(with = "serde_millis")]
     total: Duration,
@@ -69,19 +70,22 @@ impl Reporter {
     }
 
     pub fn finish_timer(&mut self, timer: Timer) {
-        self.record_span_time(&timer.name, timer.started_at.elapsed());
+        self.record_span_time(&timer.name, &[], timer.started_at.elapsed());
     }
 
     pub fn record_size(&mut self, name: String, value: MetricValue) {
         self.sizes.push(SizeMetric { name, value });
     }
 
-    pub fn record_timing(&mut self, name: String, elapsed: Duration) {
-        self.record_span_time(&name, elapsed);
+    pub fn record_timing(&mut self, name: String, tags: Vec<String>, elapsed: Duration) {
+        self.record_span_time(&name, &tags, elapsed);
     }
 
-    fn record_span_time(&mut self, name: &str, elapsed: Duration) {
-        let entry = self.spans.entry(name.to_owned()).or_default();
+    fn record_span_time(&mut self, name: &str, tags: &[String], elapsed: Duration) {
+        let entry = self
+            .spans
+            .entry((name.to_owned(), tags.to_vec()))
+            .or_default();
         entry.count += 1;
         entry.total += elapsed;
     }
@@ -90,9 +94,10 @@ impl Reporter {
         let mut steps: Vec<_> = self
             .spans
             .iter()
-            .filter(|(name, _)| name.as_str() != "command")
-            .map(|(name, stats)| TimingStep {
+            .filter(|((name, _), _)| name.as_str() != "command")
+            .map(|((name, tags), stats)| TimingStep {
                 name: name.clone(),
+                tags: tags.clone(),
                 count: stats.count,
                 total: stats.total,
             })
@@ -104,7 +109,7 @@ impl Reporter {
             timing: TimingReport {
                 total: self
                     .spans
-                    .get("command")
+                    .get(&("command".to_string(), vec![]))
                     .map(|stats| stats.total)
                     .unwrap_or_default(),
                 steps,
@@ -139,10 +144,16 @@ impl Display for TimingReport {
             } else {
                 Duration::from_secs_f64(step.total.as_secs_f64() / step.count as f64)
             };
+            let tag_display = if step.tags.is_empty() {
+                "untagged".to_string()
+            } else {
+                step.tags.join(",")
+            };
             writeln!(
                 f,
-                "    {}: total={}, count={}, avg={}",
+                "    {} [{}]: total={}, count={}, avg={}",
                 step.name,
+                tag_display,
                 step.total.as_secs_f64(),
                 step.count,
                 avg.as_secs_f64(),
