@@ -1,8 +1,8 @@
-use poach::ast::*;
-use poach::prelude::{RustSpan, Span};
-use poach::util::FreshGen;
-use poach::util::INTERNAL_SYMBOL_PREFIX;
-use poach::*;
+use egglog::ast::*;
+use egglog::util::FreshGen;
+use egglog::util::INTERNAL_SYMBOL_PREFIX;
+use egglog::*;
+use egglog_ast::span::{RustSpan, Span};
 use std::sync::Arc;
 
 // Macro that prefixes rule names with a specific prefix
@@ -69,7 +69,7 @@ impl CommandMacro for AddPrintSizeAfterRuleMacro {
                 if let [Fact::Fact(GenericExpr::Call(_span, head, _children))] = body.as_slice() {
                     return Ok(vec![
                         command,
-                        Command::PrintSize(poach::span!(), Some(head.to_string())),
+                        Command::PrintSize(span!(), Some(head.to_string())),
                     ]);
                 }
                 Ok(vec![command])
