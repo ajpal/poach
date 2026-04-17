@@ -10,6 +10,7 @@ readme = { workspace = true }
 
 [dependencies]
 rayon = { workspace = true }
+serde = { workspace = true }
 
 [features]
 default = []

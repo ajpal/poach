@@ -13,6 +13,7 @@ arc-swap = { workspace = true}
 rayon = { workspace = true}
 egglog-numeric-id = { workspace = true }
 smallvec = { workspace = true }
+serde = { workspace = true }
 
 [dev-dependencies]
 divan = { workspace = true}

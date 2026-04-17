@@ -12,6 +12,7 @@ readme = { workspace = true }
 egglog-numeric-id = { workspace = true }
 crossbeam = { workspace = true }
 egglog-concurrency = { workspace = true }
+serde = { workspace = true }
 
 [dev-dependencies]
 divan = { workspace = true }

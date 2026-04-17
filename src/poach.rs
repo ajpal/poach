@@ -124,8 +124,7 @@ pub fn poach () {
 
 // mut is necessary due to possible canonicalization before serializing
 fn serialize_egraph_to_file(egraph: &mut EGraph, output_file: &Path) {
-    // TODO: canonicalize before serialization
-    // egraph.stabilize();
+    egraph.stabilize();
 
     let mut buf = FlexbufferSerializer::new();
     Serialize::serialize(egraph, &mut buf).expect("Failed to serialize the egraph to Flexbuffer");

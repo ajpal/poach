@@ -22,7 +22,6 @@ pub mod extract;
 pub mod prelude;
 pub mod scheduler;
 mod serialize_vis;
-pub mod size;
 pub mod sort;
 mod term_encoding;
 mod termdag;
@@ -30,13 +29,10 @@ mod typechecking;
 pub mod util;
 pub use command_macro::{CommandMacro, CommandMacroRegistry};
 
-pub mod serialize_size;
-
 // This is used to allow the `add_primitive` macro to work in
 // both this crate and other crates by referring to `::egglog`.
 extern crate flexbuffers;
 extern crate self as egglog;
-use anyhow::{Context, Result};
 use ast::*;
 pub use ast::{ResolvedExpr, ResolvedFact, ResolvedVar};
 #[cfg(feature = "bin")]
@@ -65,18 +61,16 @@ use scheduler::{SchedulerId, SchedulerRecord};
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use serialize_size::GenerateSizeReport;
 pub use serialize_vis::{SerializeConfig, SerializeOutput, SerializedNode};
-use size::GetSizePrimitive;
 use sort::*;
 use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
-use std::fs::{self, read_to_string, File};
+use std::fs::File;
 use std::hash::Hash;
-use std::io::{BufWriter, Read, Write as _};
+use std::io::{Read, Write};
 use std::iter::once;
 use std::ops::Deref;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 pub use termdag::{Term, TermDag, TermId};
