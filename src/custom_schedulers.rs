@@ -123,8 +123,13 @@ impl ScheduleState {
                 };
 
                 if let Some(until) = until {
-                    // Parse the facts from the `until` expression
-                    let res = query(egraph, &[], Facts(vec![Fact::Fact(until)]))?;
+                    let fact = match until {
+                        Expr::Call(span, head, args) if head == "=" && args.len() == 2 => {
+                            Fact::Eq(span, args[0].clone(), args[1].clone())
+                        }
+                        other => Fact::Fact(other),
+                    };
+                    let res = query(egraph, &[], Facts(vec![fact]))?;
                     if res.any_matches() {
                         return Ok(RunReport::default());
                     }
