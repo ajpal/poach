@@ -18,6 +18,7 @@
 ## Conventions + Style
 
 - Avoid defensive code that adds complexity without a clear, likely payoff.
+- Prefer simple `expect("...")` messages over custom `unwrap_or_else` panic paths when the extra detail is not useful.
 
 ## Response format
 

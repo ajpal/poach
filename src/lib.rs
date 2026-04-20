@@ -1583,10 +1583,9 @@ impl EGraph {
                     ResolvedNCommand::Check(_, _) => "check",
                     _ => "other",
                 };
-                let timer = std::time::Instant::now();
+                let timer = reporter.start_timer(command_name, vec![command_category.to_string()]);
                 let result = self.run_command(processed)?;
-                let elapsed = timer.elapsed();
-                reporter.record_timing(command_name, vec![command_category.to_string()], elapsed);
+                reporter.finish_timer(timer);
                 if let Some(output) = result {
                     outputs.push(output);
                 }

@@ -1,6 +1,6 @@
-use poach::EGraph;
+use poach::{EGraph, ast::Parser as EgglogParser, report::Reporter};
 
-use std::{fs::File, path::PathBuf, process::exit};
+use std::{fs::File, io::stderr, path::PathBuf, process::exit};
 
 use clap::{Args, Parser, Subcommand};
 
@@ -144,16 +144,26 @@ pub fn poach() {
             }
             ServeMode::Single { input_file: input } => {
                 let mut egraph = EGraph::default();
+                let mut parser = EgglogParser::default();
+                let mut reporter = Reporter::new();
 
-                let program = std::fs::read_to_string(input.as_path()).unwrap_or_else(|_| {
-                    let arg = input.to_string_lossy();
-                    panic!("Failed to read file {arg}")
-                });
+                let program =
+                    std::fs::read_to_string(input.as_path()).expect("failed to read input file");
+                let parsed = parser
+                    .get_program_from_string(Some(input.to_str().unwrap().into()), &program)
+                    .expect("failed to parse program");
 
-                match egraph.parse_and_run_program(Some(input.to_str().unwrap().into()), &program) {
+                match egraph.run_program_with_reporter(parsed, &mut reporter) {
                     Ok(msgs) => {
                         for msg in msgs {
                             print!("{msg}");
+                        }
+                        if arg.debug {
+                            let report =
+                                reporter.build_report(input.to_string_lossy().into_owned());
+                            serde_json::to_writer(stderr(), &report)
+                                .expect("Failed to serialize report");
+                            eprintln!();
                         }
                     }
                     _ => {
