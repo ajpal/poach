@@ -28,6 +28,15 @@ h1 {
   margin: 0 0 16px;
 }
 
+#benchmarks {
+  margin: 0 0 16px;
+}
+
+h2 {
+  margin: 0 0 8px;
+  font-size: 1.1rem;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;
@@ -44,4 +53,9 @@ td {
 
 th {
   background: #f0f0f0;
+}
+
+td:not(:first-child),
+th:not(:first-child) {
+  text-align: right;
 }
