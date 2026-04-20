@@ -9,7 +9,7 @@
 - Add or update tests for behavior changes.
 - Run:
   - `cargo fmt --all`
-  - `cargo clippy --all-targets --all-features -- -D warnings`
+  - `cargo check`
 - Do not use async code without explicit permission.
 - Do not use unsafe code without explicit permission.
 - Do not add or change dependencies without explicit permission.

@@ -118,67 +118,55 @@ pub fn poach() {
         }
     }
     // TODO handle report IO
-}
+    /// VanillaEgglog's model is just unit
+    /// Still, it would create an empty file
+    fn train(arg: TrainArgs) {
+        let _ = File::create(arg.output_model_file.as_path());
+    }
 
-/// VanillaEgglog's model is just unit
-/// Still, it would create an empty file
-fn train(arg: TrainArgs) {
-    let _ = File::create(arg.output_model_file.as_path());
-}
+    /// VanillaEgglog
+    fn serve(arg: ServeArgs) {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build_global()
+            .unwrap();
 
-/// VanillaEgglog
-fn serve(arg: ServeArgs) {
-    match arg.serve_command {
-        None => {
-            let mut egraph = EGraph::default();
+        match arg.mode {
+            ServeMode::Streaming => {
+                let mut egraph = EGraph::default();
 
-            rayon::ThreadPoolBuilder::new()
-                .num_threads(1)
-                .build_global()
-                .unwrap();
-
-            match egraph.repl(poach::RunMode::Normal) {
-                Ok(_) => {}
-                _ => {
-                    exit(-1);
-                }
-            }
-        }
-        Some(cmd) => {
-            match cmd {
-                ServeCommands::Single { input_file: input } => {
-                    let mut egraph = EGraph::default();
-
-                    rayon::ThreadPoolBuilder::new()
-                        .num_threads(1)
-                        .build_global()
-                        .unwrap();
-
-                    let program = std::fs::read_to_string(input.as_path()).unwrap_or_else(|_| {
-                        let arg = input.to_string_lossy();
-                        panic!("Failed to read file {arg}")
-                    });
-
-                    match egraph
-                        .parse_and_run_program(Some(input.to_str().unwrap().into()), &program)
-                    {
-                        Ok(msgs) => {
-                            for msg in msgs {
-                                print!("{msg}");
-                            }
-                        }
-                        _ => {
-                            exit(-1);
-                        }
+                match egraph.repl(poach::RunMode::Normal) {
+                    Ok(_) => {}
+                    _ => {
+                        exit(-1);
                     }
                 }
-                ServeCommands::Batch {
-                    input_dir: _,
-                    output_dir: _,
-                } => {
-                    //TODO
-                    panic!("Batch not implemented");
+            }
+            ServeMode::Single { input_file: input } => {
+                let mut egraph = EGraph::default();
+
+                let program = std::fs::read_to_string(input.as_path()).unwrap_or_else(|_| {
+                    let arg = input.to_string_lossy();
+                    panic!("Failed to read file {arg}")
+                });
+
+                match egraph.parse_and_run_program(Some(input.to_str().unwrap().into()), &program) {
+                    Ok(msgs) => {
+                        for msg in msgs {
+                            print!("{msg}");
+                        }
+                    }
+                    _ => {
+                        exit(-1);
+                    }
                 }
+            }
+            ServeMode::Batch {
+                input_dir: _,
+                output_dir: _,
+            } => {
+                //TODO
+                panic!("Batch not implemented");
             }
         }
     }
