@@ -1,12 +1,6 @@
 #!/bin/bash
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-cleanup() {
-  echo "Cleaning up"
-  rm -rf "$REPO_ROOT/nightly/tmp"
-}
-trap cleanup EXIT
-
 echo "Beginning POACH nightly script..."
 
 ###############################################################################
@@ -35,7 +29,9 @@ cargo build --release
 # This script runs all of the benchmarks/experiments
 python3 infra/nightly.py tests/passing
 
-# Abort if nightly.py failed to produce data.json
+# Abort if nightly.py failed to produce data.json. Without this check,
+# the nightly runner will report the nightly as successful even though the
+# generated report is empty.
 if [ ! -f nightly/output/data/data.json ]; then
   echo "ERROR: nightly/output/data/data.json was not generated."
   exit 1
