@@ -103,35 +103,35 @@ struct TestArgs {}
 pub fn poach() {
     let cli = Cli::parse();
     match cli.command {
-        Commands::Train(arg) => {
-            train(arg);
+        Commands::Train(args) => {
+            train(args);
         }
-        Commands::Serve(arg) => {
-            serve(arg);
+        Commands::Serve(args) => {
+            serve(args);
         }
-        Commands::FineTune(arg) => {
-            fine_tune(arg);
+        Commands::FineTune(args) => {
+            fine_tune(args);
         }
-        Commands::Test(arg) => {
-            eprintln!("test({:?})", arg);
+        Commands::Test(args) => {
+            eprintln!("test({:?})", args);
             //TODO: run vanilla egglog tests
         }
     }
     // TODO handle report IO
     /// VanillaEgglog's model is just unit
     /// Still, it would create an empty file
-    fn train(arg: TrainArgs) {
-        let _ = File::create(arg.output_model_file.as_path());
+    fn train(args: TrainArgs) {
+        let _ = File::create(args.output_model_file.as_path());
     }
 
     /// VanillaEgglog
-    fn serve(arg: ServeArgs) {
+    fn serve(args: ServeArgs) {
         rayon::ThreadPoolBuilder::new()
             .num_threads(1)
             .build_global()
             .unwrap();
 
-        match arg.mode {
+        match args.mode {
             ServeMode::Streaming => {
                 let mut egraph = EGraph::default();
 
@@ -158,7 +158,7 @@ pub fn poach() {
                         for msg in msgs {
                             print!("{msg}");
                         }
-                        if arg.debug {
+                        if args.debug {
                             let report =
                                 reporter.build_report(input.to_string_lossy().into_owned());
                             serde_json::to_writer(stderr(), &report)
@@ -184,6 +184,6 @@ pub fn poach() {
 
 /// VanillaEgglog's model is just unit
 /// Still, it would create an empty file
-fn fine_tune(arg: FineTuneArgs) {
-    let _ = File::create(arg.output_model_file.as_path());
+fn fine_tune(args: FineTuneArgs) {
+    let _ = File::create(args.output_model_file.as_path());
 }
