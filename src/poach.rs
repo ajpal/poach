@@ -54,23 +54,27 @@ struct ServeArgs {
     /// Requires a file
     model_file: PathBuf,
 
-    /// None (default): Streaming mode
-    ///   reads input from stdin
-    ///   terminate when EOF, which is dynamic
-    ///   prints output to stdout
     #[command(subcommand)]
-    serve_command: Option<ServeCommands>,
+    mode: ServeMode,
 }
 
 /// More subtle distinctions for the serve API
 /// As of Apr 9, 26, we are not there yet
 #[derive(Debug, Subcommand)]
-enum ServeCommands {
-    /// Single File input:
-    ///   reads a single .egg file
-    ///   which means it is closed
-    ///   prints output to stdout
+enum ServeMode {
+    /// Open world: Commands are not known in advance and must be processed in order.
+    ///
+    /// Read input from stdin until terminated by EOF
+    /// Prints outputs to stdout as they arise
+    Streaming,
+
+    /// Closed world: all required commands are known in advance (in the file)
+    /// and can be reordered as desired by the algorithm
+    ///
+    /// Input: A single .egg file
+    /// Outputs get written to stdout
     Single { input_file: PathBuf },
+
     /// Batch input:
     ///   reads all .egg files in the input directory
     ///   writes outputs files to the output directory
