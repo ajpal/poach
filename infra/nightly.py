@@ -25,7 +25,6 @@ def main() -> None:
         raise SystemExit(f"Usage: {Path(sys.argv[0]).name} <benchmark-dir>")
 
     benchmark_dir = (REPO_ROOT / sys.argv[1]).resolve()
-    ensure_prerequisites(benchmark_dir)
 
     benchmark_files = sorted(benchmark_dir.rglob("*.egg"))
     if not benchmark_files:
@@ -39,19 +38,6 @@ def main() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     DATA_JSON_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
     print(f"Wrote {DATA_JSON_PATH}")
-
-
-def ensure_prerequisites(benchmark_dir: Path) -> None:
-    if not benchmark_dir.is_dir():
-        raise SystemExit(
-            f"Benchmark path not found at {benchmark_dir}."
-        )
-    if not POACH_BIN.is_file():
-        raise SystemExit(
-            f"Expected release binary at {POACH_BIN}. "
-            "Run cargo build --release before nightly.py."
-        )
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 def run_benchmarks(benchmark_dir: Path) -> None:
     if REPORT_OUTPUT_DIR.exists():
