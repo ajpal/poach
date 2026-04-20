@@ -3,9 +3,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::numeric_id::{define_id, DenseIdMap, NumericId};
+use crate::numeric_id::{DenseIdMap, NumericId, define_id};
 
-use crate::{common::IndexSet, TableId};
+use crate::{TableId, common::IndexSet};
 
 define_id!(
     LevelId,

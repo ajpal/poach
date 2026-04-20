@@ -11,23 +11,23 @@ use std::{
 };
 
 use crate::{
-    numeric_id::{define_id, DenseIdMap, NumericId},
     SortedWritesTable,
+    numeric_id::{DenseIdMap, NumericId, define_id},
 };
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
 use crate::{
+    DisplacedTable, DisplacedTableWithProvenance, QueryEntry, TableId, Variable,
     action::{
-        mask::{Mask, MaskIter, ValueSource},
         Bindings, ExecutionState,
+        mask::{Mask, MaskIter, ValueSource},
     },
     common::Value,
     hash_index::{ColumnIndex, IndexBase, TupleIndex},
     offsets::{RowId, Subset, SubsetRef},
-    pool::{with_pool_set, PoolSet, Pooled},
+    pool::{PoolSet, Pooled, with_pool_set},
     row_buffer::{RowBuffer, TaggedRowBuffer},
-    DisplacedTable, DisplacedTableWithProvenance, QueryEntry, TableId, Variable,
 };
 
 define_id!(pub ColumnId, u32, "a particular column in a table");
@@ -715,9 +715,10 @@ pub(crate) trait TableWrapper: Send + Sync {
     fn scan(&self, table: &dyn Table, subset: SubsetRef) -> TaggedRowBuffer {
         let arity = table.spec().arity();
         let mut buf = TaggedRowBuffer::new(arity);
-        assert!(self
-            .scan_bounded(table, subset, Offset::new(0), usize::MAX, &mut buf)
-            .is_none());
+        assert!(
+            self.scan_bounded(table, subset, Offset::new(0), usize::MAX, &mut buf)
+                .is_none()
+        );
         buf
     }
 

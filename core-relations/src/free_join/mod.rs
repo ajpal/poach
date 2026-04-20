@@ -2,15 +2,15 @@
 use std::{
     mem,
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc,
+        atomic::{AtomicUsize, Ordering},
     },
 };
 
 use crate::{
     common::IndexSet,
     hash_index::IndexCatalog,
-    numeric_id::{define_id, DenseIdMap, DenseIdMapWithReuse, NumericId},
+    numeric_id::{DenseIdMap, DenseIdMapWithReuse, NumericId, define_id},
 };
 use egglog_concurrency::{NotificationList, ResettableOnceLock};
 use rayon::prelude::*;
@@ -18,20 +18,20 @@ use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
 use crate::{
+    BaseValues, ContainerValues, PoolSet, QueryEntry, TupleIndex, Value,
     action::{
-        mask::{Mask, MaskIter, ValueSource},
         Bindings, DbView,
+        mask::{Mask, MaskIter, ValueSource},
     },
     dependency_graph::DependencyGraph,
     hash_index::{ColumnIndex, Index, IndexBase},
     offsets::Subset,
     parallel_heuristics::parallelize_db_level_op,
-    pool::{with_pool_set, Pool, Pooled},
+    pool::{Pool, Pooled, with_pool_set},
     query::{Query, RuleSetBuilder},
     table_spec::{
         ColumnId, Constraint, MutationBuffer, Table, TableSpec, WrappedTable, WrappedTableRef,
     },
-    BaseValues, ContainerValues, PoolSet, QueryEntry, TupleIndex, Value,
 };
 
 use self::plan::Plan;
@@ -764,10 +764,12 @@ fn get_index_from_tableinfo(table_info: &TableInfo, cols: &[ColumnId]) -> HashIn
     index.get_or_update(|index| {
         index.refresh(table_info.table.as_ref());
     });
-    debug_assert!(!index
-        .get()
-        .unwrap()
-        .needs_refresh(table_info.table.as_ref()));
+    debug_assert!(
+        !index
+            .get()
+            .unwrap()
+            .needs_refresh(table_info.table.as_ref())
+    );
     index
 }
 
@@ -784,9 +786,11 @@ fn get_column_index_from_tableinfo(table_info: &TableInfo, col: ColumnId) -> Has
     index.get_or_update(|index| {
         index.refresh(table_info.table.as_ref());
     });
-    debug_assert!(!index
-        .get()
-        .unwrap()
-        .needs_refresh(table_info.table.as_ref()));
+    debug_assert!(
+        !index
+            .get()
+            .unwrap()
+            .needs_refresh(table_info.table.as_ref())
+    );
     index
 }

@@ -2,11 +2,11 @@ use std::{cmp, fmt, mem};
 
 use serde::{Deserialize, Serialize};
 
-use crate::numeric_id::{define_id, NumericId};
+use crate::numeric_id::{NumericId, define_id};
 
 use crate::{
-    pool::{with_pool_set, Clear, Pooled},
     Pool,
+    pool::{Clear, Pooled, with_pool_set},
 };
 
 define_id!(pub RowId, u32, "a numeric offset into a table");

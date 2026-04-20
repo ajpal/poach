@@ -10,8 +10,8 @@
 //! The main complexity in the implementation here is to avoid contention in the common case that
 //! someone is notifying a table that has already been notified by a different thread.
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
 };
 
 use crate::ConcurrentVec;

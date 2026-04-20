@@ -9,14 +9,14 @@
 //! functions than base values.
 
 use std::{
-    any::{type_name, Any},
+    any::{Any, type_name},
     hash::{Hash, Hasher},
     ops::Deref,
 };
 
 use crate::{
     common::InternTable,
-    numeric_id::{define_id, DenseIdMap, IdVec, NumericId},
+    numeric_id::{DenseIdMap, IdVec, NumericId, define_id},
 };
 use crossbeam_queue::SegQueue;
 use dashmap::SharedValue;
@@ -28,11 +28,11 @@ use rustc_hash::FxHasher;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    ColumnId, CounterId, ExecutionState, Offset, SubsetRef, TableId, TaggedRowBuffer, Value,
+    WrappedTable,
     common::{DashMap, IndexSet, SubsetTracker},
     parallel_heuristics::{parallelize_inter_container_op, parallelize_intra_container_op},
     table_spec::Rebuilder,
-    ColumnId, CounterId, ExecutionState, Offset, SubsetRef, TableId, TaggedRowBuffer, Value,
-    WrappedTable,
 };
 
 #[cfg(test)]

@@ -9,8 +9,8 @@ pub(crate) type HEntry<'a, A, B> = hashbrown::hash_map::Entry<'a, A, B, BuildHas
 pub type IndexMap<K, V> = indexmap::IndexMap<K, V, BuildHasher>;
 pub type IndexSet<K> = indexmap::IndexSet<K, BuildHasher>;
 
-pub use egglog_ast::generic_ast_helpers::sanitize_internal_name;
 pub use egglog_ast::generic_ast_helpers::INTERNAL_SYMBOL_PREFIX;
+pub use egglog_ast::generic_ast_helpers::sanitize_internal_name;
 
 /// Generates fresh symbols for internal use during typechecking and flattening.
 /// These are guaranteed not to collide with the
