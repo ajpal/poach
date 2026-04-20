@@ -18,6 +18,7 @@ DATA_DIR = OUTPUT_DIR / "data"
 REPORT_OUTPUT_DIR = DATA_DIR / "reports"
 DATA_JSON_PATH = DATA_DIR / "data.json"
 POACH_BIN = REPO_ROOT / "target" / "release" / "poach"
+MODEL_FILE = REPO_ROOT / "empty.model"
 
 
 def main() -> None:
@@ -26,7 +27,7 @@ def main() -> None:
 
     benchmark_dir = (REPO_ROOT / sys.argv[1]).resolve()
 
-    benchmark_files = sorted(benchmark_dir.rglob("*.egg"))
+    benchmark_files = list(benchmark_dir.rglob("*.egg"))
     if not benchmark_files:
         raise SystemExit(
             f"No .egg benchmark files found under {benchmark_dir}."
@@ -44,26 +45,52 @@ def run_benchmarks(benchmark_dir: Path) -> None:
         shutil.rmtree(REPORT_OUTPUT_DIR)
     REPORT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    command = [
-        str(POACH_BIN),         # poach binary
-                                # fill in other args
-        str(benchmark_dir),     # input files
-        str(REPORT_OUTPUT_DIR), # output dir
-    ]
-    print("Running benchmarks:", " ".join(command))
-    subprocess.run(command, check=True, cwd=REPO_ROOT)
+    for benchmark_file in benchmark_dir.rglob("*.egg"):
+        relative_path = benchmark_file.relative_to(benchmark_dir)
+        report_path = REPORT_OUTPUT_DIR / relative_path.with_suffix(".report.json")
+        report_path.parent.mkdir(parents=True, exist_ok=True)
 
-
+        command = [
+            str(POACH_BIN),
+            "serve",
+            "--debug",
+            str(MODEL_FILE),
+            "single",
+            str(benchmark_file),
+        ]
+        print("Running benchmark:", " ".join(command))
+        with report_path.open("w", encoding="utf-8") as report_file:
+            subprocess.run(
+                command,
+                check=True,
+                cwd=REPO_ROOT,
+                stdout=subprocess.DEVNULL,
+                stderr=report_file,
+            )
 def aggregate_reports(benchmark_dir: Path) -> dict[str, Any]:
-    report_files = sorted(REPORT_OUTPUT_DIR.rglob("*.report.json"))
+    report_files = list(REPORT_OUTPUT_DIR.rglob("*.report.json"))
     if not report_files:
         raise SystemExit(f"No report files were generated under {REPORT_OUTPUT_DIR}")
+
+    reports = []
+    total_runtime_ms = 0
+    for report_file in report_files:
+        report = json.loads(report_file.read_text(encoding="utf-8"))
+        reports.append({
+            "path": str(report_file.relative_to(REPORT_OUTPUT_DIR)),
+            "report": report,
+        })
+        total_runtime_ms += report.get("timing", {}).get("total", 0)
 
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "suite": benchmark_dir.name,
         "benchmark_root": str(benchmark_dir.relative_to(REPO_ROOT)),
-        "summary": {},
+        "summary": {
+            "benchmarks": len(reports),
+            "total_runtime_ms": total_runtime_ms,
+        },
+        "reports": reports,
     }
 
 
