@@ -73,23 +73,17 @@ def aggregate_reports(benchmark_dir: Path) -> dict[str, Any]:
         raise SystemExit(f"No report files were generated under {REPORT_OUTPUT_DIR}")
 
     reports = []
-    total_runtime_ms = 0
     for report_file in report_files:
         report = json.loads(report_file.read_text(encoding="utf-8"))
         reports.append({
             "path": str(report_file.relative_to(REPORT_OUTPUT_DIR)),
             "report": report,
         })
-        total_runtime_ms += report.get("timing", {}).get("total", 0)
 
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "suite": benchmark_dir.name,
         "benchmark_root": str(benchmark_dir.relative_to(REPO_ROOT)),
-        "summary": {
-            "benchmarks": len(reports),
-            "total_runtime_ms": total_runtime_ms,
-        },
         "reports": reports,
     }
 
