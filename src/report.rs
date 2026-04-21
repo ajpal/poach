@@ -72,20 +72,13 @@ impl Reporter {
     }
 
     pub fn finish_timer(&mut self, timer: Timer) {
-        self.record_span_time(&timer.name, &timer.tags, timer.started_at.elapsed());
+        let entry = self.spans.entry((timer.name, timer.tags)).or_default();
+        entry.count += 1;
+        entry.total += timer.started_at.elapsed();
     }
 
     pub fn record_size(&mut self, name: String, value: MetricValue) {
         self.sizes.push(SizeMetric { name, value });
-    }
-
-    fn record_span_time(&mut self, name: &str, tags: &[String], elapsed: Duration) {
-        let entry = self
-            .spans
-            .entry((name.to_owned(), tags.to_vec()))
-            .or_default();
-        entry.count += 1;
-        entry.total += elapsed;
     }
 
     pub fn build_report(&self, label: String) -> RunReport {
