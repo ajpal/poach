@@ -1,0 +1,5 @@
+(check (= A8 I))
+
+(check (!= B A))
+
+(check (!= I A))

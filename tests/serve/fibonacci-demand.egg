@@ -1,0 +1,3 @@
+(extract f7)
+
+(check (= f7 (Num 13)))

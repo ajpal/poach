@@ -1,0 +1,1 @@
+(check (= (distance x y) 1))

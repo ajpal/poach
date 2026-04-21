@@ -1,0 +1,7 @@
+(check (= (to-string (numer z)) "-617"))
+
+(check
+	(= (bignums a b) c)
+	(= (numer c) (>> a 1))
+	(= (denom c) (>> b 1))
+)

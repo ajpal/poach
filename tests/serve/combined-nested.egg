@@ -1,0 +1,7 @@
+(check (number 1))
+
+(check (number 2))
+
+(check (number 3))
+
+(check (number 5))

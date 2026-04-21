@@ -1,0 +1,17 @@
+(check (= e (Lam (V "x") (Val (Num 8)))))
+
+(check (= e2 (Add (Var (V "a")) (Var (V "b")))))
+
+(check (= e3 (Val (Num 1))))
+
+(check (set-contains (freer (Lam (V "x") (Var (V "y")))) (V "y")))
+
+(check (= e6 (Val (Num 6))))
+
+(check (= e7 (Lam x (Add (Var x) (Val (Num 2))))))
+
+(check (= e10 (Val (Num 7))))
+
+(check (= e11 (Lam x (Add (Var x) (Val (Num 7))))))
+
+(check (= e8 (Val (Num 1))))

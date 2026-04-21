@@ -1,0 +1,3 @@
+(check (= four1 four2))
+
+(check (= six1 six2))
