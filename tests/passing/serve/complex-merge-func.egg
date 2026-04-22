@@ -1,3 +1,0 @@
-(check (= (f 0) (Leaf (X))))
-
-(check (= (f 0) (C2 (C1 (Leaf (X)) (Leaf2 (X))) (C2 (Leaf (X)) (Leaf2 (X))))))

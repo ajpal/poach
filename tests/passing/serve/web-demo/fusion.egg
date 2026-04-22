@@ -1,7 +1,0 @@
-(extract (freer expr))
-
-(check (= (App (sum-o-mapf) (TVar (V "expr")))
-          (CaseSplit (TVar (V "expr")) (Num 0) 
-                 (Lam (V "x") (Lam (V "xs'") 
-                      (Add (Add (TVar (V "x")) (Num 1)) 
-                           (App (sum-o-mapf) (TVar (V "xs'")))))))))

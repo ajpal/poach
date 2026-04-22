@@ -1,8 +1,0 @@
-(check (= (g* A4 A4) (g* (g* A2 A2) (g* A2 A2))))
-
-(check (= (g* (g* A2 A2) (g* A2 A2))
-(g* A2 (g* A2 (g* A2 A2)))))
-
-(check (= (g* (g* b (g* (inv a) a)) (inv b)) (g* b (inv b))))
-
-(check (= (g* b (inv b)) I))

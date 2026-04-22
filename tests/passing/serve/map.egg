@@ -1,3 +1,0 @@
-(check (= "one" (map-get my_map1 1)))
-
-(extract my_map2)
