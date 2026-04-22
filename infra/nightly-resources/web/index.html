@@ -11,9 +11,25 @@
       <h1>Poach Nightly</h1>
       <p id="status">Loading <code>data/data.json</code>...</p>
       <div id="contents">
-        <!-- Put tables/charts/etc here -->
-         <div id="summary"></div>
-
+        <div id="summary"></div>
+        <section id="benchmarks">
+          <h2>Benchmarks</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Benchmark</th>
+                <th>Train Rules</th>
+                <th>Train Extract</th>
+                <th>Train Serialize</th>
+                <th>Train Total</th>
+                <th>Serve Rules</th>
+                <th>Serve Extract</th>
+                <th>Serve Total</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </section>
       </div>
     </main>
 

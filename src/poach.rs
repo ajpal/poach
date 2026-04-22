@@ -172,7 +172,7 @@ fn train(arg: TrainArgs) {
     match egraph.run_program_with_reporter(parsed, &mut reporter) {
         Ok(_) => {
             let serialization_timer =
-                reporter.start_timer("serialize_model".to_string(), vec!["io".to_string()]);
+                reporter.start_timer("serialize_model".to_string(), vec!["serialize".to_string()]);
             serialize_egraph_to_file(&mut egraph, arg.output_model_file.as_path());
             reporter.finish_timer(serialization_timer);
             reporter.finish_timer(total_timer);

@@ -50,25 +50,29 @@ def run_benchmarks(benchmark_dir: Path) -> None:
         relative_path = benchmark_file.relative_to(train_dir)
         serve_file = serve_dir / relative_path
         model_path = TMP_DIR / relative_path.with_suffix(".model")
-        report_path = REPORT_OUTPUT_DIR / relative_path.with_suffix(".report.json")
+        train_report_path = REPORT_OUTPUT_DIR / "train" / relative_path.with_suffix(".report.json")
+        serve_report_path = REPORT_OUTPUT_DIR / "serve" / relative_path.with_suffix(".report.json")
 
         model_path.parent.mkdir(parents=True, exist_ok=True)
-        report_path.parent.mkdir(parents=True, exist_ok=True)
+        train_report_path.parent.mkdir(parents=True, exist_ok=True)
+        serve_report_path.parent.mkdir(parents=True, exist_ok=True)
 
         train_command = [
             str(POACH_BIN),
             "train",
+            "--debug",
             str(benchmark_file),
             str(model_path),
         ]
         print("Running benchmark train:", " ".join(train_command))
-        subprocess.run(
-            train_command,
-            check=True,
-            cwd=REPO_ROOT,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        with train_report_path.open("w", encoding="utf-8") as report_file:
+            subprocess.run(
+                train_command,
+                check=True,
+                cwd=REPO_ROOT,
+                stdout=subprocess.DEVNULL,
+                stderr=report_file,
+            )
 
         serve_command = [
             str(POACH_BIN),
@@ -79,7 +83,7 @@ def run_benchmarks(benchmark_dir: Path) -> None:
             str(serve_file),
         ]
         print("Running benchmark serve:", " ".join(serve_command))
-        with report_path.open("w", encoding="utf-8") as report_file:
+        with serve_report_path.open("w", encoding="utf-8") as report_file:
             subprocess.run(
                 serve_command,
                 check=True,
@@ -89,20 +93,27 @@ def run_benchmarks(benchmark_dir: Path) -> None:
             )
 
 def aggregate_reports(benchmark_dir: Path) -> dict[str, Any]:
-    report_files = list(REPORT_OUTPUT_DIR.rglob("*.report.json"))
-    if not report_files:
+    train_report_dir = REPORT_OUTPUT_DIR / "train"
+    serve_report_dir = REPORT_OUTPUT_DIR / "serve"
+    train_report_files = list(train_report_dir.rglob("*.report.json"))
+    if not train_report_files:
         raise SystemExit(f"No report files were generated under {REPORT_OUTPUT_DIR}")
 
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "suite": benchmark_dir.name,
         "benchmark_root": str(benchmark_dir.relative_to(REPO_ROOT)),
-        "reports": [
+        "benchmarks": [
             {
-                "path": str(report_file.relative_to(REPORT_OUTPUT_DIR)),
-                "report": json.loads(report_file.read_text(encoding="utf-8")),
+                "path": str(report_file.relative_to(train_report_dir)),
+                "train": json.loads(report_file.read_text(encoding="utf-8")),
+                "serve": json.loads(
+                    (serve_report_dir / report_file.relative_to(train_report_dir)).read_text(
+                        encoding="utf-8"
+                    )
+                ),
             }
-            for report_file in report_files
+            for report_file in train_report_files
         ],
     }
 
