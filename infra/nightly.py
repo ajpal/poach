@@ -16,6 +16,7 @@ NIGHTLY_DIR = REPO_ROOT / "nightly"
 OUTPUT_DIR = NIGHTLY_DIR / "output"
 DATA_DIR = OUTPUT_DIR / "data"
 REPORT_OUTPUT_DIR = DATA_DIR / "reports"
+TMP_DIR = NIGHTLY_DIR / "tmp"
 DATA_JSON_PATH = DATA_DIR / "data.json"
 POACH_BIN = REPO_ROOT / "target" / "release" / "poach"
 
@@ -25,12 +26,9 @@ def main() -> None:
         raise SystemExit(f"Usage: {Path(sys.argv[0]).name} <benchmark-dir>")
 
     benchmark_dir = (REPO_ROOT / sys.argv[1]).resolve()
-
-    benchmark_files = list(benchmark_dir.rglob("*.egg"))
+    benchmark_files = list((benchmark_dir / "train").rglob("*.egg"))
     if not benchmark_files:
-        raise SystemExit(
-            f"No .egg benchmark files found under {benchmark_dir}."
-        )
+        raise SystemExit(f"No .egg benchmark files found under {benchmark_dir / 'train'}.")
 
     run_benchmarks(benchmark_dir)
     data = aggregate_reports(benchmark_dir)
@@ -40,30 +38,56 @@ def main() -> None:
     print(f"Wrote {DATA_JSON_PATH}")
 
 def run_benchmarks(benchmark_dir: Path) -> None:
+    train_dir = benchmark_dir / "train"
+    serve_dir = benchmark_dir / "serve"
+
     if REPORT_OUTPUT_DIR.exists():
         shutil.rmtree(REPORT_OUTPUT_DIR)
     REPORT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    TMP_DIR.mkdir(parents=True, exist_ok=True)
 
-    for benchmark_file in benchmark_dir.rglob("*.egg"):
-        relative_path = benchmark_file.relative_to(benchmark_dir)
+    for benchmark_file in train_dir.rglob("*.egg"):
+        relative_path = benchmark_file.relative_to(train_dir)
+        serve_file = serve_dir / relative_path
+        model_path = TMP_DIR / relative_path.with_suffix(".model")
         report_path = REPORT_OUTPUT_DIR / relative_path.with_suffix(".report.json")
+
+        model_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.parent.mkdir(parents=True, exist_ok=True)
 
-        command = [
-            str(POACH_BIN),         # poach binary
-                                    # fill in other args
-            str(benchmark_dir),     # input files
-            str(REPORT_OUTPUT_DIR), # output dir
+        train_command = [
+            str(POACH_BIN),
+            "train",
+            str(benchmark_file),
+            str(model_path),
         ]
-        print("Running benchmark:", " ".join(command))
+        print("Running benchmark train:", " ".join(train_command))
+        subprocess.run(
+            train_command,
+            check=True,
+            cwd=REPO_ROOT,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+        serve_command = [
+            str(POACH_BIN),
+            "serve",
+            "--debug",
+            str(model_path),
+            "single",
+            str(serve_file),
+        ]
+        print("Running benchmark serve:", " ".join(serve_command))
         with report_path.open("w", encoding="utf-8") as report_file:
             subprocess.run(
-                command,
+                serve_command,
                 check=True,
                 cwd=REPO_ROOT,
                 stdout=subprocess.DEVNULL,
                 stderr=report_file,
             )
+
 def aggregate_reports(benchmark_dir: Path) -> dict[str, Any]:
     report_files = list(REPORT_OUTPUT_DIR.rglob("*.report.json"))
     if not report_files:
@@ -73,6 +97,13 @@ def aggregate_reports(benchmark_dir: Path) -> dict[str, Any]:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "suite": benchmark_dir.name,
         "benchmark_root": str(benchmark_dir.relative_to(REPO_ROOT)),
+        "reports": [
+            {
+                "path": str(report_file.relative_to(REPORT_OUTPUT_DIR)),
+                "report": json.loads(report_file.read_text(encoding="utf-8")),
+            }
+            for report_file in report_files
+        ],
     }
 
 

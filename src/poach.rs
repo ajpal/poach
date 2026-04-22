@@ -3,9 +3,12 @@ use std::path::{Path, PathBuf};
 use clap::{Args, Parser, Subcommand};
 
 use poach::EGraph;
+use poach::ast::Parser as EgglogParser;
+use poach::report::{MetricValue, Reporter};
 
 use std::fs::File;
 use std::io::prelude::*;
+use std::io::stderr;
 use std::process::exit;
 
 use flexbuffers::{FlexbufferSerializer, Reader};
@@ -145,6 +148,7 @@ fn serialize_egraph_to_file(egraph: &mut EGraph, output_file: &Path) {
 /// SerializeEgraph assumes a single input egglog program
 fn train(arg: TrainArgs) {
     let mut egraph = EGraph::default();
+    let mut parser = EgglogParser::default();
 
     rayon::ThreadPoolBuilder::new()
         .num_threads(1)
@@ -152,15 +156,35 @@ fn train(arg: TrainArgs) {
         .unwrap();
 
     let input = arg.training_set;
+    let label = format!("train {}", input.display());
 
     let program = std::fs::read_to_string(input.as_path()).unwrap_or_else(|_| {
         let arg = input.to_string_lossy();
         panic!("Failed to read file {arg}")
     });
 
-    match egraph.parse_and_run_program(Some(input.to_str().unwrap().into()), &program) {
+    let mut reporter = Reporter::new();
+    let total_timer = reporter.start_timer("command".to_string(), vec![]);
+    let parsed = parser
+        .get_program_from_string(Some(input.to_str().unwrap().into()), &program)
+        .unwrap();
+
+    match egraph.run_program_with_reporter(parsed, &mut reporter) {
         Ok(_) => {
+            let serialization_timer =
+                reporter.start_timer("serialize_model".to_string(), vec!["io".to_string()]);
             serialize_egraph_to_file(&mut egraph, arg.output_model_file.as_path());
+            reporter.finish_timer(serialization_timer);
+            reporter.finish_timer(total_timer);
+            reporter.record_size(
+                "tuples".to_string(),
+                MetricValue::Count(egraph.num_tuples() as u64),
+            );
+            if arg.debug {
+                let report = reporter.build_report(label);
+                serde_json::to_writer(stderr(), &report).expect("Failed to serialize report");
+                eprintln!();
+            }
         }
         Err(e) => {
             panic!(
@@ -212,11 +236,29 @@ fn serve(arg: ServeArgs) {
                 let arg = input.to_string_lossy();
                 panic!("Failed to read file {arg}")
             });
+            let mut parser = EgglogParser::default();
+            let label = format!("serve {}", input.display());
+            let mut reporter = Reporter::new();
+            let total_timer = reporter.start_timer("command".to_string(), vec![]);
+            let parsed = parser
+                .get_program_from_string(Some(input.to_str().unwrap().into()), &program)
+                .unwrap();
 
-            match egraph.parse_and_run_program(Some(input.to_str().unwrap().into()), &program) {
+            match egraph.run_program_with_reporter(parsed, &mut reporter) {
                 Ok(msgs) => {
                     for msg in msgs {
                         print!("{msg}");
+                    }
+                    reporter.finish_timer(total_timer);
+                    reporter.record_size(
+                        "tuples".to_string(),
+                        MetricValue::Count(egraph.num_tuples() as u64),
+                    );
+                    if arg.debug {
+                        let report = reporter.build_report(label);
+                        serde_json::to_writer(stderr(), &report)
+                            .expect("Failed to serialize report");
+                        eprintln!();
                     }
                 }
                 Err(e) => {
