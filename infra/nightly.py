@@ -148,12 +148,14 @@ def aggregate_reports(
     benchmark_command_times = {}
     for result in command_results:
         mode = result["argv"][1]
-        benchmark_path = Path(result["argv"][-1])
         if mode == "train":
+            benchmark_path = Path(result["argv"][3])
             relative_path = benchmark_path.relative_to(benchmark_dir / "train")
         else:
+            benchmark_path = Path(result["argv"][-1])
             relative_path = benchmark_path.relative_to(benchmark_dir / "serve")
-        benchmark_entry = benchmark_command_times.setdefault(str(relative_path), {})
+        report_path = str(relative_path.with_suffix(".report.json"))
+        benchmark_entry = benchmark_command_times.setdefault(report_path, {})
         benchmark_entry[mode] = result["time_seconds"]
 
     return {
