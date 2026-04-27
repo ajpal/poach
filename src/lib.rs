@@ -29,8 +29,8 @@ mod typechecking;
 pub mod util;
 pub use command_macro::{CommandMacro, CommandMacroRegistry};
 
-pub mod get_size_prim;
 mod custom_schedulers;
+pub mod get_size_prim;
 pub use custom_schedulers::*;
 
 // This is used to allow the `add_primitive` macro to work in
