@@ -204,13 +204,11 @@ mod tests {
         std::thread::sleep(Duration::from_millis(1));
         reporter.finish_timer(command_timer);
 
-        let step_timer_one =
-            reporter.start_timer("step".to_string(), vec!["tag".to_string()]);
+        let step_timer_one = reporter.start_timer("step".to_string(), vec!["tag".to_string()]);
         std::thread::sleep(Duration::from_millis(1));
         reporter.finish_timer(step_timer_one);
 
-        let step_timer_two =
-            reporter.start_timer("step".to_string(), vec!["tag".to_string()]);
+        let step_timer_two = reporter.start_timer("step".to_string(), vec!["tag".to_string()]);
         std::thread::sleep(Duration::from_millis(1));
         reporter.finish_timer(step_timer_two);
 
