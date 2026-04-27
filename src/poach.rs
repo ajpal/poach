@@ -238,27 +238,33 @@ fn serve(arg: ServeArgs) {
             });
             let mut parser = EgglogParser::default();
             let label = format!("serve {}", input.display());
-            let mut reporter = Reporter::new();
-            let total_timer = reporter.start_timer("command".to_string(), vec![]);
             let parsed = parser
                 .get_program_from_string(Some(input.to_str().unwrap().into()), &program)
                 .unwrap();
 
-            match egraph.run_program_with_reporter(parsed, &mut reporter) {
-                Ok(msgs) => {
-                    for msg in msgs {
-                        print!("{msg}");
-                    }
+            let result = if arg.debug {
+                let mut reporter = Reporter::new();
+                let total_timer = reporter.start_timer("command".to_string(), vec![]);
+                let result = egraph.run_program_with_reporter(parsed, &mut reporter);
+                if result.is_ok() {
                     reporter.finish_timer(total_timer);
                     reporter.record_size(
                         "tuples".to_string(),
                         MetricValue::Count(egraph.num_tuples() as u64),
                     );
-                    if arg.debug {
-                        let report = reporter.build_report(label);
-                        serde_json::to_writer(stderr(), &report)
-                            .expect("Failed to serialize report");
-                        eprintln!();
+                    let report = reporter.build_report(label);
+                    serde_json::to_writer(stderr(), &report).expect("Failed to serialize report");
+                    eprintln!();
+                }
+                result
+            } else {
+                egraph.run_program(parsed)
+            };
+
+            match result {
+                Ok(msgs) => {
+                    for msg in msgs {
+                        print!("{msg}");
                     }
                 }
                 Err(e) => {
