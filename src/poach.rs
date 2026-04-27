@@ -145,7 +145,6 @@ pub fn poach() {
             ServeMode::Single { input_file: input } => {
                 let mut egraph = EGraph::default();
                 let mut parser = EgglogParser::default();
-                let mut reporter = Reporter::new();
 
                 let program =
                     std::fs::read_to_string(input.as_path()).expect("failed to read input file");
@@ -153,17 +152,24 @@ pub fn poach() {
                     .get_program_from_string(Some(input.to_str().unwrap().into()), &program)
                     .expect("failed to parse program");
 
-                match egraph.run_program_with_reporter(parsed, &mut reporter) {
+                let result = if args.debug {
+                    let mut reporter = Reporter::new();
+                    let result = egraph.run_program_with_reporter(parsed, &mut reporter);
+                    if let Ok(_) = &result {
+                        let report = reporter.build_report(input.to_string_lossy().into_owned());
+                        serde_json::to_writer(stderr(), &report)
+                            .expect("Failed to serialize report");
+                        eprintln!();
+                    }
+                    result
+                } else {
+                    egraph.run_program(parsed)
+                };
+
+                match result {
                     Ok(msgs) => {
                         for msg in msgs {
                             print!("{msg}");
-                        }
-                        if args.debug {
-                            let report =
-                                reporter.build_report(input.to_string_lossy().into_owned());
-                            serde_json::to_writer(stderr(), &report)
-                                .expect("Failed to serialize report");
-                            eprintln!();
                         }
                     }
                     _ => {
