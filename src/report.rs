@@ -6,7 +6,7 @@ use serde::Serialize;
 
 #[derive(Default)]
 pub struct Reporter {
-    spans: HashMap<(String, Vec<String>), SpanStats>,
+    spans: HashMap<String, SpanStats>,
     sizes: Vec<SizeMetric>,
 }
 
@@ -16,8 +16,9 @@ pub struct Timer {
     started_at: Instant,
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 struct SpanStats {
+    tags: Vec<String>,
     count: u64,
     total: Duration,
 }
@@ -72,7 +73,13 @@ impl Reporter {
     }
 
     pub fn finish_timer(&mut self, timer: Timer) {
-        let entry = self.spans.entry((timer.name, timer.tags)).or_default();
+        let entry = self.spans.entry(timer.name).or_insert_with(|| SpanStats {
+            tags: timer.tags.clone(),
+            ..SpanStats::default()
+        });
+        // We aggregate spans by name, so repeated timers for the same name must
+        // carry the same tag set.
+        debug_assert_eq!(entry.tags, timer.tags);
         entry.count += 1;
         entry.total += timer.started_at.elapsed();
     }
@@ -85,10 +92,10 @@ impl Reporter {
         let mut steps: Vec<_> = self
             .spans
             .iter()
-            .filter(|((name, _), _)| name.as_str() != "command")
-            .map(|((name, tags), stats)| TimingStep {
+            .filter(|(name, _)| name.as_str() != "command")
+            .map(|(name, stats)| TimingStep {
                 name: name.clone(),
-                tags: tags.clone(),
+                tags: stats.tags.clone(),
                 count: stats.count,
                 total: stats.total,
             })
@@ -100,7 +107,7 @@ impl Reporter {
             timing: TimingReport {
                 total: self
                     .spans
-                    .get(&("command".to_string(), vec![]))
+                    .get("command")
                     .map(|stats| stats.total)
                     .unwrap_or_default(),
                 steps,
@@ -182,5 +189,38 @@ impl Display for MetricValue {
             MetricValue::Count(value) => write!(f, "{value}"),
             MetricValue::Bytes(value) => write!(f, "{} bytes", value),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_report_aggregates_timers_by_name_and_preserves_tags() {
+        let mut reporter = Reporter::new();
+
+        let command_timer = reporter.start_timer("command".to_string(), Vec::new());
+        std::thread::sleep(Duration::from_millis(1));
+        reporter.finish_timer(command_timer);
+
+        let step_timer_one =
+            reporter.start_timer("step".to_string(), vec!["tag".to_string()]);
+        std::thread::sleep(Duration::from_millis(1));
+        reporter.finish_timer(step_timer_one);
+
+        let step_timer_two =
+            reporter.start_timer("step".to_string(), vec!["tag".to_string()]);
+        std::thread::sleep(Duration::from_millis(1));
+        reporter.finish_timer(step_timer_two);
+
+        let report = reporter.build_report("label".to_string());
+
+        assert!(report.timing.total >= Duration::from_millis(1));
+        assert_eq!(report.timing.steps.len(), 1);
+        assert_eq!(report.timing.steps[0].name, "step");
+        assert_eq!(report.timing.steps[0].tags, vec!["tag".to_string()]);
+        assert_eq!(report.timing.steps[0].count, 2);
+        assert!(report.timing.steps[0].total >= Duration::from_millis(2));
     }
 }
