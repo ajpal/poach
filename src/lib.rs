@@ -1583,9 +1583,9 @@ impl EGraph {
                     ResolvedNCommand::Check(_, _) => "check",
                     _ => "other",
                 };
-                let timer = reporter.start_timer(command_name, vec![command_category.to_string()]);
+                let timer = reporter.new_timer(command_name, vec![command_category.to_string()]);
                 let result = self.run_command(processed)?;
-                reporter.finish_timer(timer);
+                reporter.record_timer(timer);
                 if let Some(output) = result {
                     outputs.push(output);
                 }
