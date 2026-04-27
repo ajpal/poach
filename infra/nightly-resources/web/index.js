@@ -1,3 +1,5 @@
+import { formatMillis } from "./util.js";
+
 const statusNode = document.querySelector("#status");
 
 load();

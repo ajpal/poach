@@ -12,6 +12,7 @@ pub struct Reporter {
 
 pub struct Timer {
     name: String,
+    tags: Vec<String>,
     started_at: Instant,
 }
 
@@ -62,32 +63,22 @@ impl Reporter {
         Self::default()
     }
 
-    pub fn start_timer(&self, name: String) -> Timer {
+    pub fn start_timer(&self, name: String, tags: Vec<String>) -> Timer {
         Timer {
             name,
+            tags,
             started_at: Instant::now(),
         }
     }
 
     pub fn finish_timer(&mut self, timer: Timer) {
-        self.record_span_time(&timer.name, &[], timer.started_at.elapsed());
+        let entry = self.spans.entry((timer.name, timer.tags)).or_default();
+        entry.count += 1;
+        entry.total += timer.started_at.elapsed();
     }
 
     pub fn record_size(&mut self, name: String, value: MetricValue) {
         self.sizes.push(SizeMetric { name, value });
-    }
-
-    pub fn record_timing(&mut self, name: String, tags: Vec<String>, elapsed: Duration) {
-        self.record_span_time(&name, &tags, elapsed);
-    }
-
-    fn record_span_time(&mut self, name: &str, tags: &[String], elapsed: Duration) {
-        let entry = self
-            .spans
-            .entry((name.to_owned(), tags.to_vec()))
-            .or_default();
-        entry.count += 1;
-        entry.total += elapsed;
     }
 
     pub fn build_report(&self, label: String) -> RunReport {
