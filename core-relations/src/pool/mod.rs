@@ -11,20 +11,20 @@ use std::{
 };
 
 use crate::{
-    numeric_id::{DenseIdMap, IdVec},
     AtomId,
+    numeric_id::{DenseIdMap, IdVec},
 };
 use fixedbitset::FixedBitSet;
 use hashbrown::HashTable;
 
 use crate::{
+    ColumnId, RowId,
     action::{Instr, PredictedVals},
     common::{HashMap, HashSet, IndexMap, IndexSet, ShardId, Value},
     hash_index::{BufferedSubset, ColumnIndex, TableEntry},
     offsets::SortedOffsetVector,
     table::TableEntry as SwTableEntry,
     table_spec::Constraint,
-    ColumnId, RowId,
 };
 
 #[cfg(test)]

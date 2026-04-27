@@ -6,8 +6,8 @@ use fixedbitset::FixedBitSet;
 use smallvec::SmallVec;
 
 use crate::{
-    pool::{InPoolSet, Pool, Pooled},
     PoolSet,
+    pool::{InPoolSet, Pool, Pooled},
 };
 
 /// A subset of offsets that are still active.

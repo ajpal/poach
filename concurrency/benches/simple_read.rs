@@ -1,6 +1,6 @@
 use std::{ops::Deref, sync::RwLock};
 
-use divan::{counter::ItemsCount, Bencher};
+use divan::{Bencher, counter::ItemsCount};
 use egglog_concurrency::{MutexReader, ReadOptimizedLock};
 
 fn main() {

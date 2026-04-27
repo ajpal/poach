@@ -10,8 +10,8 @@ use std::{
     hash::Hasher,
     mem,
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc, Weak,
+        atomic::{AtomicUsize, Ordering},
     },
 };
 
@@ -20,10 +20,11 @@ use crossbeam_queue::SegQueue;
 use hashbrown::HashTable;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
 use rustc_hash::FxHasher;
-use serde::{ser::SerializeStruct, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, ser::SerializeStruct};
 use sharded_hash_table::ShardedHashTable;
 
 use crate::{
+    Pooled, TableChange, TableId,
     action::ExecutionState,
     common::{HashMap, ShardData, ShardId, SubsetTracker, Value},
     hash_index::{ColumnIndex, Index},
@@ -35,7 +36,6 @@ use crate::{
         ColumnId, Constraint, Generation, MutationBuffer, Offset, Row, Table, TableSpec,
         TableVersion,
     },
-    Pooled, TableChange, TableId,
 };
 
 mod rebuild;
@@ -131,21 +131,13 @@ impl Rows {
 
     fn get_row(&self, row: RowId) -> Option<&[Value]> {
         let row = self.data.get_row(row);
-        if row[0].is_stale() {
-            None
-        } else {
-            Some(row)
-        }
+        if row[0].is_stale() { None } else { Some(row) }
     }
 
     /// A variant of `get_row` without bounds-checking on `row`.
     unsafe fn get_row_unchecked(&self, row: RowId) -> Option<&[Value]> {
         let row = unsafe { self.data.get_row_unchecked(row) };
-        if row[0].is_stale() {
-            None
-        } else {
-            Some(row)
-        }
+        if row[0].is_stale() { None } else { Some(row) }
     }
 
     fn add_row(&mut self, row: &[Value]) -> RowId {
@@ -1099,11 +1091,7 @@ impl SortedWritesTable {
                 Constraint::GeConst { col, val } => res &= row[col.index()] >= *val,
             }
         }
-        if res {
-            Some(row)
-        } else {
-            None
-        }
+        if res { Some(row) } else { None }
     }
 
     fn maybe_rehash(&mut self) {

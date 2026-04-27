@@ -1,10 +1,10 @@
-use divan::{counter::ItemsCount, Bencher};
+use divan::{Bencher, counter::ItemsCount};
 use egglog_core_relations::{Database, SortedWritesTable, Table, Value};
 use egglog_numeric_id::NumericId;
-use rand::{rng, Rng};
+use rand::{Rng, rng};
 use rayon::{
-    iter::{ParallelBridge, ParallelIterator},
     ThreadPoolBuilder,
+    iter::{ParallelBridge, ParallelIterator},
 };
 
 fn main() {
