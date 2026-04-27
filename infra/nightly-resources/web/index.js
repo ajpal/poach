@@ -1,4 +1,4 @@
-import { formatMillis } from "./util.js";
+import { formatMillis, formatSeconds } from "./util.js";
 
 const statusNode = document.querySelector("#status");
 const summaryNode = document.querySelector("#summary");
@@ -41,12 +41,14 @@ function renderSummary(data) {
   }
 
   const totalTime = runningRulesTotal + extractionTotal + otherTotal;
+  const totalCommandTime = data.summary?.total_time_seconds ?? 0;
   summaryNode.textContent =
     `${data.reports.length} benchmarks | ` +
+    `Nightly time: ${formatSeconds(totalCommandTime)} | ` +
     `Rule running: ${formatMillis(runningRulesTotal)} | ` +
     `Extraction: ${formatMillis(extractionTotal)} | ` +
     `Other: ${formatMillis(otherTotal)} | ` +
-    `Total: ${formatMillis(totalTime)}`;
+    `Report total: ${formatMillis(totalTime)}`;
 }
 
 function renderBenchmarks(data) {
@@ -74,7 +76,7 @@ function renderBenchmarks(data) {
       <td>${formatMillis(runningRulesTotal)}</td>
       <td>${formatMillis(extractionTotal)}</td>
       <td>${formatMillis(otherTotal)}</td>
-      <td>${formatMillis(entry.report.timing.total)}</td>
+      <td>${formatSeconds(entry.total_time_seconds)}</td>
     `;
     benchmarkTableBodyNode.appendChild(rowNode);
   }

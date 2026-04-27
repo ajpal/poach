@@ -117,13 +117,24 @@ def aggregate_reports(
     if not report_files:
         raise SystemExit(f"No report files were generated under {REPORT_OUTPUT_DIR}")
 
+    command_times_by_report_path = {}
+    for result in command_results:
+        benchmark_path = Path(result["argv"][-1])
+        relative_path = benchmark_path.relative_to(benchmark_dir)
+        report_path = relative_path.with_suffix(".report.json")
+        command_times_by_report_path[str(report_path)] = result["time_seconds"]
+
     reports = []
     for report_file in report_files:
+        relative_report_path = str(report_file.relative_to(REPORT_OUTPUT_DIR))
         report = json.loads(report_file.read_text(encoding="utf-8"))
-        reports.append({
-            "path": str(report_file.relative_to(REPORT_OUTPUT_DIR)),
-            "report": report,
-        })
+        reports.append(
+            {
+                "path": relative_report_path,
+                "total_time_seconds": command_times_by_report_path[relative_report_path],
+                "report": report,
+            }
+        )
 
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
