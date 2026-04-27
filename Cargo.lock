@@ -1209,6 +1209,7 @@ dependencies = [
  "im-rc",
  "indexmap",
  "insta",
+ "lazy_static",
  "libtest-mimic",
  "log",
  "mimalloc",

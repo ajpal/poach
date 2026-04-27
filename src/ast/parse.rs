@@ -512,11 +512,10 @@ impl Parser {
                 _ => return error!(span, "usage: (extract <expr> <number of variants>?)"),
             },
             "multi-extract" => match tail {
-                [v, es] => vec![Command::MultiExtract(
+                [v, es @ ..] => vec![Command::MultiExtract(
                     span,
                     self.parse_expr(v)?,
-                    es.expect_list("exprs")?
-                        .iter()
+                    es.iter()
                         .map(|e| self.parse_expr(e))
                         .collect::<Result<_, _>>()?,
                 )],
