@@ -3,12 +3,12 @@
 use std::{collections::HashSet, convert::TryFrom};
 
 use egglog::{
+    ExecutionState, Primitive, Value,
     constraint::{AllEqualTypeConstraint, TypeConstraint},
     prelude::BaseSort,
     prelude::{I64Sort, Span, StringSort},
     sort::S,
     util::INTERNAL_SYMBOL_PREFIX,
-    ExecutionState, Primitive, Value,
 };
 
 #[derive(Clone)]

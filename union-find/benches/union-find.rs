@@ -4,10 +4,10 @@ use std::{
     thread,
 };
 
-use divan::{counter::ItemsCount, Bencher};
+use divan::{Bencher, counter::ItemsCount};
 use egglog_concurrency::{Notification, ReadOptimizedLock};
-use egglog_union_find::{concurrent, UnionFind};
-use rand::{seq::SliceRandom, Rng};
+use egglog_union_find::{UnionFind, concurrent};
+use rand::{Rng, seq::SliceRandom};
 
 fn main() {
     divan::main()

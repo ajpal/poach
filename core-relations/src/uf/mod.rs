@@ -9,10 +9,11 @@ use std::{
 use crate::numeric_id::{DenseIdMap, NumericId};
 use crossbeam_queue::SegQueue;
 use indexmap::IndexMap;
-use petgraph::{algo::dijkstra, graph::NodeIndex, visit::EdgeRef, Direction, Graph};
+use petgraph::{Direction, Graph, algo::dijkstra, graph::NodeIndex, visit::EdgeRef};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    TableChange, TaggedRowBuffer,
     action::ExecutionState,
     common::{HashMap, IndexSet, Value},
     offsets::{OffsetRange, RowId, Subset, SubsetRef},
@@ -22,7 +23,6 @@ use crate::{
         ColumnId, Constraint, Generation, MutationBuffer, Offset, Rebuilder, Row, Table, TableSpec,
         TableVersion, WrappedTableRef,
     },
-    TableChange, TaggedRowBuffer,
 };
 
 #[cfg(test)]

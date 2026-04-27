@@ -10,7 +10,7 @@ use std::process::exit;
 
 use flexbuffers::{FlexbufferSerializer, Reader};
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
@@ -159,7 +159,11 @@ fn train(arg: TrainArgs) {
             serialize_egraph_to_file(&mut egraph, arg.output_model_file.as_path());
         }
         Err(e) => {
-            panic!("Failed to execute {:} with error {:?}", input.to_string_lossy(), e);
+            panic!(
+                "Failed to execute {:} with error {:?}",
+                input.to_string_lossy(),
+                e
+            );
         }
     }
 }
@@ -179,7 +183,7 @@ fn deserialize_egraph_from_file(egraph_file: &Path) -> EGraph {
         .num_threads(1)
         .build_global()
         .unwrap();
-    
+
     let mut egraph = EGraph::deserialize(r).unwrap();
 
     let Ok(_) = egraph.restore_deserialized_runtime() else {
@@ -193,18 +197,15 @@ fn serve(arg: ServeArgs) {
     let mut egraph = deserialize_egraph_from_file(arg.model_file.as_path());
 
     match arg.serve_command {
-        None => {
-            match egraph.repl(poach::RunMode::Normal) {
-                Ok(_) => {}
-                _ => {
-                    exit(-1);
-                }
+        None => match egraph.repl(poach::RunMode::Normal) {
+            Ok(_) => {}
+            _ => {
+                exit(-1);
             }
-        }
+        },
         Some(cmd) => {
             match cmd {
                 ServeCommands::Single { input_file: input } => {
-
                     let program = std::fs::read_to_string(input.as_path()).unwrap_or_else(|_| {
                         let arg = input.to_string_lossy();
                         panic!("Failed to read file {arg}")
@@ -219,7 +220,11 @@ fn serve(arg: ServeArgs) {
                             }
                         }
                         Err(e) => {
-                            panic!("Failed to execute {:} with error {:?}", input.to_string_lossy(), e);
+                            panic!(
+                                "Failed to execute {:} with error {:?}",
+                                input.to_string_lossy(),
+                                e
+                            );
                         }
                     }
                 }
@@ -232,7 +237,7 @@ fn serve(arg: ServeArgs) {
                 }
             }
         }
-    }    
+    }
 }
 
 fn fine_tune(arg: FineTuneArgs) {

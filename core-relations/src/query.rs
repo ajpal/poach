@@ -2,22 +2,22 @@
 
 use std::{iter::once, sync::Arc};
 
-use crate::numeric_id::{define_id, DenseIdMap, IdVec, NumericId};
+use crate::numeric_id::{DenseIdMap, IdVec, NumericId, define_id};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 use thiserror::Error;
 
 use crate::{
+    BaseValueId, CounterId, ExternalFunctionId, PoolSet,
     action::{Instr, QueryEntry, WriteVal},
     common::HashMap,
     free_join::{
-        plan::{JoinHeader, JoinStages, Plan, PlanStrategy},
         ActionId, AtomId, Database, ProcessedConstraints, SubAtom, TableId, TableInfo, VarInfo,
         Variable,
+        plan::{JoinHeader, JoinStages, Plan, PlanStrategy},
     },
-    pool::{with_pool_set, Pooled},
+    pool::{Pooled, with_pool_set},
     table_spec::{ColumnId, Constraint},
-    BaseValueId, CounterId, ExternalFunctionId, PoolSet,
 };
 
 define_id!(pub RuleId, u32, "An identifier for a rule in a rule set");

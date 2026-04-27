@@ -8,18 +8,18 @@ use std::{iter, sync::Arc};
 
 use crate::core_relations;
 use crate::core_relations::{
-    make_external_func, ColumnId, CounterId, ExecutionState, ExternalFunctionId, MergeVal,
-    RuleBuilder, TableId, Value, WriteVal,
+    ColumnId, CounterId, ExecutionState, ExternalFunctionId, MergeVal, RuleBuilder, TableId, Value,
+    WriteVal, make_external_func,
 };
-use crate::numeric_id::{define_id, DenseIdMap, IdVec, NumericId};
-use crate::{EGraph, ProofReason, QueryEntry, ReasonSpecId, Result, SchemaMath, NOT_SUBSUMED};
+use crate::numeric_id::{DenseIdMap, IdVec, NumericId, define_id};
+use crate::{EGraph, NOT_SUBSUMED, ProofReason, QueryEntry, ReasonSpecId, Result, SchemaMath};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
 use crate::{
+    ColumnTy, FunctionId, RuleId,
     proof_spec::ProofBuilder,
     rule::{AtomId, Bindings, VariableId},
-    ColumnTy, FunctionId, RuleId,
 };
 
 define_id!(pub SyntaxId, u32, "an offset into a Syntax DAG.");

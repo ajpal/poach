@@ -23,8 +23,8 @@ use std::{
     mem,
     ops::{Deref, DerefMut},
     sync::{
-        atomic::{fence, Ordering},
         Arc,
+        atomic::{Ordering, fence},
     },
 };
 

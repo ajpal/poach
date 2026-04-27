@@ -12,7 +12,7 @@ use smallvec::SmallVec;
 use crate::{
     common::Value,
     offsets::RowId,
-    pool::{with_pool_set, Pooled},
+    pool::{Pooled, with_pool_set},
 };
 
 #[cfg(test)]

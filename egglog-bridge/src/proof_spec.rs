@@ -4,20 +4,20 @@ use crate::core_relations::{
     BaseValuePrinter, ColumnId, DisplacedTableWithProvenance, ProofReason as UfProofReason,
     ProofStep, RuleBuilder, Value,
 };
-use crate::numeric_id::{define_id, DenseIdMap, NumericId};
+use crate::numeric_id::{DenseIdMap, NumericId, define_id};
 use crate::rule::Variable;
 use egglog_reports::ReportLevel;
 use hashbrown::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    ColumnTy, EGraph, FunctionId, GetFirstMatch, QueryEntry, Result, RuleId, SideChannel,
+    SourceExpr, TopLevelLhsExpr,
     proof_format::{
         CongProof, EqProof, EqProofId, Premise, ProofStore, Term, TermId, TermProof, TermProofId,
     },
     rule::{AtomId, Bindings, DstVar, VariableId},
     syntax::{RuleData, SourceSyntax, SyntaxId},
-    ColumnTy, EGraph, FunctionId, GetFirstMatch, QueryEntry, Result, RuleId, SideChannel,
-    SourceExpr, TopLevelLhsExpr,
 };
 
 define_id!(pub(crate) ReasonSpecId, u32, "A unique identifier for the step in a proof.");
