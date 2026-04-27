@@ -30,7 +30,7 @@ struct TimingStep {
     tags: Vec<String>,
     #[serde(with = "serde_millis")]
     total: Duration,
-    breakdown: Vec<Duration>
+    breakdown: Vec<Duration>,
 }
 
 #[derive(Clone, Serialize)]
@@ -51,15 +51,13 @@ impl Reporter {
     }
 
     pub fn new_timer(&mut self, name: String, tags: Vec<String>) -> TimerHandle {
-        let handle= self.timers.len();
-        self.timers.push(
-            Timer {
-                name,
-                tags,
-                started_at: Instant::now(),
-                breakdown: vec![],
-            }
-        );
+        let handle = self.timers.len();
+        self.timers.push(Timer {
+            name,
+            tags,
+            started_at: Instant::now(),
+            breakdown: vec![],
+        });
         handle
     }
 
@@ -70,8 +68,7 @@ impl Reporter {
     pub fn record_timer(&mut self, h: TimerHandle) {
         let old = self.timers[h].started_at;
         let cur = Instant::now();
-        self.timers[h].breakdown.push(
-            cur.duration_since(old));
+        self.timers[h].breakdown.push(cur.duration_since(old));
         self.timers[h].started_at = cur;
     }
 
@@ -168,7 +165,6 @@ mod tests {
         reporter.record_timer(step_timer_two);
         std::thread::sleep(Duration::from_millis(50));
         reporter.record_timer(step_timer_two);
-
 
         let report = reporter.build_report();
 
