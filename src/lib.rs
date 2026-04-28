@@ -20,6 +20,7 @@ pub mod constraint;
 mod core;
 pub mod extract;
 pub mod prelude;
+pub mod report;
 pub mod scheduler;
 mod serialize_vis;
 pub mod sort;
@@ -29,6 +30,10 @@ mod typechecking;
 pub mod util;
 pub use command_macro::{CommandMacro, CommandMacroRegistry};
 mod get_size_prim;
+
+mod custom_schedulers;
+pub mod get_size_prim;
+pub use custom_schedulers::*;
 
 // This is used to allow the `add_primitive` macro to work in
 // both this crate and other crates by referring to `::egglog`.
@@ -1923,6 +1928,36 @@ impl EGraph {
     /// Return a list of messages.
     pub fn run_program(&mut self, program: Vec<Command>) -> Result<Vec<CommandOutput>, Error> {
         let (outputs, _desugared_commands) = self.process_program_internal(program, true)?;
+        Ok(outputs)
+    }
+
+    pub fn run_program_with_reporter(
+        &mut self,
+        program: Vec<Command>,
+        reporter: &mut report::Reporter,
+    ) -> Result<Vec<CommandOutput>, Error> {
+        let mut outputs = Vec::new();
+
+        // No support for macros or includes yet
+        for command in program {
+            for processed in self.resolve_command(command)? {
+                let command_name = processed.to_command().to_string();
+                let command_category = match &processed {
+                    ResolvedNCommand::RunSchedule(_) => "running_rules",
+                    ResolvedNCommand::Extract(_, _, _)
+                    | ResolvedNCommand::MultiExtract(_, _, _) => "extraction",
+                    ResolvedNCommand::Check(_, _) => "check",
+                    _ => "other",
+                };
+                let timer = reporter.new_timer(command_name, vec![command_category.to_string()]);
+                let result = self.run_command(processed)?;
+                reporter.record_timer(timer);
+                if let Some(output) = result {
+                    outputs.push(output);
+                }
+            }
+        }
+
         Ok(outputs)
     }
 

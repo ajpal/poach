@@ -1,5 +1,4 @@
 mod poach;
-mod report;
 use poach::poach;
 
 #[cfg(feature = "bin")]
