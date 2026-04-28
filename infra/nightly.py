@@ -19,6 +19,7 @@ DATA_DIR = OUTPUT_DIR / "data"
 REPORT_OUTPUT_DIR = DATA_DIR / "reports"
 DATA_JSON_PATH = DATA_DIR / "data.json"
 POACH_BIN = REPO_ROOT / "target" / "release" / "poach"
+MODEL_FILE = REPO_ROOT / "empty.model"
 
 
 def main() -> None:
@@ -27,7 +28,7 @@ def main() -> None:
 
     benchmark_dir = (REPO_ROOT / sys.argv[1]).resolve()
 
-    benchmark_files = sorted(benchmark_dir.rglob("*.egg"))
+    benchmark_files = list(benchmark_dir.rglob("*.egg"))
     if not benchmark_files:
         raise SystemExit(
             f"No .egg benchmark files found under {benchmark_dir}."
@@ -40,10 +41,16 @@ def main() -> None:
     DATA_JSON_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
     print(f"Wrote {DATA_JSON_PATH}")
 
-def run_command(command: list[str], *, cwd: Path) -> dict[str, Any]:
+def run_command(command: list[str], *, cwd: Path, report_path: Path) -> dict[str, Any]:
     started = time.perf_counter()
     try:
-        completed = subprocess.run(command, check=True, cwd=cwd)
+        completed = subprocess.run(
+            command,
+            check=True,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+        )
     except subprocess.CalledProcessError as err:
         time_seconds = time.perf_counter() - started
         print(
@@ -52,11 +59,13 @@ def run_command(command: list[str], *, cwd: Path) -> dict[str, Any]:
         )
         raise err
 
-    # TODO: collect stderr and stdout from completed
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(completed.stderr, encoding="utf-8")
 
     return {
         "argv": command,
         "cwd": str(cwd),
+        "report_path": str(report_path),
         "returncode": completed.returncode,
         "time_seconds": time.perf_counter() - started,
     }
@@ -67,34 +76,52 @@ def run_benchmarks(benchmark_dir: Path) -> list[dict[str, Any]]:
         shutil.rmtree(REPORT_OUTPUT_DIR)
     REPORT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    # TODO: poach serve streaming is the default mode
-
-    command = [
-        str(POACH_BIN),         # poach binary
-                                # fill in other args
-        str(benchmark_dir),     # input files
-    ]
-    print("Running benchmarks:", " ".join(command))
-    return [run_command(command, cwd=REPO_ROOT)]
+    results = []
+    for benchmark_file in benchmark_dir.rglob("*.egg"):
+        relative_benchmark = benchmark_file.relative_to(benchmark_dir)
+        report_path = REPORT_OUTPUT_DIR / relative_benchmark.with_suffix(".report.json")
+        command = [
+            str(POACH_BIN),
+            "serve",
+            "--debug",
+            str(MODEL_FILE),
+            "single",
+            str(benchmark_file),
+        ]
+        print("Running benchmark:", " ".join(command))
+        results.append(run_command(command, cwd=REPO_ROOT, report_path=report_path))
+    return results
 
 
 def aggregate_reports(
     benchmark_dir: Path, command_results: list[dict[str, Any]]
 ) -> dict[str, Any]:
-    report_files = sorted(REPORT_OUTPUT_DIR.rglob("*.report.json"))
+    report_files = list(REPORT_OUTPUT_DIR.rglob("*.report.json"))
     if not report_files:
         raise SystemExit(f"No report files were generated under {REPORT_OUTPUT_DIR}")
 
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "suite": benchmark_dir.name,
-        "benchmark_root": str(benchmark_dir.relative_to(REPO_ROOT)),
+        "benchmark_root": (
+            str(benchmark_dir.relative_to(REPO_ROOT))
+            if benchmark_dir.is_absolute()
+            else str(benchmark_dir)
+        ),
         "summary": {
             "commands": command_results,
             "total_time_seconds": sum(
                 result["time_seconds"] for result in command_results
             ),
         },
+        "reports": [
+            {
+                "path": str(Path(result["report_path"]).relative_to(OUTPUT_DIR)),
+                "time_seconds": result["time_seconds"],
+                "report": json.loads(Path(result["report_path"]).read_text(encoding="utf-8")),
+            }
+            for result in command_results
+        ],
     }
 
 

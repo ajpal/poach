@@ -1,6 +1,6 @@
-use poach::EGraph;
+use poach::{EGraph, report::Reporter};
 
-use std::{fs::File, path::PathBuf, process::exit};
+use std::{fs::File, io::Write, path::PathBuf, process::exit};
 
 use clap::{Args, Parser, Subcommand};
 
@@ -157,7 +157,29 @@ fn serve(arg: ServeArgs) {
                 panic!("Failed to read file {arg}")
             });
 
-            match egraph.parse_and_run_program(Some(input.to_str().unwrap().into()), &program) {
+            let result: Result<_, poach::Error> = if arg.debug {
+                let filename = Some(input.to_str().unwrap().into());
+                match egraph.parser.get_program_from_string(filename, &program) {
+                    Ok(parsed) => {
+                        let mut reporter = Reporter::new();
+                        let result = egraph.run_program_with_reporter(parsed, &mut reporter);
+                        if result.is_ok() {
+                            let mut stderr = std::io::stderr().lock();
+                            serde_json::to_writer(&mut stderr, &reporter.build_report())
+                                .expect("failed to serialize debug report");
+                            writeln!(stderr).expect("failed to terminate debug report");
+                        }
+                        result
+                    }
+                    Err(err) => Err(err.into()),
+                }
+            } else {
+                egraph
+                    .parse_and_run_program(Some(input.to_str().unwrap().into()), &program)
+                    .map_err(Into::into)
+            };
+
+            match result {
                 Ok(msgs) => {
                     for msg in msgs {
                         print!("{msg}");

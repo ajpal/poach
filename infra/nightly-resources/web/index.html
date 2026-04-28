@@ -11,13 +11,29 @@
       <h1>Poach Nightly</h1>
       <p id="status">Loading <code>data/data.json</code>...</p>
       <div id="contents">
-        <!-- Put tables/charts/etc here -->
-         <div id="summary"></div>
-
+        <div id="summary">
+          <h2>Summary</h2>
+          <p id="summary-text"></p>
+        </div>
+        <div id="benchmarks">
+          <h2>Reports</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Path</th>
+                <th>Wall Time</th>
+                <th>Rule Running</th>
+                <th>Extraction</th>
+                <th>Other</th>
+                <th># Timing Steps</th>
+              </tr>
+            </thead>
+            <tbody id="benchmarks-body"></tbody>
+          </table>
+        </div>
       </div>
     </main>
 
     <script type="module" src="./index.js"></script>
-    <script type="module" src="./util.js"></script>
   </body>
 </html>
