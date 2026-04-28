@@ -9,6 +9,7 @@ use egglog::{
 use egglog_reports::RunReport;
 use lazy_static::lazy_static;
 
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct RunExtendedSchedule;
 
 pub trait SchedulerGen {
@@ -200,6 +201,7 @@ impl ScheduleState {
     }
 }
 
+#[typetag::serde]
 impl UserDefinedCommand for RunExtendedSchedule {
     fn update(
         &self,
@@ -274,14 +276,14 @@ mod schedulers {
         })
     }
 
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
     pub struct BackOffScheduler {
         default_match_limit: usize,
         default_ban_length: usize,
         stats: HashMap<String, RuleStats>,
     }
 
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
     struct RuleStats {
         iteration: usize,
         times_applied: usize,
@@ -303,7 +305,8 @@ mod schedulers {
             })
         }
     }
-
+    
+    #[typetag::serde]
     impl Scheduler for BackOffScheduler {
         fn can_stop(&mut self, rules: &[&str], _ruleset: &str) -> bool {
             let stats = &mut self.stats;
