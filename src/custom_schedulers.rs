@@ -305,7 +305,7 @@ mod schedulers {
             })
         }
     }
-    
+
     #[typetag::serde]
     impl Scheduler for BackOffScheduler {
         fn can_stop(&mut self, rules: &[&str], _ruleset: &str) -> bool {

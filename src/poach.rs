@@ -200,46 +200,40 @@ fn deserialize_egraph_from_file(egraph_file: &Path) -> EGraph {
 fn serve(arg: ServeArgs) {
     let mut egraph = deserialize_egraph_from_file(arg.model_file.as_path());
 
-    match arg.serve_command {
-        None => match egraph.repl(poach::RunMode::Normal) {
+    match arg.mode {
+        ServeMode::Streaming => match egraph.repl(poach::RunMode::Normal) {
             Ok(_) => {}
             _ => {
                 exit(-1);
             }
         },
-        Some(cmd) => {
-            match cmd {
-                ServeCommands::Single { input_file: input } => {
-                    let program = std::fs::read_to_string(input.as_path()).unwrap_or_else(|_| {
-                        let arg = input.to_string_lossy();
-                        panic!("Failed to read file {arg}")
-                    });
+        ServeMode::Single { input_file: input } => {
+            let program = std::fs::read_to_string(input.as_path()).unwrap_or_else(|_| {
+                let arg = input.to_string_lossy();
+                panic!("Failed to read file {arg}")
+            });
 
-                    match egraph
-                        .parse_and_run_program(Some(input.to_str().unwrap().into()), &program)
-                    {
-                        Ok(msgs) => {
-                            for msg in msgs {
-                                print!("{msg}");
-                            }
-                        }
-                        Err(e) => {
-                            panic!(
-                                "Failed to execute {:} with error {:?}",
-                                input.to_string_lossy(),
-                                e
-                            );
-                        }
+            match egraph.parse_and_run_program(Some(input.to_str().unwrap().into()), &program) {
+                Ok(msgs) => {
+                    for msg in msgs {
+                        print!("{msg}");
                     }
                 }
-                ServeCommands::Batch {
-                    input_dir: _,
-                    output_dir: _,
-                } => {
-                    //TODO
-                    panic!("Batch not implemented");
+                Err(e) => {
+                    panic!(
+                        "Failed to execute {:} with error {:?}",
+                        input.to_string_lossy(),
+                        e
+                    );
                 }
             }
+        }
+        ServeMode::Batch {
+            input_dir: _,
+            output_dir: _,
+        } => {
+            //TODO
+            panic!("Batch not implemented");
         }
     }
 }
