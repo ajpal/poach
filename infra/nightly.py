@@ -41,7 +41,6 @@ def main() -> None:
     print(f"Wrote {DATA_JSON_PATH}")
 
 def run_command(command: list[str], *, cwd: Path) -> dict[str, Any]:
-    started_at = datetime.now(timezone.utc)
     started = time.perf_counter()
     try:
         completed = subprocess.run(command, check=True, cwd=cwd)
@@ -53,13 +52,12 @@ def run_command(command: list[str], *, cwd: Path) -> dict[str, Any]:
         )
         raise err
 
-    finished_at = datetime.now(timezone.utc)
+    # TODO: collect stderr and stdout from completed
+
     return {
         "argv": command,
         "cwd": str(cwd),
         "returncode": completed.returncode,
-        "started_at": started_at.isoformat(),
-        "finished_at": finished_at.isoformat(),
         "time_seconds": time.perf_counter() - started,
     }
 
@@ -69,11 +67,12 @@ def run_benchmarks(benchmark_dir: Path) -> list[dict[str, Any]]:
         shutil.rmtree(REPORT_OUTPUT_DIR)
     REPORT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+    # TODO: poach serve streaming is the default mode
+
     command = [
         str(POACH_BIN),         # poach binary
                                 # fill in other args
         str(benchmark_dir),     # input files
-        str(REPORT_OUTPUT_DIR), # output dir
     ]
     print("Running benchmarks:", " ".join(command))
     return [run_command(command, cwd=REPO_ROOT)]

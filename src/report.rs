@@ -1,12 +1,13 @@
 use std::fmt::{self, Display, Formatter};
 use std::time::{Duration, Instant};
 
-use hashbrown::HashMap;
 use serde::Serialize;
+
+type TimerHandle = usize;
 
 #[derive(Default)]
 pub struct Reporter {
-    spans: HashMap<String, SpanStats>,
+    timers: Vec<Timer>,
     sizes: Vec<SizeMetric>,
 }
 
@@ -14,37 +15,22 @@ pub struct Timer {
     name: String,
     tags: Vec<String>,
     started_at: Instant,
-}
-
-#[derive(Clone, Default)]
-struct SpanStats {
-    tags: Vec<String>,
-    count: u64,
-    total: Duration,
+    breakdown: Vec<Duration>,
 }
 
 #[derive(Serialize)]
 pub struct RunReport {
-    label: String,
-    timing: TimingReport,
+    timings: Vec<TimingStep>,
     sizes: Vec<SizeMetric>,
-}
-
-#[derive(Serialize)]
-pub struct TimingReport {
-    #[serde(with = "serde_millis")]
-    total: Duration,
-    // Each entry is (step name, invocation count, elapsed time).
-    steps: Vec<TimingStep>,
 }
 
 #[derive(Serialize)]
 struct TimingStep {
     name: String,
     tags: Vec<String>,
-    count: u64,
     #[serde(with = "serde_millis")]
     total: Duration,
+    breakdown: Vec<Duration>,
 }
 
 #[derive(Clone, Serialize)]
@@ -64,54 +50,43 @@ impl Reporter {
         Self::default()
     }
 
-    pub fn start_timer(&self, name: String, tags: Vec<String>) -> Timer {
-        Timer {
+    pub fn new_timer(&mut self, name: String, tags: Vec<String>) -> TimerHandle {
+        let handle = self.timers.len();
+        self.timers.push(Timer {
             name,
             tags,
             started_at: Instant::now(),
-        }
+            breakdown: vec![],
+        });
+        handle
     }
 
-    pub fn finish_timer(&mut self, timer: Timer) {
-        let entry = self.spans.entry(timer.name).or_insert_with(|| SpanStats {
-            tags: timer.tags.clone(),
-            ..SpanStats::default()
-        });
-        // We aggregate spans by name, so repeated timers for the same name must
-        // carry the same tag set.
-        debug_assert_eq!(entry.tags, timer.tags);
-        entry.count += 1;
-        entry.total += timer.started_at.elapsed();
+    pub fn record_timer(&mut self, h: TimerHandle) {
+        let old = self.timers[h].started_at;
+        let cur = Instant::now();
+        self.timers[h].breakdown.push(cur.duration_since(old));
+        self.timers[h].started_at = cur;
     }
 
     pub fn record_size(&mut self, name: String, value: MetricValue) {
         self.sizes.push(SizeMetric { name, value });
     }
 
-    pub fn build_report(&self, label: String) -> RunReport {
+    pub fn build_report(&self) -> RunReport {
         let mut steps: Vec<_> = self
-            .spans
+            .timers
             .iter()
-            .filter(|(name, _)| name.as_str() != "command")
-            .map(|(name, stats)| TimingStep {
-                name: name.clone(),
-                tags: stats.tags.clone(),
-                count: stats.count,
-                total: stats.total,
+            .map(|t| TimingStep {
+                name: t.name.clone(),
+                tags: t.tags.clone(),
+                total: t.breakdown.iter().sum(),
+                breakdown: t.breakdown.clone(),
             })
             .collect();
         steps.sort_by(|left, right| right.total.cmp(&left.total));
 
         RunReport {
-            label,
-            timing: TimingReport {
-                total: self
-                    .spans
-                    .get("command")
-                    .map(|stats| stats.total)
-                    .unwrap_or_default(),
-                steps,
-            },
+            timings: steps,
             sizes: self.sizes.clone(),
         }
     }
@@ -119,44 +94,22 @@ impl Reporter {
 
 impl Display for RunReport {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        writeln!(f, "Report for {}:", self.label)?;
-        write!(f, "{}", self.timing)?;
+        writeln!(f, "timings:")?;
+        for t in self.timings.iter() {
+            writeln!(f, "{}", t)?;
+        }
         write_metric_section(f, "sizes", &self.sizes)?;
         Ok(())
     }
 }
 
-impl Display for TimingReport {
+impl Display for TimingStep {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         writeln!(f, "timing:")?;
+        writeln!(f, "  name: {}", self.name)?;
+        writeln!(f, "  tags: {:?}", self.tags)?;
         writeln!(f, "  total: {}", self.total.as_secs_f64())?;
-        if self.steps.is_empty() {
-            writeln!(f, "  steps: none recorded")?;
-            return Ok(());
-        }
-
-        writeln!(f, "  breakdown:")?;
-        for step in &self.steps {
-            let avg = if step.count == 0 {
-                Duration::default()
-            } else {
-                Duration::from_secs_f64(step.total.as_secs_f64() / step.count as f64)
-            };
-            let tag_display = if step.tags.is_empty() {
-                "untagged".to_string()
-            } else {
-                step.tags.join(",")
-            };
-            writeln!(
-                f,
-                "    {} [{}]: total={}, count={}, avg={}",
-                step.name,
-                tag_display,
-                step.total.as_secs_f64(),
-                step.count,
-                avg.as_secs_f64(),
-            )?;
-        }
+        writeln!(f, "  breakdown: {:?}", self.breakdown)?;
         Ok(())
     }
 }
@@ -200,25 +153,21 @@ mod tests {
     fn build_report_aggregates_timers_by_name_and_preserves_tags() {
         let mut reporter = Reporter::new();
 
-        let command_timer = reporter.start_timer("command".to_string(), Vec::new());
-        std::thread::sleep(Duration::from_millis(1));
-        reporter.finish_timer(command_timer);
+        let step_timer_one = reporter.new_timer("step_one".to_string(), vec!["tag".to_string()]);
+        reporter.record_timer(step_timer_one);
 
-        let step_timer_one = reporter.start_timer("step".to_string(), vec!["tag".to_string()]);
-        std::thread::sleep(Duration::from_millis(1));
-        reporter.finish_timer(step_timer_one);
+        let step_timer_two = reporter.new_timer("step_two".to_string(), vec!["tag".to_string()]);
+        std::thread::sleep(Duration::from_millis(50));
+        reporter.record_timer(step_timer_two);
+        std::thread::sleep(Duration::from_millis(50));
+        reporter.record_timer(step_timer_two);
 
-        let step_timer_two = reporter.start_timer("step".to_string(), vec!["tag".to_string()]);
-        std::thread::sleep(Duration::from_millis(1));
-        reporter.finish_timer(step_timer_two);
+        let report = reporter.build_report();
 
-        let report = reporter.build_report("label".to_string());
-
-        assert!(report.timing.total >= Duration::from_millis(1));
-        assert_eq!(report.timing.steps.len(), 1);
-        assert_eq!(report.timing.steps[0].name, "step");
-        assert_eq!(report.timing.steps[0].tags, vec!["tag".to_string()]);
-        assert_eq!(report.timing.steps[0].count, 2);
-        assert!(report.timing.steps[0].total >= Duration::from_millis(2));
+        assert_eq!(report.timings.len(), 2);
+        assert_eq!(report.timings[0].name, "step_two");
+        assert_eq!(report.timings[0].tags, vec!["tag".to_string()]);
+        assert_eq!(report.timings[0].breakdown.len(), 2);
+        assert!(report.timings[0].total >= Duration::from_millis(100));
     }
 }
