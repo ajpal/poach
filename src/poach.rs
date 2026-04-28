@@ -1,4 +1,4 @@
-use poach::{EGraph};
+use poach::EGraph;
 
 use std::{fs::File, path::PathBuf, process::exit};
 
@@ -146,7 +146,7 @@ fn serve(arg: ServeArgs) {
         }
         Some(cmd) => {
             match cmd {
-                ServeCommands::Single{input_file: input} => {
+                ServeCommands::Single { input_file: input } => {
                     let mut egraph = EGraph::default();
 
                     rayon::ThreadPoolBuilder::new()
@@ -159,7 +159,9 @@ fn serve(arg: ServeArgs) {
                         panic!("Failed to read file {arg}")
                     });
 
-                    match egraph.parse_and_run_program(Some(input.to_str().unwrap().into()), &program) {
+                    match egraph
+                        .parse_and_run_program(Some(input.to_str().unwrap().into()), &program)
+                    {
                         Ok(msgs) => {
                             for msg in msgs {
                                 print!("{msg}");
@@ -170,7 +172,10 @@ fn serve(arg: ServeArgs) {
                         }
                     }
                 }
-                ServeCommands::Batch{input_dir:_, output_dir:_} => {
+                ServeCommands::Batch {
+                    input_dir: _,
+                    output_dir: _,
+                } => {
                     //TODO
                     panic!("Batch not implemented");
                 }
