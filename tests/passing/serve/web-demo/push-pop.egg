@@ -1,5 +1,0 @@
-(check (= (foo) 1))
-
-(check (= (foo) 2))
-
-(check (= (foo) 1))

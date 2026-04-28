@@ -1,7 +1,0 @@
-(check (= (f 1) 4))
-
-(check (= (g 1 2) (g 2 3)))
-
-(check (= x (g 1 2)))
-
-(check (= x (g 1 2)) (= y (g 2 3)) (= x y))
