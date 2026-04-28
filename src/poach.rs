@@ -3,13 +3,15 @@ use std::path::{Path, PathBuf};
 use clap::{Args, Parser, Subcommand};
 
 use poach::EGraph;
+use poach::ast::Parser as EgglogParser;
 
 use std::fs::File;
-use std::io::prelude::*;
+use std::io::{prelude::*, stderr};
 use std::process::exit;
 
 use flexbuffers::{FlexbufferSerializer, Reader};
 
+use poach::report::{MetricValue, Reporter};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Parser)]
@@ -124,22 +126,21 @@ pub fn poach() {
             println!("test({:?})", arg);
         }
     }
-    // TODO handle report IO
 }
 
-// TODO add report events
-
 // mut is necessary due to possible canonicalization before serializing
-fn serialize_egraph_to_file(egraph: &mut EGraph, output_file: &Path) {
+fn serialize_egraph_to_file(egraph: &mut EGraph, output_file: &Path) -> usize {
     egraph.stabilize();
 
     let mut buf = FlexbufferSerializer::new();
     Serialize::serialize(egraph, &mut buf).expect("Failed to serialize the egraph to Flexbuffer");
+    let serialized_size = buf.view().len();
 
     let Ok(mut file) = File::create(output_file) else {
         panic!("Failed to create file");
     };
     let _ = file.write_all(buf.view());
+    serialized_size
 }
 
 /// SerializeEgraph assumes a single input egglog program
@@ -152,79 +153,183 @@ fn train(arg: TrainArgs) {
         .unwrap();
 
     let input = arg.training_set;
+    if arg.debug {
+        let mut reporter = Reporter::new();
 
-    let program = std::fs::read_to_string(input.as_path()).unwrap_or_else(|_| {
-        let arg = input.to_string_lossy();
-        panic!("Failed to read file {arg}")
-    });
+        let read_timer = reporter.new_timer("read_model".to_string(), vec!["io".to_string()]);
+        let program = std::fs::read_to_string(input.as_path()).expect("Failed to read file");
+        reporter.record_timer(read_timer);
 
-    match egraph.parse_and_run_program(Some(input.to_str().unwrap().into()), &program) {
-        Ok(_) => {
-            serialize_egraph_to_file(&mut egraph, arg.output_model_file.as_path());
+        let mut parser = EgglogParser::default();
+        let parsed = parser
+            .get_program_from_string(Some(input.to_str().unwrap().into()), &program)
+            .unwrap_or_else(|e| {
+                panic!(
+                    "Failed to execute {:} with error {:?}",
+                    input.to_string_lossy(),
+                    e
+                )
+            });
+
+        match egraph.run_program_with_reporter(parsed, &mut reporter) {
+            Ok(_) => {
+                let serialize_timer =
+                    reporter.new_timer("serialize_model".to_string(), vec!["io".to_string()]);
+                let serialized_size =
+                    serialize_egraph_to_file(&mut egraph, arg.output_model_file.as_path());
+                reporter.record_timer(serialize_timer);
+                reporter.record_size(
+                    "model_bytes".to_string(),
+                    MetricValue::Bytes(serialized_size as u64),
+                );
+                serde_json::to_writer(&mut stderr(), &reporter.build_report())
+                    .expect("Failed to serialize report");
+                eprintln!();
+            }
+            Err(e) => {
+                panic!(
+                    "Failed to execute {:} with error {:?}",
+                    input.to_string_lossy(),
+                    e
+                );
+            }
         }
-        Err(e) => {
-            panic!(
-                "Failed to execute {:} with error {:?}",
-                input.to_string_lossy(),
-                e
-            );
+    } else {
+        let program = std::fs::read_to_string(input.as_path()).expect("Failed to read file");
+
+        match egraph.parse_and_run_program(Some(input.to_str().unwrap().into()), &program) {
+            Ok(_) => {
+                let _ = serialize_egraph_to_file(&mut egraph, arg.output_model_file.as_path());
+            }
+            Err(e) => {
+                panic!(
+                    "Failed to execute {:} with error {:?}",
+                    input.to_string_lossy(),
+                    e
+                );
+            }
         }
     }
 }
 
-fn deserialize_egraph_from_file(egraph_file: &Path) -> EGraph {
-    let Ok(mut file) = File::open(egraph_file) else {
-        panic!("Failed to open input egraph file");
-    };
-    let mut buf = Vec::new();
-    let Ok(_) = file.read_to_end(&mut buf) else {
-        panic!("Failed to read from file");
-    };
-
-    let r = Reader::get_root(buf.as_slice()).unwrap();
-
+fn deserialize_egraph_from_file(egraph_file: &Path, reporter: Option<&mut Reporter>) -> EGraph {
     rayon::ThreadPoolBuilder::new()
         .num_threads(1)
         .build_global()
         .unwrap();
 
-    let mut egraph = EGraph::deserialize(r).unwrap();
+    if let Some(reporter) = reporter {
+        let read_timer = reporter.new_timer("read_model_file".to_string(), vec!["io".to_string()]);
+        let Ok(mut file) = File::open(egraph_file) else {
+            panic!("Failed to open input egraph file");
+        };
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf)
+            .expect("Failed to read from file");
+        reporter.record_timer(read_timer);
 
-    let Ok(_) = egraph.restore_deserialized_runtime() else {
-        panic!("Failed to restore deserialized runtime");
-    };
+        let r = Reader::get_root(buf.as_slice()).unwrap();
+        let deserialize_timer =
+            reporter.new_timer("deserialize_model".to_string(), vec!["io".to_string()]);
 
-    return egraph;
+        let mut egraph = EGraph::deserialize(r).unwrap();
+
+        egraph
+            .restore_deserialized_runtime()
+            .expect("Failed to restore deserialized runtime");
+        reporter.record_timer(deserialize_timer);
+
+        egraph
+    } else {
+        let Ok(mut file) = File::open(egraph_file) else {
+            panic!("Failed to open input egraph file");
+        };
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf)
+            .expect("Failed to read from file");
+
+        let r = Reader::get_root(buf.as_slice()).unwrap();
+
+        let mut egraph = EGraph::deserialize(r).unwrap();
+
+        egraph
+            .restore_deserialized_runtime()
+            .expect("Failed to restore deserialized runtime");
+
+        egraph
+    }
 }
 
 fn serve(arg: ServeArgs) {
-    let mut egraph = deserialize_egraph_from_file(arg.model_file.as_path());
-
     match arg.mode {
-        ServeMode::Streaming => match egraph.repl(poach::RunMode::Normal) {
-            Ok(_) => {}
-            _ => {
-                exit(-1);
+        ServeMode::Streaming => {
+            match deserialize_egraph_from_file(arg.model_file.as_path(), None) // no reporter for streaming mode yet
+                .repl(poach::RunMode::Normal)
+            {
+                Ok(_) => {}
+                _ => {
+                    exit(-1);
+                }
             }
-        },
+        }
         ServeMode::Single { input_file: input } => {
-            let program = std::fs::read_to_string(input.as_path()).unwrap_or_else(|_| {
-                let arg = input.to_string_lossy();
-                panic!("Failed to read file {arg}")
-            });
+            if arg.debug {
+                let mut reporter = Reporter::new();
+                let mut egraph =
+                    deserialize_egraph_from_file(arg.model_file.as_path(), Some(&mut reporter));
 
-            match egraph.parse_and_run_program(Some(input.to_str().unwrap().into()), &program) {
-                Ok(msgs) => {
-                    for msg in msgs {
-                        print!("{msg}");
+                let read_timer =
+                    reporter.new_timer("read_input_program".to_string(), vec!["io".to_string()]);
+                let program =
+                    std::fs::read_to_string(input.as_path()).expect("Failed to read file");
+                reporter.record_timer(read_timer);
+
+                let mut parser = EgglogParser::default();
+                let parsed = parser
+                    .get_program_from_string(Some(input.to_str().unwrap().into()), &program)
+                    .unwrap_or_else(|e| {
+                        panic!(
+                            "Failed to execute {:} with error {:?}",
+                            input.to_string_lossy(),
+                            e
+                        )
+                    });
+
+                match egraph.run_program_with_reporter(parsed, &mut reporter) {
+                    Ok(msgs) => {
+                        for msg in msgs {
+                            print!("{msg}");
+                        }
+                        serde_json::to_writer(&mut stderr(), &reporter.build_report())
+                            .expect("Failed to serialize report");
+                        eprintln!();
+                    }
+                    Err(e) => {
+                        panic!(
+                            "Failed to execute {:} with error {:?}",
+                            input.to_string_lossy(),
+                            e
+                        );
                     }
                 }
-                Err(e) => {
-                    panic!(
-                        "Failed to execute {:} with error {:?}",
-                        input.to_string_lossy(),
-                        e
-                    );
+            } else {
+                let mut egraph = deserialize_egraph_from_file(arg.model_file.as_path(), None);
+                let program =
+                    std::fs::read_to_string(input.as_path()).expect("Failed to read file");
+
+                match egraph.parse_and_run_program(Some(input.to_str().unwrap().into()), &program) {
+                    Ok(msgs) => {
+                        for msg in msgs {
+                            print!("{msg}");
+                        }
+                    }
+                    Err(e) => {
+                        panic!(
+                            "Failed to execute {:} with error {:?}",
+                            input.to_string_lossy(),
+                            e
+                        );
+                    }
                 }
             }
         }
