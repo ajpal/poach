@@ -61,10 +61,6 @@ impl Reporter {
         handle
     }
 
-    pub fn reset_timer(&mut self, h: TimerHandle) {
-        self.timers[h].started_at = Instant::now();
-    }
-
     pub fn record_timer(&mut self, h: TimerHandle) {
         let old = self.timers[h].started_at;
         let cur = Instant::now();
