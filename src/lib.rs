@@ -20,6 +20,7 @@ pub mod constraint;
 mod core;
 pub mod extract;
 pub mod prelude;
+pub mod report;
 pub mod scheduler;
 mod serialize;
 pub mod sort;
@@ -28,6 +29,10 @@ mod termdag;
 mod typechecking;
 pub mod util;
 pub use command_macro::{CommandMacro, CommandMacroRegistry};
+
+mod custom_schedulers;
+pub mod get_size_prim;
+pub use custom_schedulers::*;
 
 // This is used to allow the `add_primitive` macro to work in
 // both this crate and other crates by referring to `::egglog`.
@@ -44,7 +49,7 @@ use core_relations::{ExternalFunctionId, make_external_func};
 use csv::Writer;
 pub use egglog_add_primitive::add_primitive;
 use egglog_ast::generic_ast::{Change, GenericExpr, Literal};
-use egglog_ast::span::Span;
+use egglog_ast::span::{self, Span};
 use egglog_ast::util::ListDisplay;
 pub use egglog_bridge::FunctionRow;
 use egglog_bridge::{ColumnTy, QueryEntry};
@@ -117,6 +122,8 @@ pub enum CommandOutput {
     ExtractBest(TermDag, DefaultCost, TermId),
     /// The variants of a function found after extracting
     ExtractVariants(TermDag, Vec<TermId>),
+    /// The variants of multiple functions found after extracting
+    MultiExtractVariants(TermDag, Vec<Vec<TermId>>),
     /// The report from all runs
     OverallStatistics(RunReport),
     /// A printed function and all its values
@@ -145,6 +152,17 @@ impl std::fmt::Display for CommandOutput {
                 writeln!(f, "(")?;
                 for expr in terms {
                     writeln!(f, "   {}", termdag.to_string(*expr))?;
+                }
+                writeln!(f, ")")
+            }
+            CommandOutput::MultiExtractVariants(termdag, terms) => {
+                writeln!(f, "(")?;
+                for variants in terms {
+                    writeln!(f, "   (")?;
+                    for expr in variants {
+                        writeln!(f, "      {}", termdag.to_string(*expr))?;
+                    }
+                    writeln!(f, "   )")?;
                 }
                 writeln!(f, ")")
             }
@@ -344,6 +362,9 @@ impl Default for EGraph {
 
         eg.rulesets
             .insert("".into(), Ruleset::Rules(Default::default()));
+
+        // support get-size! macro for Herbie
+        eg.add_primitive(get_size_prim::GetSizePrimitive);
 
         eg
     }
@@ -1173,6 +1194,53 @@ impl EGraph {
                     Ok(Some(CommandOutput::ExtractVariants(termdag, terms)))
                 };
             }
+            ResolvedNCommand::MultiExtract(span, variants, exprs) => {
+                let sorts = exprs.iter().map(|expr| expr.output_type()).collect();
+
+                let xs: Vec<_> = exprs
+                    .iter()
+                    .map(|expr| self.eval_resolved_expr(span.clone(), expr))
+                    .collect::<Result<_, _>>()?;
+
+                let n = self.eval_resolved_expr(span, &variants)?;
+                let n: i64 = self.backend.base_values().unwrap(n);
+                if n < 0 {
+                    panic!("Cannot extract negative number of variants");
+                }
+
+                let mut termdag = TermDag::default();
+
+                let extractor = Extractor::compute_costs_from_rootsorts(
+                    Some(sorts),
+                    self,
+                    TreeAdditiveCostModel::default(),
+                );
+
+                let terms: Vec<_> = xs
+                    .iter()
+                    .zip(exprs.iter())
+                    .map(|(x, expr)| {
+                        let variants: Vec<_> = extractor
+                            .extract_variants_with_sort(
+                                self,
+                                &mut termdag,
+                                *x,
+                                n as usize,
+                                expr.output_type(),
+                            )
+                            .iter()
+                            .map(|e| e.1)
+                            .collect();
+                        if log_enabled!(Level::Info) {
+                            let expr_str = expr.to_string();
+                            log::info!("extracted {} variants for {expr_str}", variants.len());
+                        }
+                        variants
+                    })
+                    .collect();
+
+                return Ok(Some(CommandOutput::MultiExtractVariants(termdag, terms)));
+            }
             ResolvedNCommand::Push(n) => {
                 (0..n).for_each(|_| self.push());
                 log::info!("Pushed {n} levels.")
@@ -1501,6 +1569,36 @@ impl EGraph {
     /// Return a list of messages.
     pub fn run_program(&mut self, program: Vec<Command>) -> Result<Vec<CommandOutput>, Error> {
         let (outputs, _desugared_commands) = self.process_program_internal(program, true)?;
+        Ok(outputs)
+    }
+
+    pub fn run_program_with_reporter(
+        &mut self,
+        program: Vec<Command>,
+        reporter: &mut report::Reporter,
+    ) -> Result<Vec<CommandOutput>, Error> {
+        let mut outputs = Vec::new();
+
+        // No support for macros or includes yet
+        for command in program {
+            for processed in self.resolve_command(command)? {
+                let command_name = processed.to_command().to_string();
+                let command_category = match &processed {
+                    ResolvedNCommand::RunSchedule(_) => "running_rules",
+                    ResolvedNCommand::Extract(_, _, _)
+                    | ResolvedNCommand::MultiExtract(_, _, _) => "extraction",
+                    ResolvedNCommand::Check(_, _) => "check",
+                    _ => "other",
+                };
+                let timer = reporter.new_timer(command_name, vec![command_category.to_string()]);
+                let result = self.run_command(processed)?;
+                reporter.record_timer(timer);
+                if let Some(output) = result {
+                    outputs.push(output);
+                }
+            }
+        }
+
         Ok(outputs)
     }
 
