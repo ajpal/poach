@@ -1,0 +1,5 @@
+(check (= (lo e) -100))
+
+(check (= (lo e) 100))
+
+(extract (lo e))

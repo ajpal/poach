@@ -1,0 +1,27 @@
+(check (= $zero $zero-alt))
+
+(check (= $zero (* (bigrat (bigint -1) (bigint 1)) $zero-alt)))
+
+(check (!= $four $fourth))
+
+(check (= $neg-one $neg-one-alt))
+
+(check (= $one (pow $zero $zero)))
+
+(check (= $one (pow $zero $zero-alt)))
+
+(check (= $zero (pow $zero $two)))
+
+(check (= $four (pow $two $two)))
+
+(check (= $fourth (pow $four $neg-one)))
+
+(check (= $fourth (pow $two $neg-two)))
+
+(check (= $one (pow $one $neg-two)))
+
+(check (= $one (pow $two $zero)))
+
+(check (= $one (pow $neg-two $zero)))
+
+(check (= $one (pow $one $thirty-two)))

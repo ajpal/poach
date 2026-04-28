@@ -1,0 +1,1 @@
+(check (= (Num ty n) (Num ty m)) (!= n m))

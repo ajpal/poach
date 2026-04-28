@@ -1,0 +1,11 @@
+(check (left 1))
+
+(check (right 0))
+
+(check (middle 0))
+
+(check (left 10))
+
+(check (right 10))
+
+(check (middle 9))

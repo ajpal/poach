@@ -1,0 +1,1 @@
+(extract (unstable-fn "fn" (x)))

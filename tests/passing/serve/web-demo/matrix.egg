@@ -1,0 +1,5 @@
+(check (= (nrows B) m))
+
+(check (= (nrows (Kron (Id n) B)) (Times n m)))
+
+(check (= ex1 simple_ex1))

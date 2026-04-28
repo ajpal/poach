@@ -1,0 +1,5 @@
+(check (edge 1 2))
+
+(check (path 1 2))
+
+(check (path 1 3))

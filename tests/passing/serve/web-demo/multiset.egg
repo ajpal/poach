@@ -1,0 +1,46 @@
+(check (=
+    (multiset-of (Num 3) (Num 2) (Num 1))
+    xs
+))
+
+(check (!=
+    (multiset-of (Num 3) (Num 2) (Num 1) (Num 1))
+    xs
+))
+
+(check (=
+    (multiset-of (Num 1) (Num 2) (Num 3) (Num 4))
+    inserted
+))
+
+(check (multiset-contains xs (Num 1)))
+
+(check (multiset-not-contains xs (Num 4)))
+
+(check (=
+    (multiset-of (Num 1) (Num 3))
+    (multiset-remove xs (Num 2))
+))
+
+(check (= (multiset-of (Num 1)) (multiset-remove (multiset-of (Num 1) (Num 1)) (Num 1))))
+
+(check (= 3 (multiset-length xs)))
+
+(check (= 3 (multiset-length (multiset-of (Num 1) (Num 1) (Num 1)))))
+
+(check (= (Num 1) (multiset-pick (multiset-of (Num 1)))))
+
+(check (=
+    (multiset-of (Num 1) (Num 4) (Num 9))
+    squared-xs
+))
+
+(check (=
+    (multiset-sum (multiset-of (Num 1) (Num 2) (Num 3)) (multiset-of (Num 1) (Num 2) (Num 4)))
+    (multiset-of (Num 1) (Num 4) (Num 2) (Num 3) (Num 2) (Num 1))
+))
+
+(check (=
+    (multiset-length (multiset-sum (multiset-of (Num 1) (Num 2) (Num 3)) (multiset-of (Num 1) (Num 2) (Num 4))))
+    6
+))

@@ -1,0 +1,13 @@
+(check (path 0 1))
+
+(check (path 0 2))
+
+(check (path 0 3))
+
+(check (path 0 4))
+
+(check (path 1 2))
+
+(check (path 1 3))
+
+(check (path 1 4))
