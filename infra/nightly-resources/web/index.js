@@ -129,9 +129,8 @@ function installHeaderSortHandlers() {
 function updateHeaderIndicators() {
   for (const th of document.querySelectorAll("#benchmarks-header th")) {
     const label = th.textContent.replace(/[ ▲▼]+$/, "");
-    const arrow = th.dataset.sortKey === sortKey
-      ? (sortDir === "asc" ? " ▲" : " ▼")
-      : "";
+    const arrow =
+      th.dataset.sortKey === sortKey ? (sortDir === "asc" ? " ▲" : " ▼") : "";
     th.textContent = label + arrow;
   }
 }
