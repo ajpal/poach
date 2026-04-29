@@ -43,4 +43,4 @@ fi
 cp infra/nightly-resources/web/* nightly/output
 
 # Uncomment for local development
-cd nightly/output && python3 -m http.server 8002
+# cd nightly/output && python3 -m http.server 8002
