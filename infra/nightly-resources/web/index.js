@@ -2,7 +2,10 @@ import { formatMillis } from "./util.js";
 
 let suites = [];
 let activeSuiteName = null;
+let sortKey = "benchmark_path";
+let sortDir = "asc";
 load();
+installHeaderSortHandlers();
 
 async function load() {
   const statusNode = document.querySelector("#status");
@@ -14,7 +17,7 @@ async function load() {
     }
 
     const data = await response.json();
-    suites = data.suites;
+    suites = [...data.suites].sort((a, b) => a.name.localeCompare(b.name));
     activeSuiteName = suites[0]?.name ?? null;
     statusNode.textContent = "Loaded data/data.json";
     renderSummary(data);
@@ -79,8 +82,52 @@ function renderSuites() {
     </div>
   `;
   document.querySelector("#benchmarks-body").innerHTML = renderRows(
-    activeSuite.reports,
+    sortReports(activeSuite.reports),
   );
+  updateHeaderIndicators();
+}
+
+function getSortValue(report, key) {
+  return key.split(".").reduce((acc, part) => acc?.[part], report) ?? 0;
+}
+
+function sortReports(reports) {
+  const sorted = [...reports];
+  const dir = sortDir === "asc" ? 1 : -1;
+  sorted.sort((a, b) => {
+    const av = getSortValue(a, sortKey);
+    const bv = getSortValue(b, sortKey);
+    if (typeof av === "string" || typeof bv === "string") {
+      return String(av).localeCompare(String(bv)) * dir;
+    }
+    return (av - bv) * dir;
+  });
+  return sorted;
+}
+
+function installHeaderSortHandlers() {
+  for (const th of document.querySelectorAll("#benchmarks-header th")) {
+    th.style.cursor = "pointer";
+    th.addEventListener("click", () => {
+      const key = th.dataset.sortKey;
+      if (sortKey === key) {
+        sortDir = sortDir === "asc" ? "desc" : "asc";
+      } else {
+        sortKey = key;
+        sortDir = "asc";
+      }
+      renderSuites();
+    });
+  }
+}
+
+function updateHeaderIndicators() {
+  for (const th of document.querySelectorAll("#benchmarks-header th")) {
+    const label = th.textContent.replace(/[ ▲▼]+$/, "");
+    const arrow =
+      th.dataset.sortKey === sortKey ? (sortDir === "asc" ? " ▲" : " ▼") : "";
+    th.textContent = label + arrow;
+  }
 }
 
 function renderRows(reports) {

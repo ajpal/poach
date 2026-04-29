@@ -21,13 +21,13 @@
           <div id="active-suite-summary"></div>
           <table>
             <thead>
-              <tr>
-                <th>Path</th>
-                <th>Wall Time</th>
-                <th>Rule Running</th>
-                <th>Extraction</th>
-                <th>Other</th>
-                <th># Timing Steps</th>
+              <tr id="benchmarks-header">
+                <th data-sort-key="benchmark_path">Path</th>
+                <th data-sort-key="time_seconds">Wall Time</th>
+                <th data-sort-key="timing_summary.rule_running_millis">Rule Running</th>
+                <th data-sort-key="timing_summary.extraction_millis">Extraction</th>
+                <th data-sort-key="timing_summary.other_millis">Other</th>
+                <th data-sort-key="timing_summary.timing_steps"># Timing Steps</th>
               </tr>
             </thead>
             <tbody id="benchmarks-body"></tbody>
