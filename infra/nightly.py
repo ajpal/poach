@@ -26,16 +26,17 @@ def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit(f"Usage: {Path(sys.argv[0]).name} <benchmark-dir>")
 
-    benchmark_dir = (REPO_ROOT / sys.argv[1]).resolve()
+    benchmark_root = (REPO_ROOT / sys.argv[1]).resolve()
+    benchmark_dirs = list(
+        path
+        for path in benchmark_root.iterdir()
+        if path.is_dir() and any(path.rglob("*.egg"))
+    )
+    if not benchmark_dirs:
+        raise SystemExit(f"No benchmark suite directories found under {benchmark_root}.")
 
-    benchmark_files = list(benchmark_dir.rglob("*.egg"))
-    if not benchmark_files:
-        raise SystemExit(
-            f"No .egg benchmark files found under {benchmark_dir}."
-        )
-
-    command_results = run_benchmarks(benchmark_dir)
-    data = aggregate_reports(benchmark_dir, command_results)
+    benchmark_results = run_benchmarks(benchmark_dirs)
+    data = aggregate_reports(benchmark_dirs, benchmark_results)
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     DATA_JSON_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
@@ -70,26 +71,32 @@ def run_command(command: list[str], *, cwd: Path, report_path: Path) -> dict[str
         "time_seconds": time.perf_counter() - started,
     }
 
-
-def run_benchmarks(benchmark_dir: Path) -> list[dict[str, Any]]:
+def run_benchmarks(benchmark_dirs: list[Path]) -> list[dict[str, Any]]:
     if REPORT_OUTPUT_DIR.exists():
         shutil.rmtree(REPORT_OUTPUT_DIR)
     REPORT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+    benchmark_root = benchmark_dirs[0].parent
     results = []
-    for benchmark_file in benchmark_dir.rglob("*.egg"):
-        relative_benchmark = benchmark_file.relative_to(benchmark_dir)
-        report_path = REPORT_OUTPUT_DIR / relative_benchmark.with_suffix(".report.json")
-        command = [
-            str(POACH_BIN),
-            "serve",
-            "--debug",
-            str(MODEL_FILE),
-            "single",
-            str(benchmark_file),
-        ]
-        print("Running benchmark:", " ".join(command))
-        results.append(run_command(command, cwd=REPO_ROOT, report_path=report_path))
+    for benchmark_dir in benchmark_dirs:
+        benchmark_files = list(benchmark_dir.rglob("*.egg"))
+        for benchmark_file in benchmark_files:
+            report_path = REPORT_OUTPUT_DIR / benchmark_file.relative_to(
+                benchmark_root
+            ).with_suffix(".report.json")
+            command = [
+                str(POACH_BIN),
+                "serve",
+                "--debug",
+                str(MODEL_FILE),
+                "single",
+                str(benchmark_file),
+            ]
+            print("Running benchmark:", " ".join(command))
+            result = run_command(command, cwd=REPO_ROOT, report_path=report_path)
+            result["suite"] = benchmark_dir.name
+            result["benchmark_path"] = str(benchmark_file.relative_to(benchmark_dir))
+            results.append(result)
     return results
 
 
@@ -115,37 +122,58 @@ def summarize_report(report: dict[str, Any]) -> dict[str, int]:
 
 
 def aggregate_reports(
-    benchmark_dir: Path, command_results: list[dict[str, Any]]
+    benchmark_dirs: list[Path], benchmark_results: list[dict[str, Any]]
 ) -> dict[str, Any]:
-    report_files = list(REPORT_OUTPUT_DIR.rglob("*.report.json"))
-    if not report_files:
+    if not benchmark_results:
         raise SystemExit(f"No report files were generated under {REPORT_OUTPUT_DIR}")
+
+    benchmark_root = benchmark_dirs[0].parent
+    suites = []
+    for benchmark_dir in benchmark_dirs:
+        suite_results = [
+            result for result in benchmark_results if result["suite"] == benchmark_dir.name
+        ]
+        suites.append(
+            {
+                "name": benchmark_dir.name,
+                "benchmark_root": str(benchmark_dir.relative_to(REPO_ROOT)),
+                "summary": {
+                    "total_time_seconds": sum(
+                        result["time_seconds"] for result in suite_results
+                    ),
+                },
+                "reports": [
+                    {
+                        "suite": benchmark_dir.name,
+                        "benchmark_path": result["benchmark_path"],
+                        "path": str(
+                            Path(result["report_path"]).relative_to(OUTPUT_DIR)
+                        ),
+                        "time_seconds": result["time_seconds"],
+                        "timing_summary": summarize_report(
+                            json.loads(
+                                Path(result["report_path"]).read_text(
+                                    encoding="utf-8"
+                                )
+                            )
+                        ),
+                    }
+                    for result in suite_results
+                ],
+            }
+        )
 
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "suite": benchmark_dir.name,
-        "benchmark_root": (
-            str(benchmark_dir.relative_to(REPO_ROOT))
-            if benchmark_dir.is_absolute()
-            else str(benchmark_dir)
-        ),
+        "benchmark_root": str(benchmark_root.relative_to(REPO_ROOT)),
         "summary": {
+            "benchmark_count": len(benchmark_results),
             "total_time_seconds": sum(
-                result["time_seconds"] for result in command_results
+                result["time_seconds"] for result in benchmark_results
             ),
         },
-        "reports": [
-            {
-                "path": str(Path(result["report_path"]).relative_to(OUTPUT_DIR)),
-                "time_seconds": result["time_seconds"],
-                "timing_summary": summarize_report(
-                    json.loads(
-                        Path(result["report_path"]).read_text(encoding="utf-8")
-                    )
-                ),
-            }
-            for result in command_results
-        ],
+        "suites": suites,
+        "reports": [report for suite in suites for report in suite["reports"]],
     }
 
 

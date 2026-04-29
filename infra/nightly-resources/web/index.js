@@ -1,10 +1,12 @@
 import { formatMillis } from "./util.js";
 
-const statusNode = document.querySelector("#status");
-
+let suites = [];
+let activeSuiteName = null;
 load();
 
 async function load() {
+  const statusNode = document.querySelector("#status");
+
   try {
     const response = await fetch("./data/data.json");
     if (!response.ok) {
@@ -12,9 +14,11 @@ async function load() {
     }
 
     const data = await response.json();
+    suites = data.suites;
+    activeSuiteName = suites[0]?.name ?? null;
     statusNode.textContent = "Loaded data/data.json";
     renderSummary(data);
-    renderBenchmarks(data.reports);
+    renderSuites();
   } catch (error) {
     statusNode.textContent = `Failed to load data/data.json: ${error}`;
   }
@@ -32,19 +36,59 @@ function renderSummary(data) {
   }
 
   document.querySelector("#summary-text").textContent =
-    `${data.reports.length} benchmarks | ` +
+    `${data.summary.benchmark_count} benchmarks across ${data.suites.length} suites | ` +
     `Nightly time: ${data.summary.total_time_seconds.toFixed(1)} s | ` +
     `Rule running: ${ruleRunningMillis} ms | ` +
     `Extraction: ${extractionMillis} ms | ` +
     `Other: ${otherMillis} ms`;
 }
 
-function renderBenchmarks(reports) {
-  document.querySelector("#benchmarks-body").innerHTML = reports
-    .map(({ path, time_seconds, timing_summary }) => {
+function renderSuites() {
+  document.querySelector("#suite-tabs").innerHTML = suites
+    .map((suite) => {
+      return `
+        <button
+          type="button"
+          class="suite-tab${suite.name === activeSuiteName ? " is-active" : ""}"
+          data-suite-name="${suite.name}"
+        >
+          ${suite.name}
+        </button>
+      `;
+    })
+    .join("");
+
+  for (const button of document.querySelectorAll(".suite-tab")) {
+    button.addEventListener("click", () => {
+      activeSuiteName = button.dataset.suiteName;
+      renderSuites();
+    });
+  }
+
+  const activeSuite = suites.find((suite) => suite.name === activeSuiteName);
+  if (!activeSuite) {
+    document.querySelector("#active-suite-summary").textContent = "";
+    document.querySelector("#benchmarks-body").innerHTML = "";
+    return;
+  }
+
+  document.querySelector("#active-suite-summary").innerHTML = `
+    <div class="suite-header">
+      <h3>${activeSuite.name}</h3>
+      <p>${activeSuite.reports.length} benchmarks | ${activeSuite.summary.total_time_seconds.toFixed(1)} s</p>
+    </div>
+  `;
+  document.querySelector("#benchmarks-body").innerHTML = renderRows(
+    activeSuite.reports,
+  );
+}
+
+function renderRows(reports) {
+  return reports
+    .map(({ benchmark_path, time_seconds, timing_summary }) => {
       return `
         <tr>
-          <td>${path}</td>
+          <td>${benchmark_path}</td>
           <td>${time_seconds.toFixed(3)} s</td>
           <td>${formatMillis(timing_summary.rule_running_millis)}</td>
           <td>${formatMillis(timing_summary.extraction_millis)}</td>

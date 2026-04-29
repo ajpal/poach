@@ -20,14 +20,15 @@ rm -rf nightly
 mkdir -p nightly/output
 mkdir -p nightly/tmp
 
-# TODO: use real benchmarks
-# git clone https://github.com/ajpal/poach-benchmarks.git
+BENCHMARKS_DIR="nightly/tmp/poach-benchmarks"
+
+git clone https://github.com/ajpal/poach-benchmarks.git "$BENCHMARKS_DIR"
 
 # Build in release mode before running nightly.py
 cargo build --release
 
 # This script runs all of the benchmarks/experiments
-python3 infra/nightly.py tests/passing
+python3 infra/nightly.py "$BENCHMARKS_DIR"
 
 # Abort if nightly.py failed to produce data.json. Without this check,
 # the nightly runner will report the nightly as successful even though the
@@ -40,4 +41,4 @@ fi
 cp infra/nightly-resources/web/* nightly/output
 
 # Uncomment for local development
-# cd nightly/output && python3 -m http.server 8002
+cd nightly/output && python3 -m http.server 8002
