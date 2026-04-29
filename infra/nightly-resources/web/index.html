@@ -21,15 +21,15 @@
           <div id="active-suite-summary"></div>
           <table>
             <thead>
-              <tr>
-                <th>Benchmark</th>
-                <th>Train Rules</th>
-                <th>Train Extract</th>
-                <th>Train Serialize</th>
-                <th>Train Total</th>
-                <th>Serve Rules</th>
-                <th>Serve Extract</th>
-                <th>Serve Total</th>
+              <tr id="benchmarks-header">
+                <th data-sort-key="benchmark_path">Benchmark</th>
+                <th data-sort-key="train.rule_running_millis">Train Rules</th>
+                <th data-sort-key="train.extraction_millis">Train Extract</th>
+                <th data-sort-key="train.serialize_millis">Train Serialize</th>
+                <th data-sort-key="train.total_millis">Train Total</th>
+                <th data-sort-key="serve.rule_running_millis">Serve Rules</th>
+                <th data-sort-key="serve.extraction_millis">Serve Extract</th>
+                <th data-sort-key="serve.total_millis">Serve Total</th>
               </tr>
             </thead>
             <tbody id="benchmarks-body"></tbody>

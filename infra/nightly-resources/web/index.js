@@ -2,7 +2,10 @@ import { formatMillis, formatSeconds } from "./util.js";
 
 let suites = [];
 let activeSuiteName = null;
+let sortKey = "benchmark_path";
+let sortDir = "asc";
 load();
+installHeaderSortHandlers();
 
 async function load() {
   const statusNode = document.querySelector("#status");
@@ -14,7 +17,7 @@ async function load() {
     }
 
     const data = await response.json();
-    suites = data.suites;
+    suites = [...data.suites].sort((a, b) => a.name.localeCompare(b.name));
     activeSuiteName = suites[0]?.name ?? null;
     statusNode.textContent = "Loaded data/data.json";
     renderSummary(data);
@@ -79,7 +82,58 @@ function renderSuites() {
       <p>${benchmarks.length} benchmarks | ${formatSeconds(activeSuite.summary.total_time_seconds)}</p>
     </div>
   `;
-  document.querySelector("#benchmarks-body").innerHTML = renderRows(benchmarks);
+  document.querySelector("#benchmarks-body").innerHTML = renderRows(
+    sortBenchmarks(benchmarks),
+  );
+  updateHeaderIndicators();
+}
+
+function getSortValue(benchmark, key) {
+  const [phase, field] = key.split(".");
+  if (field === undefined) {
+    return benchmark[phase];
+  }
+  return benchmark[phase]?.[field] ?? 0;
+}
+
+function sortBenchmarks(benchmarks) {
+  const sorted = [...benchmarks];
+  const dir = sortDir === "asc" ? 1 : -1;
+  sorted.sort((a, b) => {
+    const av = getSortValue(a, sortKey);
+    const bv = getSortValue(b, sortKey);
+    if (typeof av === "string" || typeof bv === "string") {
+      return String(av).localeCompare(String(bv)) * dir;
+    }
+    return (av - bv) * dir;
+  });
+  return sorted;
+}
+
+function installHeaderSortHandlers() {
+  for (const th of document.querySelectorAll("#benchmarks-header th")) {
+    th.style.cursor = "pointer";
+    th.addEventListener("click", () => {
+      const key = th.dataset.sortKey;
+      if (sortKey === key) {
+        sortDir = sortDir === "asc" ? "desc" : "asc";
+      } else {
+        sortKey = key;
+        sortDir = "asc";
+      }
+      renderSuites();
+    });
+  }
+}
+
+function updateHeaderIndicators() {
+  for (const th of document.querySelectorAll("#benchmarks-header th")) {
+    const label = th.textContent.replace(/[ ▲▼]+$/, "");
+    const arrow = th.dataset.sortKey === sortKey
+      ? (sortDir === "asc" ? " ▲" : " ▼")
+      : "";
+    th.textContent = label + arrow;
+  }
 }
 
 function groupByBenchmark(reports) {
