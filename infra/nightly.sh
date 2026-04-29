@@ -1,4 +1,6 @@
 #!/bin/bash
+set -euo pipefail
+
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo "Beginning POACH nightly script..."
