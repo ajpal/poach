@@ -30,7 +30,7 @@ def main() -> None:
     benchmark_dirs = list(
         path
         for path in benchmark_root.iterdir()
-        if path.is_dir() and any(path.rglob("*.egg"))
+        if path.is_dir() and any((path / "train").glob("*.egg"))
     )
     if not benchmark_dirs:
         raise SystemExit(f"No benchmark suite directories found under {benchmark_root}.")
@@ -79,7 +79,7 @@ def run_benchmarks(benchmark_dirs: list[Path]) -> list[dict[str, Any]]:
     benchmark_root = benchmark_dirs[0].parent
     results = []
     for benchmark_dir in benchmark_dirs:
-        benchmark_files = list(benchmark_dir.rglob("*.egg"))
+        benchmark_files = list((benchmark_dir / "train").glob("*.egg"))
         for benchmark_file in benchmark_files:
             report_path = REPORT_OUTPUT_DIR / benchmark_file.relative_to(
                 benchmark_root
