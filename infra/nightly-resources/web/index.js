@@ -25,11 +25,10 @@ function renderSummary(data) {
   let extractionMillis = 0;
   let otherMillis = 0;
 
-  for (const { report } of data.reports) {
-    const totals = getTimingTotals(report);
-    ruleRunningMillis += totals.ruleRunningMillis;
-    extractionMillis += totals.extractionMillis;
-    otherMillis += totals.otherMillis;
+  for (const { timing_summary } of data.reports) {
+    ruleRunningMillis += timing_summary.rule_running_millis;
+    extractionMillis += timing_summary.extraction_millis;
+    otherMillis += timing_summary.other_millis;
   }
 
   document.querySelector("#summary-text").textContent =
@@ -42,37 +41,17 @@ function renderSummary(data) {
 
 function renderBenchmarks(reports) {
   document.querySelector("#benchmarks-body").innerHTML = reports
-    .map(({ path, time_seconds, report }) => {
-      const totals = getTimingTotals(report);
-
+    .map(({ path, time_seconds, timing_summary }) => {
       return `
         <tr>
           <td>${path}</td>
           <td>${time_seconds.toFixed(3)} s</td>
-          <td>${formatMillis(totals.ruleRunningMillis)}</td>
-          <td>${formatMillis(totals.extractionMillis)}</td>
-          <td>${formatMillis(totals.otherMillis)}</td>
-          <td>${report.timings.length}</td>
+          <td>${formatMillis(timing_summary.rule_running_millis)}</td>
+          <td>${formatMillis(timing_summary.extraction_millis)}</td>
+          <td>${formatMillis(timing_summary.other_millis)}</td>
+          <td>${timing_summary.timing_steps}</td>
         </tr>
       `;
     })
     .join("");
-}
-
-function getTimingTotals(report) {
-  let ruleRunningMillis = 0;
-  let extractionMillis = 0;
-  let otherMillis = 0;
-
-  for (const timing of report.timings) {
-    if (timing.tags.includes("running_rules")) {
-      ruleRunningMillis += timing.total;
-    } else if (timing.tags.includes("extraction")) {
-      extractionMillis += timing.total;
-    } else {
-      otherMillis += timing.total;
-    }
-  }
-
-  return { ruleRunningMillis, extractionMillis, otherMillis };
 }

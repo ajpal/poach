@@ -93,6 +93,27 @@ def run_benchmarks(benchmark_dir: Path) -> list[dict[str, Any]]:
     return results
 
 
+def summarize_report(report: dict[str, Any]) -> dict[str, int]:
+    rule_running_millis = 0
+    extraction_millis = 0
+    other_millis = 0
+
+    for timing in report["timings"]:
+        if "running_rules" in timing["tags"]:
+            rule_running_millis += timing["total"]
+        elif "extraction" in timing["tags"]:
+            extraction_millis += timing["total"]
+        else:
+            other_millis += timing["total"]
+
+    return {
+        "rule_running_millis": rule_running_millis,
+        "extraction_millis": extraction_millis,
+        "other_millis": other_millis,
+        "timing_steps": len(report["timings"]),
+    }
+
+
 def aggregate_reports(
     benchmark_dir: Path, command_results: list[dict[str, Any]]
 ) -> dict[str, Any]:
@@ -109,7 +130,6 @@ def aggregate_reports(
             else str(benchmark_dir)
         ),
         "summary": {
-            "commands": command_results,
             "total_time_seconds": sum(
                 result["time_seconds"] for result in command_results
             ),
@@ -118,7 +138,11 @@ def aggregate_reports(
             {
                 "path": str(Path(result["report_path"]).relative_to(OUTPUT_DIR)),
                 "time_seconds": result["time_seconds"],
-                "report": json.loads(Path(result["report_path"]).read_text(encoding="utf-8")),
+                "timing_summary": summarize_report(
+                    json.loads(
+                        Path(result["report_path"]).read_text(encoding="utf-8")
+                    )
+                ),
             }
             for result in command_results
         ],
