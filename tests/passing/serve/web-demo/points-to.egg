@@ -1,9 +1,0 @@
-(check (VarPointsTo "o1" A))
-
-(check (VarPointsTo "o2" B))
-
-(check (VarPointsTo "o3" B))
-
-(check (HeapPointsTo B f A))
-
-(check (VarPointsTo "r" A))

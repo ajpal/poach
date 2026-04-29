@@ -1,5 +1,0 @@
-(extract t3 5)
-
-(check (= (f (f a3)) (f (f b3))))
-
-(check (!= (f a3) (f b3)))

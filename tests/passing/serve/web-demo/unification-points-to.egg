@@ -1,7 +1,0 @@
-(check (= (AllocVar (Expr "v")) (AllocVar (Expr "u"))))
-
-(check (!= (AllocVar (Expr "v")) (AllocVar (Expr "sp"))))
-
-(extract (AllocVar (Expr "u")) 100)
-
-(extract (AllocVar (Expr "sp")) 100)
