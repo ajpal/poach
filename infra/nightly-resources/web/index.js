@@ -86,7 +86,9 @@ function groupByBenchmark(reports) {
   const grouped = new Map();
   for (const report of reports) {
     if (!grouped.has(report.benchmark_path)) {
-      grouped.set(report.benchmark_path, { benchmark_path: report.benchmark_path });
+      grouped.set(report.benchmark_path, {
+        benchmark_path: report.benchmark_path,
+      });
     }
     grouped.get(report.benchmark_path)[report.phase] = report.timing_summary;
   }
