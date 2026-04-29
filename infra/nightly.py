@@ -25,16 +25,17 @@ def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit(f"Usage: {Path(sys.argv[0]).name} <benchmark-dir>")
 
-    benchmark_dir = (REPO_ROOT / sys.argv[1]).resolve()
+    benchmark_root = (REPO_ROOT / sys.argv[1]).resolve()
+    benchmark_dirs = list(
+        path
+        for path in benchmark_root.iterdir()
+        if path.is_dir() and any((path / "train").glob("*.egg"))
+    )
+    if not benchmark_dirs:
+        raise SystemExit(f"No benchmark suite directories found under {benchmark_root}.")
 
-    benchmark_files = sorted((benchmark_dir / "train").rglob("*.egg"))
-    if not benchmark_files:
-        raise SystemExit(
-            f"No .egg benchmark files found under {benchmark_dir}."
-        )
-
-    command_results = run_benchmarks(benchmark_dir)
-    data = aggregate_reports(benchmark_dir, command_results)
+    benchmark_results = run_benchmarks(benchmark_dirs)
+    data = aggregate_reports(benchmark_dirs, benchmark_results)
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     DATA_JSON_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
@@ -69,108 +70,138 @@ def run_command(command: list[str], *, cwd: Path, report_path: Path) -> dict[str
         "time_seconds": time.perf_counter() - started,
     }
 
-
-def run_benchmarks(benchmark_dir: Path) -> list[dict[str, Any]]:
+def run_benchmarks(benchmark_dirs: list[Path]) -> list[dict[str, Any]]:
     if REPORT_OUTPUT_DIR.exists():
         shutil.rmtree(REPORT_OUTPUT_DIR)
     REPORT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    command_results = []
+    benchmark_root = benchmark_dirs[0].parent
+    results = []
+    for benchmark_dir in benchmark_dirs:
+        benchmark_files = list((benchmark_dir / "train").glob("*.egg"))
+        for benchmark_file in benchmark_files:
+            relative_benchmark = benchmark_file.relative_to(benchmark_dir / "train")
+            bench_out_dir = REPORT_OUTPUT_DIR / benchmark_dir.name / relative_benchmark.with_suffix("")
+            bench_out_dir.mkdir(parents=True, exist_ok=True)
 
-    for benchmark in (benchmark_dir / "train").rglob("*.egg"):
-        relative_benchmark = benchmark.relative_to(benchmark_dir / "train")
-        bench_out_dir = REPORT_OUTPUT_DIR / relative_benchmark.with_suffix("")
-        bench_out_dir.mkdir(parents=True, exist_ok=True)
-
-        train_command = [
-            str(POACH_BIN),
-            "train",
-            "--debug",
-            str(benchmark),
-            str(bench_out_dir / "model.fbs"),
-        ]
-        print("Running benchmark train:", relative_benchmark.as_posix())
-        train_result = run_command(
-            train_command,
-            cwd=REPO_ROOT,
-            report_path=(bench_out_dir / "train.report.json"),
-        )
-        command_results.append(
-            {
-                "benchmark": relative_benchmark.as_posix(),
+            train_command = [
+                str(POACH_BIN),
+                "train",
+                "--debug",
+                str(benchmark_file),
+                str(bench_out_dir / "model.fbs"),
+            ]
+            print("Running benchmark train:", " ".join(train_command))
+            train_result = run_command(train_command, cwd=REPO_ROOT, report_path=(bench_out_dir / "train.report.json"))
+            results.append({
+                "suite": benchmark_dir.name,
+                "benchmark_path": str(relative_benchmark),
                 "phase": "train",
-                "argv": train_result["argv"],
-                "cwd": train_result["cwd"],
-                "report_path": train_result["report_path"],
-                "returncode": train_result["returncode"],
-                "time_seconds": train_result["time_seconds"],
-            }
-        )
+                **{k: train_result[k] for k in ("argv", "cwd", "report_path", "returncode", "time_seconds")},
+            })
 
-        serve_command = [
-            str(POACH_BIN),
-            "serve",
-            "--debug",
-            str(bench_out_dir / "model.fbs"),
-            "single",
-            str(benchmark_dir / "serve" / relative_benchmark),
-        ]
-        print("Running benchmark serve:", relative_benchmark.as_posix())
-        serve_result = run_command(
-            serve_command,
-            cwd=REPO_ROOT,
-            report_path=(bench_out_dir / "serve.report.json"),
-        )
-        command_results.append(
-            {
-                "benchmark": relative_benchmark.as_posix(),
+            serve_command = [
+                str(POACH_BIN),
+                "serve",
+                "--debug",
+                str(bench_out_dir / "model.fbs"),
+                "single",
+                str(benchmark_dir / "serve" / relative_benchmark),
+            ]
+            print("Running benchmark serve:", " ".join(serve_command))
+            serve_result = run_command(serve_command, cwd=REPO_ROOT, report_path=(bench_out_dir / "serve.report.json"))
+            results.append({
+                "suite": benchmark_dir.name,
+                "benchmark_path": str(relative_benchmark),
                 "phase": "serve",
-                "argv": serve_result["argv"],
-                "cwd": serve_result["cwd"],
-                "report_path": serve_result["report_path"],
-                "returncode": serve_result["returncode"],
-                "time_seconds": serve_result["time_seconds"],
-            }
-        )
+                **{k: serve_result[k] for k in ("argv", "cwd", "report_path", "returncode", "time_seconds")},
+            })
+    return results
 
-    return command_results
+
+def summarize_report(report: dict[str, Any]) -> dict[str, int]:
+    rule_running_millis = 0
+    extraction_millis = 0
+    serialize_millis = 0
+    other_millis = 0
+    total_millis = 0
+
+    for timing in report["timings"]:
+        total_millis += timing["total"]
+        if "running_rules" in timing["tags"]:
+            rule_running_millis += timing["total"]
+        elif "extraction" in timing["tags"]:
+            extraction_millis += timing["total"]
+        elif timing["name"] == "serialize_model":
+            serialize_millis += timing["total"]
+            other_millis += timing["total"]
+        else:
+            other_millis += timing["total"]
+
+    return {
+        "rule_running_millis": rule_running_millis,
+        "extraction_millis": extraction_millis,
+        "serialize_millis": serialize_millis,
+        "other_millis": other_millis,
+        "total_millis": total_millis,
+        "timing_steps": len(report["timings"]),
+    }
 
 
 def aggregate_reports(
-    benchmark_dir: Path, command_results: list[dict[str, Any]]
+    benchmark_dirs: list[Path], benchmark_results: list[dict[str, Any]]
 ) -> dict[str, Any]:
-    benchmarks = []
-    try:
-        benchmark_root = str(benchmark_dir.relative_to(REPO_ROOT))
-    except ValueError:
-        benchmark_root = str(benchmark_dir)
+    if not benchmark_results:
+        raise SystemExit(f"No report files were generated under {REPORT_OUTPUT_DIR}")
 
-    for benchmark in (benchmark_dir / "train").rglob("*.egg"):
-        relative_benchmark = benchmark.relative_to(benchmark_dir / "train")
-        bench_out_dir = REPORT_OUTPUT_DIR / relative_benchmark.with_suffix("")
-        train_report = json.loads((bench_out_dir / "train.report.json").read_text(encoding="utf-8"))
-        serve_report = json.loads((bench_out_dir / "serve.report.json").read_text(encoding="utf-8"))
-        benchmarks.append(
+    benchmark_root = benchmark_dirs[0].parent
+    suites = []
+    for benchmark_dir in benchmark_dirs:
+        suite_results = [
+            result for result in benchmark_results if result["suite"] == benchmark_dir.name
+        ]
+        suites.append(
             {
-                "name": relative_benchmark.stem,
-                "path": relative_benchmark.as_posix(),
-                "train_report": train_report,
-                "serve_report": serve_report,
+                "name": benchmark_dir.name,
+                "benchmark_root": str(benchmark_dir.relative_to(REPO_ROOT)),
+                "summary": {
+                    "total_time_seconds": sum(
+                        result["time_seconds"] for result in suite_results
+                    ),
+                },
+                "reports": [
+                    {
+                        "suite": benchmark_dir.name,
+                        "benchmark_path": result["benchmark_path"],
+                        "phase": result["phase"],
+                        "path": str(
+                            Path(result["report_path"]).relative_to(OUTPUT_DIR)
+                        ),
+                        "time_seconds": result["time_seconds"],
+                        "timing_summary": summarize_report(
+                            json.loads(
+                                Path(result["report_path"]).read_text(
+                                    encoding="utf-8"
+                                )
+                            )
+                        ),
+                    }
+                    for result in suite_results
+                ],
             }
         )
 
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "suite": benchmark_dir.name,
-        "benchmark_root": benchmark_root,
+        "benchmark_root": str(benchmark_root.relative_to(REPO_ROOT)),
         "summary": {
-            "benchmark_count": len(benchmarks),
-            "commands": command_results,
+            "benchmark_count": len(benchmark_results),
             "total_time_seconds": sum(
-                result["time_seconds"] for result in command_results
+                result["time_seconds"] for result in benchmark_results
             ),
         },
-        "benchmarks": benchmarks,
+        "suites": suites,
+        "reports": [report for suite in suites for report in suite["reports"]],
     }
 
 

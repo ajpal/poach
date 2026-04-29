@@ -1,4 +1,6 @@
 #!/bin/bash
+set -euo pipefail
+
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo "Beginning POACH nightly script..."
@@ -20,14 +22,15 @@ rm -rf nightly
 mkdir -p nightly/output
 mkdir -p nightly/tmp
 
-# TODO: use real benchmarks
-# git clone https://github.com/ajpal/poach-benchmarks.git
+BENCHMARKS_DIR="nightly/tmp/poach-benchmarks"
+
+git clone https://github.com/ajpal/poach-benchmarks.git "$BENCHMARKS_DIR"
 
 # Build in release mode before running nightly.py
 cargo build --release
 
 # This script runs all of the benchmarks/experiments
-python3 infra/nightly.py tests/passing
+python3 infra/nightly.py "$BENCHMARKS_DIR"
 
 # Abort if nightly.py failed to produce data.json. Without this check,
 # the nightly runner will report the nightly as successful even though the
