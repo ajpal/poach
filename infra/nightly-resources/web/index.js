@@ -187,8 +187,7 @@ function buildColumns(benchmarks) {
     // this (branch, phase) — keeps the table from sprouting empty columns.
     const presentFields = new Set();
     for (const benchmark of benchmarks) {
-      const summary =
-        benchmark.branches[branch]?.phases[phase]?.timing_summary;
+      const summary = benchmark.branches[branch]?.phases[phase]?.timing_summary;
       if (!summary) {
         continue;
       }
