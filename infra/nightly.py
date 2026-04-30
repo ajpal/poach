@@ -95,7 +95,9 @@ def run_benchmarks(benchmark_dirs: list[Path]) -> list[dict[str, Any]]:
             print("Running benchmark:", " ".join(command))
             result = run_command(command, cwd=REPO_ROOT, report_path=report_path)
             result["suite"] = benchmark_dir.name
-            result["benchmark_path"] = str(benchmark_file.relative_to(benchmark_dir / "train"))
+            result["benchmark_path"] = str(
+                benchmark_file.relative_to(benchmark_dir / "train").with_suffix("")
+            )
             results.append(result)
     return results
 
