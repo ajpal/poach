@@ -100,3 +100,12 @@ th:not(:first-child) {
 #benchmarks {
   overflow-x: auto;
 }
+
+th.branch-start,
+td.branch-start {
+  border-left: 2px solid #999;
+}
+
+#benchmarks-header-top th[colspan] {
+  text-align: center;
+}

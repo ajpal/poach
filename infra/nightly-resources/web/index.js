@@ -1,102 +1,243 @@
-import { formatMillis } from "./util.js";
+import { formatMillis, formatSeconds } from "./util.js";
 
-let suites = [];
-let activeSuiteName = null;
-let sortKey = "benchmark_path";
-let sortDir = "asc";
+const TIMING_FIELDS = [
+  "rule_running_millis",
+  "extraction_millis",
+  "serialize_millis",
+  "other_millis",
+  "total_millis",
+];
+
+const GLOBAL_DATA = {
+  data: null,
+  activeSuiteName: null,
+  sortKey: "benchmark_path",
+  sortDir: "asc",
+};
+
 load();
-installHeaderSortHandlers();
 
 async function load() {
   const statusNode = document.querySelector("#status");
-
   try {
     const response = await fetch("./data/data.json");
     if (!response.ok) {
       throw new Error(`Failed to load data.json (${response.status})`);
     }
-
-    const data = await response.json();
-    suites = [...data.suites].sort((a, b) => a.name.localeCompare(b.name));
-    activeSuiteName = suites[0]?.name ?? null;
+    GLOBAL_DATA.data = await response.json();
+    GLOBAL_DATA.activeSuiteName = GLOBAL_DATA.data.suites[0]?.name ?? null;
     statusNode.textContent = "Loaded data/data.json";
-    renderSummary(data);
-    renderSuites();
-  } catch (error) {
-    statusNode.textContent = `Failed to load data/data.json: ${error}`;
+    renderSummary();
+    renderSuiteTabs();
+    renderActiveSuite();
+  } catch (err) {
+    statusNode.textContent = `Failed to load data/data.json: ${err}`;
   }
 }
 
-function renderSummary(data) {
-  let ruleRunningMillis = 0;
-  let extractionMillis = 0;
-  let otherMillis = 0;
-
-  for (const { timing_summary } of data.reports) {
-    ruleRunningMillis += timing_summary.rule_running_millis;
-    extractionMillis += timing_summary.extraction_millis;
-    otherMillis += timing_summary.other_millis;
-  }
-
-  document.querySelector("#summary-text").textContent =
-    `${data.summary.benchmark_count} benchmarks across ${data.suites.length} suites | ` +
-    `Nightly time: ${data.summary.total_time_seconds.toFixed(1)} s | ` +
-    `Rule running: ${ruleRunningMillis} ms | ` +
-    `Extraction: ${extractionMillis} ms | ` +
-    `Other: ${otherMillis} ms`;
+function renderSummary() {
+  const { data } = GLOBAL_DATA;
+  const generated = new Date(data.generated_at).toLocaleString();
+  const branchSummaries = data.branches
+    .map((branch) => {
+      const s = data.summary.branches[branch];
+      return `<a href="./data/${branch}/data.json">${branch}</a>: ${s.benchmark_count} reports, ${formatSeconds(s.total_time_seconds)}`;
+    })
+    .join(" | ");
+  document.querySelector("#summary-text").innerHTML =
+    `Generated ${generated} | ${branchSummaries}`;
 }
 
-function renderSuites() {
-  document.querySelector("#suite-tabs").innerHTML = suites
-    .map((suite) => {
-      return `
+function renderSuiteTabs() {
+  const tabs = document.querySelector("#suite-tabs");
+  tabs.innerHTML = GLOBAL_DATA.data.suites
+    .map(
+      (suite) => `
         <button
           type="button"
-          class="suite-tab${suite.name === activeSuiteName ? " is-active" : ""}"
+          class="suite-tab${suite.name === GLOBAL_DATA.activeSuiteName ? " is-active" : ""}"
           data-suite-name="${suite.name}"
         >
           ${suite.name}
         </button>
-      `;
-    })
+      `,
+    )
     .join("");
 
-  for (const button of document.querySelectorAll(".suite-tab")) {
+  for (const button of tabs.querySelectorAll(".suite-tab")) {
     button.addEventListener("click", () => {
-      activeSuiteName = button.dataset.suiteName;
-      renderSuites();
+      GLOBAL_DATA.activeSuiteName = button.dataset.suiteName;
+      renderSuiteTabs();
+      renderActiveSuite();
     });
   }
+}
 
-  const activeSuite = suites.find((suite) => suite.name === activeSuiteName);
-  if (!activeSuite) {
-    document.querySelector("#active-suite-summary").textContent = "";
-    document.querySelector("#benchmarks-body").innerHTML = "";
+function renderActiveSuite() {
+  const { data, activeSuiteName } = GLOBAL_DATA;
+  const suite = data.suites.find((s) => s.name === activeSuiteName);
+  const summaryNode = document.querySelector("#active-suite-summary");
+  const headerNode = document.querySelector("#benchmarks-header");
+  const bodyNode = document.querySelector("#benchmarks-body");
+
+  if (!suite) {
+    summaryNode.textContent = "";
+    headerNode.innerHTML = "";
+    bodyNode.innerHTML = "";
     return;
   }
 
-  document.querySelector("#active-suite-summary").innerHTML = `
+  const benchmarks = data.benchmarks.filter((b) => b.suite === activeSuiteName);
+  const columns = buildColumns(benchmarks);
+
+  const branchLine = data.branches
+    .map((branch) => {
+      const s = suite.branches[branch];
+      return s
+        ? `${branch}: ${formatSeconds(s.total_time_seconds)}`
+        : `${branch}: —`;
+    })
+    .join(" | ");
+  summaryNode.innerHTML = `
     <div class="suite-header">
-      <h3>${activeSuite.name}</h3>
-      <p>${activeSuite.reports.length} benchmarks | ${activeSuite.summary.total_time_seconds.toFixed(1)} s</p>
+      <h3>${suite.name}</h3>
+      <p>${benchmarks.length} benchmarks | ${branchLine}</p>
     </div>
   `;
-  document.querySelector("#benchmarks-body").innerHTML = renderRows(
-    sortReports(activeSuite.reports),
-  );
+
+  const topHeaderNode = document.querySelector("#benchmarks-header-top");
+  const groupCounts = new Map();
+  for (const col of columns) {
+    groupCounts.set(col.branch, (groupCounts.get(col.branch) ?? 0) + 1);
+  }
+  topHeaderNode.innerHTML =
+    `<th rowspan="2" data-sort-key="benchmark_path">benchmark</th>` +
+    data.branches
+      .filter((b) => groupCounts.has(b))
+      .map(
+        (b) =>
+          `<th colspan="${groupCounts.get(b)}" class="branch-start">${b}</th>`,
+      )
+      .join("");
+  headerNode.innerHTML = columns
+    .map(
+      (col, idx) =>
+        `<th data-sort-key="col-${idx}"${col.firstInBranch ? ' class="branch-start"' : ""}>${col.subLabel}</th>`,
+    )
+    .join("");
+
+  bodyNode.innerHTML = sortBenchmarks(benchmarks, columns)
+    .map((bench) => {
+      const cells = columns
+        .map((col) => {
+          const value = col.get(bench);
+          const display =
+            value === null || value === undefined ? "—" : col.fmt(value);
+          const cls = col.firstInBranch ? ' class="branch-start"' : "";
+          return `<td${cls}>${display}</td>`;
+        })
+        .join("");
+      return `<tr><td>${bench.benchmark_path}</td>${cells}</tr>`;
+    })
+    .join("");
+
+  installHeaderSortHandlers();
   updateHeaderIndicators();
 }
 
-function getSortValue(report, key) {
-  return key.split(".").reduce((acc, part) => acc?.[part], report) ?? 0;
+function buildColumns(benchmarks) {
+  // Discover (branch, phase) pairs present in this suite. Branches keep the
+  // order from data.branches; phases follow PHASE_ORDER.
+  const PHASE_ORDER = ["_", "train", "serve"];
+  const branchPhases = [];
+  for (const branch of GLOBAL_DATA.data.branches) {
+    const phases = new Set();
+    for (const benchmark of benchmarks) {
+      const phasesForBranch = benchmark.branches[branch]?.phases;
+      if (!phasesForBranch) {
+        continue;
+      }
+      for (const phase of Object.keys(phasesForBranch)) {
+        phases.add(phase);
+      }
+    }
+    for (const phase of PHASE_ORDER) {
+      if (phases.has(phase)) {
+        branchPhases.push({ branch, phase });
+      }
+    }
+  }
+
+  const columns = [];
+  let lastBranch = null;
+  for (const { branch, phase } of branchPhases) {
+    const phasePrefix = phase === "_" ? "" : `${phase} `;
+    const firstInBranch = branch !== lastBranch;
+    lastBranch = branch;
+
+    columns.push({
+      branch,
+      firstInBranch,
+      subLabel: `${phasePrefix}time (s)`,
+      get: (b) => b.branches[branch]?.phases[phase]?.time_seconds ?? null,
+      fmt: (v) => v.toFixed(2),
+    });
+
+    // Only include timing fields that show up for at least one benchmark in
+    // this (branch, phase) — keeps the table from sprouting empty columns.
+    const presentFields = new Set();
+    for (const benchmark of benchmarks) {
+      const summary =
+        benchmark.branches[branch]?.phases[phase]?.timing_summary;
+      if (!summary) {
+        continue;
+      }
+      for (const field of TIMING_FIELDS) {
+        if (field in summary) {
+          presentFields.add(field);
+        }
+      }
+    }
+    for (const field of TIMING_FIELDS) {
+      if (!presentFields.has(field)) {
+        continue;
+      }
+      const shortName = field.replace(/_millis$/, "");
+      columns.push({
+        branch,
+        subLabel: `${phasePrefix}${shortName}`,
+        get: (b) =>
+          b.branches[branch]?.phases[phase]?.timing_summary?.[field] ?? null,
+        fmt: (v) => formatMillis(v),
+      });
+    }
+  }
+  return columns;
 }
 
-function sortReports(reports) {
-  const sorted = [...reports];
-  const dir = sortDir === "asc" ? 1 : -1;
+function getSortValue(bench, key, columns) {
+  if (key === "benchmark_path") {
+    return bench.benchmark_path;
+  }
+  if (key.startsWith("col-")) {
+    const idx = Number(key.slice(4));
+    return columns[idx]?.get(bench) ?? null;
+  }
+  return null;
+}
+
+function sortBenchmarks(benchmarks, columns) {
+  const dir = GLOBAL_DATA.sortDir === "asc" ? 1 : -1;
+  const sorted = [...benchmarks];
   sorted.sort((a, b) => {
-    const av = getSortValue(a, sortKey);
-    const bv = getSortValue(b, sortKey);
+    const av = getSortValue(a, GLOBAL_DATA.sortKey, columns);
+    const bv = getSortValue(b, GLOBAL_DATA.sortKey, columns);
+    if (av === null || av === undefined) {
+      return 1;
+    }
+    if (bv === null || bv === undefined) {
+      return -1;
+    }
     if (typeof av === "string" || typeof bv === "string") {
       return String(av).localeCompare(String(bv)) * dir;
     }
@@ -106,43 +247,28 @@ function sortReports(reports) {
 }
 
 function installHeaderSortHandlers() {
-  for (const th of document.querySelectorAll("#benchmarks-header th")) {
+  for (const th of document.querySelectorAll("thead th[data-sort-key]")) {
     th.style.cursor = "pointer";
     th.addEventListener("click", () => {
       const key = th.dataset.sortKey;
-      if (sortKey === key) {
-        sortDir = sortDir === "asc" ? "desc" : "asc";
+      if (GLOBAL_DATA.sortKey === key) {
+        GLOBAL_DATA.sortDir = GLOBAL_DATA.sortDir === "asc" ? "desc" : "asc";
       } else {
-        sortKey = key;
-        sortDir = "asc";
+        GLOBAL_DATA.sortKey = key;
+        GLOBAL_DATA.sortDir = "asc";
       }
-      renderSuites();
+      renderActiveSuite();
     });
   }
 }
 
 function updateHeaderIndicators() {
-  for (const th of document.querySelectorAll("#benchmarks-header th")) {
+  for (const th of document.querySelectorAll("thead th[data-sort-key]")) {
     const label = th.textContent.replace(/[ ▲▼]+$/, "");
-    const arrow =
-      th.dataset.sortKey === sortKey ? (sortDir === "asc" ? " ▲" : " ▼") : "";
+    let arrow = "";
+    if (th.dataset.sortKey === GLOBAL_DATA.sortKey) {
+      arrow = GLOBAL_DATA.sortDir === "asc" ? " ▲" : " ▼";
+    }
     th.textContent = label + arrow;
   }
-}
-
-function renderRows(reports) {
-  return reports
-    .map(({ benchmark_path, time_seconds, timing_summary }) => {
-      return `
-        <tr>
-          <td>${benchmark_path}</td>
-          <td>${time_seconds.toFixed(3)} s</td>
-          <td>${formatMillis(timing_summary.rule_running_millis)}</td>
-          <td>${formatMillis(timing_summary.extraction_millis)}</td>
-          <td>${formatMillis(timing_summary.other_millis)}</td>
-          <td>${timing_summary.timing_steps}</td>
-        </tr>
-      `;
-    })
-    .join("");
 }
