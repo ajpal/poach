@@ -100,6 +100,17 @@ def run_benchmarks(benchmark_dirs: list[Path]) -> list[dict[str, Any]]:
     return results
 
 
+def display_path(p: Path) -> str:
+    # Used for serializing benchmark roots into data.json. Falls back to the
+    # absolute path when the benchmarks dir lives outside REPO_ROOT (e.g. when
+    # the combined-nightly orchestrator points POACH_BENCHMARKS_DIR at a
+    # shared clone above the worktree).
+    try:
+        return str(p.relative_to(REPO_ROOT))
+    except ValueError:
+        return str(p)
+
+
 def summarize_report(report: dict[str, Any]) -> dict[str, int]:
     rule_running_millis = 0
     extraction_millis = 0
@@ -136,7 +147,7 @@ def aggregate_reports(
         suites.append(
             {
                 "name": benchmark_dir.name,
-                "benchmark_root": str(benchmark_dir.relative_to(REPO_ROOT)),
+                "benchmark_root": display_path(benchmark_dir),
                 "summary": {
                     "total_time_seconds": sum(
                         result["time_seconds"] for result in suite_results
@@ -165,7 +176,7 @@ def aggregate_reports(
 
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "benchmark_root": str(benchmark_root.relative_to(REPO_ROOT)),
+        "benchmark_root": display_path(benchmark_root),
         "summary": {
             "benchmark_count": len(benchmark_results),
             "total_time_seconds": sum(
