@@ -1,37 +1,80 @@
 #!/bin/bash
+set -euo pipefail
+
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-echo "Beginning POACH nightly script..."
+echo "Beginning POACH combined nightly script..."
 
 ###############################################################################
-# This script generates the data for the nightly frontend 
+# Drives the per-branch nightly scripts on each comparison branch, then
+# merges their data.json outputs into a single unified data.json for the
+# combined frontend. Add a branch name to BRANCHES to extend.
 ###############################################################################
 
 export PATH=~/.cargo/bin:$PATH
 
-rustup update
-
-cargo install rustfilt
+BRANCHES=(
+  ajpal-vanilla-nightly # change to PTP_VanillaEgglog once #51 merges
+  ajpal-serialize-nightly # change to PTP_SerializeEgraph once #52 merges
+)
 
 # Ensure we start from a clean slate
 rm -rf nightly
+mkdir -p nightly/output/data nightly/tmp
 
-# Set Up
-mkdir -p nightly/output
-mkdir -p nightly/tmp
+# Top-level setup runs once. Per-branch nightly.sh scripts skip their own
+# setup because we set POACH_NIGHTLY_COMBINED below.
+rustup update
+cargo install rustfilt
 
-# TODO: use real benchmarks
-# git clone https://github.com/ajpal/poach-benchmarks.git
+BENCHMARKS_DIR="$REPO_ROOT/nightly/tmp/poach-benchmarks"
+git clone https://github.com/ajpal/poach-benchmarks.git "$BENCHMARKS_DIR"
 
-# Build in release mode before running nightly.py
-cargo build --release
+WORKTREE_BASE="$REPO_ROOT/nightly/tmp/worktrees"
+mkdir -p "$WORKTREE_BASE"
 
-# This script runs all of the benchmarks/experiments
-python3 infra/nightly.py tests/passing
+# Register worktree cleanup so it runs even if the script aborts partway
+# Otherwise, subsequent nightly runs will fail if the worktree is already present.
+cleanup_worktrees() {
+  for branch in "${BRANCHES[@]}"; do
+    git worktree remove --force "$WORKTREE_BASE/$branch" 2>/dev/null || true
+  done
+}
+trap cleanup_worktrees EXIT
 
-# Abort if nightly.py failed to produce data.json. Without this check,
-# the nightly runner will report the nightly as successful even though the
-# generated report is empty.
+# Run nightly.sh for each branch
+for branch in "${BRANCHES[@]}"; do
+  echo ""
+  echo "=== Running nightly for branch: $branch ==="
+  worktree_dir="$WORKTREE_BASE/$branch"
+  # Refresh the branch from origin first — the nightly runner only resets
+  # this combined branch on each invocation, so per-branch local refs may
+  # be stale (they only update when their own nightly runs).
+  git fetch --quiet origin "$branch"
+  # --detach so multiple worktrees can sit on the same commit without
+  # claiming the branch (the nightly runner already holds the branch lock
+  # in a sibling directory).
+  git worktree add --detach "$worktree_dir" "origin/$branch"
+
+  (
+    cd "$worktree_dir"
+    POACH_NIGHTLY_COMBINED=1 \
+    POACH_BENCHMARKS_DIR="$BENCHMARKS_DIR" \
+    bash infra/nightly.sh
+  )
+
+  branch_data_json="$worktree_dir/nightly/output/data/data.json"
+  if [ ! -f "$branch_data_json" ]; then
+    echo "ERROR: $branch did not produce $branch_data_json" >&2
+    exit 1
+  fi
+
+  cp -R "$worktree_dir/nightly/output/data" "nightly/output/data/$branch"
+done
+
+# Merge per-branch data.json files into a single unified data.json.
+python3 infra/merge.py "${BRANCHES[@]}"
+
 if [ ! -f nightly/output/data/data.json ]; then
   echo "ERROR: nightly/output/data/data.json was not generated."
   exit 1

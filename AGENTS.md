@@ -19,6 +19,11 @@
 
 - Avoid defensive code that adds complexity without a clear, likely payoff.
 
+## JavaScript instructions
+
+- Always use braces for `if`/`else`/`for`/`while` bodies, even single-statement
+  ones. No single-line `if (cond) doThing();`.
+
 ## Response format
 
 - Small, reviewable code diff (about the size of one commit) with a proposed commit message.
