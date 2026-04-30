@@ -1,0 +1,102 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  background: #fafafa;
+  color: #111;
+}
+
+.page {
+  width: 100%;
+  padding: 24px;
+}
+
+h1 {
+  margin: 0 0 12px;
+  font-size: 2rem;
+}
+
+#status {
+  margin: 0 0 16px;
+}
+
+#summary {
+  margin: 0 0 16px;
+}
+
+#benchmarks {
+  margin: 0 0 16px;
+}
+
+.suite {
+  margin: 0 0 24px;
+}
+
+.suite-tab {
+  appearance: none;
+  border: 1px solid #ccc;
+  background: #f0f0f0;
+  color: inherit;
+  padding: 8px 12px;
+  margin: 0 8px 12px 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.suite-tab.is-active {
+  background: #111;
+  border-color: #111;
+  color: #fff;
+}
+
+.suite-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 8px;
+}
+
+.suite-header p {
+  margin: 0;
+}
+
+h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+h2 {
+  margin: 0 0 8px;
+  font-size: 1.1rem;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid #ccc;
+  background: #fff;
+}
+
+th,
+td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #ddd;
+  text-align: left;
+}
+
+th {
+  background: #f0f0f0;
+}
+
+td:not(:first-child),
+th:not(:first-child) {
+  text-align: right;
+}
+
+#benchmarks {
+  overflow-x: auto;
+}

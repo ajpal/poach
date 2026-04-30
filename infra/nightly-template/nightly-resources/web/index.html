@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Poach Nightly</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="page">
+      <h1>Poach Nightly</h1>
+      <p id="status">Loading <code>data/data.json</code>...</p>
+      <div id="contents">
+        <div id="summary">
+          <h2>Summary</h2>
+          <p id="summary-text"></p>
+        </div>
+        <div id="benchmarks">
+          <h2>Reports</h2>
+          <div id="suite-tabs"></div>
+          <div id="active-suite-summary"></div>
+          <table>
+            <thead>
+              <tr id="benchmarks-header">
+              </tr>
+            </thead>
+            <tbody id="benchmarks-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+
+    <script type="module" src="./index.js"></script>
+    <script type="module" src="./util.js"></script>
+  </body>
+</html>
