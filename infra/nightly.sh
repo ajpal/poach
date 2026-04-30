@@ -47,10 +47,14 @@ for branch in "${BRANCHES[@]}"; do
   echo ""
   echo "=== Running nightly for branch: $branch ==="
   worktree_dir="$WORKTREE_BASE/$branch"
+  # Refresh the branch from origin first — the nightly runner only resets
+  # this combined branch on each invocation, so per-branch local refs may
+  # be stale (they only update when their own nightly runs).
+  git fetch --quiet origin "$branch"
   # --detach so multiple worktrees can sit on the same commit without
   # claiming the branch (the nightly runner already holds the branch lock
   # in a sibling directory).
-  git worktree add --detach "$worktree_dir" "$branch"
+  git worktree add --detach "$worktree_dir" "origin/$branch"
 
   (
     cd "$worktree_dir"
