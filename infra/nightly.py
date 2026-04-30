@@ -116,6 +116,12 @@ def run_benchmarks(benchmark_dirs: list[Path]) -> list[dict[str, Any]]:
                 "phase": "serve",
                 **{k: serve_result[k] for k in ("argv", "cwd", "report_path", "returncode", "time_seconds")},
             })
+
+            # Serialized egraphs are large; drop each one as soon as serve
+            # has consumed it so the nightly's disk footprint stays bounded.
+            model_path = bench_out_dir / "model.fbs"
+            if model_path.exists():
+                model_path.unlink()
     return results
 
 
