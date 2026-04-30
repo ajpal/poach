@@ -6,25 +6,27 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 echo "Beginning POACH nightly script..."
 
 ###############################################################################
-# This script generates the data for the nightly frontend 
+# This script generates the data for the nightly frontend
 ###############################################################################
 
 export PATH=~/.cargo/bin:$PATH
 
-rustup update
-
-cargo install rustfilt
-
 # Ensure we start from a clean slate
 rm -rf nightly
+mkdir -p nightly/output nightly/tmp
 
-# Set Up
-mkdir -p nightly/output
-mkdir -p nightly/tmp
+# Standalone runs do their own setup (toolchain + benchmarks clone). When
+# driven by the combined orchestrator, POACH_NIGHTLY_COMBINED=1 and the
+# benchmarks dir is supplied via POACH_BENCHMARKS_DIR.
+if [ -z "${POACH_NIGHTLY_COMBINED:-}" ]; then
+  bash infra/setup.sh
+fi
 
-BENCHMARKS_DIR="nightly/tmp/poach-benchmarks"
-
-git clone https://github.com/ajpal/poach-benchmarks.git "$BENCHMARKS_DIR"
+BENCHMARKS_DIR="${POACH_BENCHMARKS_DIR:-nightly/tmp/poach-benchmarks}"
+if [ ! -d "$BENCHMARKS_DIR" ]; then
+  echo "ERROR: benchmarks dir $BENCHMARKS_DIR not found" >&2
+  exit 1
+fi
 
 # Build in release mode before running nightly.py
 cargo build --release
