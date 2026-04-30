@@ -47,7 +47,10 @@ for branch in "${BRANCHES[@]}"; do
   echo ""
   echo "=== Running nightly for branch: $branch ==="
   worktree_dir="$WORKTREE_BASE/$branch"
-  git worktree add "$worktree_dir" "$branch"
+  # --detach so multiple worktrees can sit on the same commit without
+  # claiming the branch (the nightly runner already holds the branch lock
+  # in a sibling directory).
+  git worktree add --detach "$worktree_dir" "$branch"
 
   (
     cd "$worktree_dir"
