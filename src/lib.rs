@@ -1103,6 +1103,46 @@ impl EGraph {
         Ok((termdag, term, cost))
     }
 
+    /// Extract a low-cost term for every reachable e-class, keyed by
+    /// (sort name, canonical value). Used to pre-compute an extraction cache.
+    pub fn build_extraction_cache(&self) -> Vec<((String, Value), String)> {
+        let extractor = Extractor::compute_costs_from_rootsorts(
+            None,
+            self,
+            TreeAdditiveCostModel::default(),
+        );
+
+        let extractable_eq_funcs = self
+            .functions
+            .values()
+            .filter(|f| !f.decl.unextractable && f.schema.output.is_eq_sort());
+
+        let canonical_keys = extractable_eq_funcs.flat_map(|func| {
+            let output_sort = func.schema.output.clone();
+            let mut outputs: Vec<Value> = Vec::new();
+            self.backend.for_each(func.backend_id, |row| {
+                if let Some(v) = row.vals.last() {
+                    outputs.push(*v);
+                }
+            });
+            outputs.into_iter().map(move |v| {
+                let canon = self.get_canonical_value(v, &output_sort);
+                (output_sort.clone(), canon)
+            })
+        });
+
+        let mut visited_eclasses: HashSet<(String, Value)> = Default::default();
+        canonical_keys
+            .filter(|(sort, canon)| visited_eclasses.insert((sort.name().to_owned(), *canon)))
+            .filter_map(|(sort, canon)| {
+                let mut termdag = TermDag::default();
+                let (_cost, term) =
+                    extractor.extract_best_with_sort(self, &mut termdag, canon, sort.clone())?;
+                Some(((sort.name().to_owned(), canon), termdag.to_string(term)))
+            })
+            .collect()
+    }
+
     /// Extract a value to a string for printing.
     /// See also [`EGraph::extract_value`] for more control.
     pub fn extract_value_to_string(

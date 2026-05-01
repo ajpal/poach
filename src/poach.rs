@@ -2,7 +2,8 @@ use std::path::{Path, PathBuf};
 
 use clap::{Args, Parser, Subcommand};
 
-use poach::EGraph;
+use poach::ast::GenericCommand;
+use poach::{EGraph, Value};
 
 use std::fs::File;
 use std::io::prelude::*;
@@ -11,6 +12,12 @@ use std::process::exit;
 use flexbuffers::{FlexbufferSerializer, Reader};
 
 use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize)]
+struct Model {
+    egraph: EGraph,
+    cache: Vec<((String, Value), String)>,
+}
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
@@ -129,12 +136,9 @@ pub fn poach() {
 
 // TODO add report events
 
-// mut is necessary due to possible canonicalization before serializing
-fn serialize_egraph_to_file(egraph: &mut EGraph, output_file: &Path) {
-    egraph.stabilize();
-
+fn serialize_model_to_file(model: &Model, output_file: &Path) {
     let mut buf = FlexbufferSerializer::new();
-    Serialize::serialize(egraph, &mut buf).expect("Failed to serialize the egraph to Flexbuffer");
+    Serialize::serialize(model, &mut buf).expect("Failed to serialize the model to Flexbuffer");
 
     let Ok(mut file) = File::create(output_file) else {
         panic!("Failed to create file");
@@ -142,7 +146,6 @@ fn serialize_egraph_to_file(egraph: &mut EGraph, output_file: &Path) {
     let _ = file.write_all(buf.view());
 }
 
-/// SerializeEgraph assumes a single input egglog program
 fn train(arg: TrainArgs) {
     let mut egraph = EGraph::default();
 
@@ -160,7 +163,10 @@ fn train(arg: TrainArgs) {
 
     match egraph.parse_and_run_program(Some(input.to_str().unwrap().into()), &program) {
         Ok(_) => {
-            serialize_egraph_to_file(&mut egraph, arg.output_model_file.as_path());
+            egraph.stabilize();
+            let cache = egraph.build_extraction_cache();
+            let model = Model { egraph, cache };
+            serialize_model_to_file(&model, arg.output_model_file.as_path());
         }
         Err(e) => {
             panic!(
@@ -172,9 +178,9 @@ fn train(arg: TrainArgs) {
     }
 }
 
-fn deserialize_egraph_from_file(egraph_file: &Path) -> EGraph {
-    let Ok(mut file) = File::open(egraph_file) else {
-        panic!("Failed to open input egraph file");
+fn deserialize_model_from_file(model_file: &Path) -> Model {
+    let Ok(mut file) = File::open(model_file) else {
+        panic!("Failed to open input model file");
     };
     let mut buf = Vec::new();
     let Ok(_) = file.read_to_end(&mut buf) else {
@@ -188,17 +194,17 @@ fn deserialize_egraph_from_file(egraph_file: &Path) -> EGraph {
         .build_global()
         .unwrap();
 
-    let mut egraph = EGraph::deserialize(r).unwrap();
+    let mut model = Model::deserialize(r).unwrap();
 
-    let Ok(_) = egraph.restore_deserialized_runtime() else {
+    let Ok(_) = model.egraph.restore_deserialized_runtime() else {
         panic!("Failed to restore deserialized runtime");
     };
 
-    return egraph;
+    model
 }
 
 fn serve(arg: ServeArgs) {
-    let mut egraph = deserialize_egraph_from_file(arg.model_file.as_path());
+    let Model { mut egraph, cache } = deserialize_model_from_file(arg.model_file.as_path());
 
     match arg.mode {
         ServeMode::Streaming => match egraph.repl(poach::RunMode::Normal) {
@@ -213,18 +219,46 @@ fn serve(arg: ServeArgs) {
                 panic!("Failed to read file {arg}")
             });
 
-            match egraph.parse_and_run_program(Some(input.to_str().unwrap().into()), &program) {
-                Ok(msgs) => {
-                    for msg in msgs {
-                        print!("{msg}");
+            let cache_map: std::collections::HashMap<(String, Value), String> =
+                cache.into_iter().collect();
+
+            let filename = input.to_str().unwrap().to_string();
+            let commands = egraph
+                .parser
+                .get_program_from_string(Some(filename.clone()), &program)
+                .unwrap_or_else(|e| {
+                    panic!("Failed to parse {filename}: {e:?}");
+                });
+
+            for cmd in commands {
+                if let GenericCommand::Extract(_, expr, variants) = &cmd {
+                    let n_val = egraph
+                        .eval_expr(variants)
+                        .expect("failed to evaluate variants count");
+                    let n: i64 = egraph.value_to_base(n_val.1);
+
+                    // n == 0 is egglog's "extract the single best term" case;
+                    // n > 0 asks for n variants, which the cache doesn't store.
+                    if n == 0 {
+                        let (sort, value) = egraph
+                            .eval_expr(expr)
+                            .expect("failed to evaluate extract expr");
+                        let canon = egraph.get_canonical_value(value, &sort);
+                        if let Some(cached) = cache_map.get(&(sort.name().to_owned(), canon)) {
+                            println!("{cached}");
+                            continue;
+                        }
                     }
                 }
-                Err(e) => {
-                    panic!(
-                        "Failed to execute {:} with error {:?}",
-                        input.to_string_lossy(),
-                        e
-                    );
+                match egraph.run_program(vec![cmd]) {
+                    Ok(msgs) => {
+                        for msg in msgs {
+                            print!("{msg}");
+                        }
+                    }
+                    Err(e) => {
+                        panic!("Failed to execute command: {e:?}");
+                    }
                 }
             }
         }
