@@ -184,8 +184,10 @@ fn train(arg: TrainArgs) {
 
         let model = Model { egraph, cache };
 
-        let serialize_timer =
-            reporter.new_timer("serialize_model".to_string(), vec!["io".to_string()]);
+        let serialize_timer = reporter.new_timer(
+            "serialize_model".to_string(),
+            vec!["io".to_string(), "serialize".to_string()],
+        );
         let serialized_size = serialize_model_to_file(&model, arg.output_model_file.as_path());
         reporter.record_timer(serialize_timer);
         reporter.record_size(
