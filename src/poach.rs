@@ -156,12 +156,12 @@ fn train(arg: TrainArgs) {
     if arg.debug {
         let mut reporter = Reporter::new();
 
-        let read_timer = reporter.new_timer("read_model".to_string(), vec!["io".to_string()]);
+        let read_timer = reporter.new_timer("read_egg_file".to_string(), vec!["io".to_string()]);
         let program = std::fs::read_to_string(input.as_path()).expect("Failed to read file");
         reporter.record_timer(read_timer);
 
-        let mut parser = EgglogParser::default();
-        let parsed = parser
+        let parsed = egraph
+            .parser
             .get_program_from_string(Some(input.to_str().unwrap().into()), &program)
             .unwrap_or_else(|e| {
                 panic!(
