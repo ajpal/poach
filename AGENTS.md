@@ -18,6 +18,7 @@
 ## Conventions + Style
 
 - Avoid defensive code that adds complexity without a clear, likely payoff.
+- Avoid introducing local variables that are only used once or twice when inlining keeps the code clear.
 
 ## Response format
 
