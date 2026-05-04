@@ -140,6 +140,7 @@ def summarize_report(report: dict[str, Any]) -> dict[str, int]:
     rule_running_millis = 0
     extraction_millis = 0
     serialize_millis = 0
+    deserialize_millis = 0
     other_millis = 0
     total_millis = 0
 
@@ -152,16 +153,28 @@ def summarize_report(report: dict[str, Any]) -> dict[str, int]:
         elif timing["name"] == "serialize_model":
             serialize_millis += timing["total"]
             other_millis += timing["total"]
+        elif timing["name"] == "deserialize_model":
+            deserialize_millis += timing["total"]
+            other_millis += timing["total"]
         else:
             other_millis += timing["total"]
+
+    # report["sizes"] is a list of {"name": str, "value": {"Bytes"|"Count": int}}
+    # Re-key by name for direct lookup.
+    sizes = {size["name"]: size["value"] for size in report.get("sizes", [])}
+    model_size_bytes = sizes.get("model_bytes", {}).get("Bytes", 0)
+    egraph_tuples = sizes.get("egraph_tuples", {}).get("Count", 0)
 
     return {
         "rule_running_millis": rule_running_millis,
         "extraction_millis": extraction_millis,
         "serialize_millis": serialize_millis,
+        "deserialize_millis": deserialize_millis,
         "other_millis": other_millis,
         "total_millis": total_millis,
         "timing_steps": len(report["timings"]),
+        "model_size_bytes": model_size_bytes,
+        "egraph_tuples": egraph_tuples,
     }
 
 

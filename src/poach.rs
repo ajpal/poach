@@ -173,6 +173,10 @@ fn train(arg: TrainArgs) {
 
         match egraph.run_program_with_reporter(parsed, &mut reporter) {
             Ok(_) => {
+                reporter.record_size(
+                    "egraph_tuples".to_string(),
+                    MetricValue::Count(egraph.num_tuples() as u64),
+                );
                 let serialize_timer =
                     reporter.new_timer("serialize_model".to_string(), vec!["io".to_string()]);
                 let serialized_size =
@@ -300,6 +304,10 @@ fn serve(arg: ServeArgs) {
                         for msg in msgs {
                             print!("{msg}");
                         }
+                        reporter.record_size(
+                            "egraph_tuples".to_string(),
+                            MetricValue::Count(egraph.num_tuples() as u64),
+                        );
                         serde_json::to_writer(&mut stderr(), &reporter.build_report())
                             .expect("Failed to serialize report");
                         eprintln!();

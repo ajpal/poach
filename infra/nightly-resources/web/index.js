@@ -158,9 +158,13 @@ function renderRows(benchmarks) {
           <td>${formatMillis(train?.extraction_millis ?? 0)}</td>
           <td>${formatMillis(train?.serialize_millis ?? 0)}</td>
           <td>${formatMillis(train?.total_millis ?? 0)}</td>
+          <td>${(train?.egraph_tuples ?? 0).toLocaleString()}</td>
+          <td>${(train?.model_size_bytes ?? 0).toLocaleString()}</td>
+          <td>${formatMillis(serve?.deserialize_millis ?? 0)}</td>
           <td>${formatMillis(serve?.rule_running_millis ?? 0)}</td>
           <td>${formatMillis(serve?.extraction_millis ?? 0)}</td>
           <td>${formatMillis(serve?.total_millis ?? 0)}</td>
+          <td>${(serve?.egraph_tuples ?? 0).toLocaleString()}</td>
         </tr>
       `;
     })
