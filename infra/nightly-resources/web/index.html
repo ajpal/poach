@@ -11,13 +11,37 @@
       <h1>Poach Nightly</h1>
       <p id="status">Loading <code>data/data.json</code>...</p>
       <div id="contents">
-        <!-- Put tables/charts/etc here -->
-         <div id="summary"></div>
-
+        <div id="summary">
+          <h2>Summary</h2>
+          <p id="summary-text"></p>
+        </div>
+        <div id="benchmarks">
+          <h2>Reports</h2>
+          <div id="suite-tabs"></div>
+          <div id="active-suite-summary"></div>
+          <table>
+            <thead>
+              <tr id="benchmarks-header">
+                <th data-sort-key="benchmark_path">Benchmark</th>
+                <th data-sort-key="train.rule_running_millis">Train Rules</th>
+                <th data-sort-key="train.extraction_millis">Train Extract</th>
+                <th data-sort-key="train.serialize_millis">Train Serialize</th>
+                <th data-sort-key="train.total_millis">Train Total</th>
+                <th data-sort-key="train.egraph_tuples">Train Egraph Size</th>
+                <th data-sort-key="train.model_size_bytes">Model Size (bytes)</th>
+                <th data-sort-key="serve.deserialize_millis">Serve Deserialize</th>
+                <th data-sort-key="serve.rule_running_millis">Serve Rules</th>
+                <th data-sort-key="serve.extraction_millis">Serve Extract</th>
+                <th data-sort-key="serve.total_millis">Serve Total</th>
+                <th data-sort-key="serve.egraph_tuples">Serve Egraph Size</th>
+              </tr>
+            </thead>
+            <tbody id="benchmarks-body"></tbody>
+          </table>
+        </div>
       </div>
     </main>
 
     <script type="module" src="./index.js"></script>
-    <script type="module" src="./util.js"></script>
   </body>
 </html>
