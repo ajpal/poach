@@ -164,10 +164,9 @@ fn serve(arg: ServeArgs) {
                         let mut reporter = Reporter::new();
                         let result = egraph.run_program_with_reporter(parsed, &mut reporter);
                         if result.is_ok() {
-                            let mut stderr = std::io::stderr().lock();
-                            serde_json::to_writer(&mut stderr, &reporter.build_report())
+                            serde_json::to_writer(&mut std::io::stderr(), &reporter.build_report())
                                 .expect("failed to serialize debug report");
-                            writeln!(stderr).expect("failed to terminate debug report");
+                            writeln!(std::io::stderr()).expect("failed to terminate debug report");
                         }
                         result
                     }
