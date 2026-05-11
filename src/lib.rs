@@ -1688,6 +1688,20 @@ impl EGraph {
         self.run_program(parsed)
     }
 
+    /// Like [`Self::parse_and_run_program`], but threads an
+    /// [`extraction_cache::ExtractionCache`] through the run for memoizing
+    /// `(extract ...)` / `(multi-extract ...)` results.
+    pub fn parse_and_run_program_with_cache(
+        &mut self,
+        filename: Option<String>,
+        input: &str,
+        cache: &mut extraction_cache::ExtractionCache,
+    ) -> Result<Vec<CommandOutput>, Error> {
+        let parsed = self.parser.get_program_from_string(filename, input)?;
+        let mut reporter = report::Reporter::new();
+        self.run_program_with_reporter_and_cache(parsed, &mut reporter, cache)
+    }
+
     /// Get the number of tuples in the database.
     ///
     pub fn num_tuples(&self) -> usize {

@@ -32,10 +32,19 @@ impl ExtractionCache {
         Ok(cache)
     }
 
-    pub fn save(&self, path: &Path) -> Result<(), Box<dyn std::error::Error>> {
-        let file = std::fs::File::create(path)?;
-        serde_json::to_writer_pretty(file, self)?;
-        Ok(())
+    /// Serialize to JSON, returning the number of bytes written.
+    pub fn save(&self, path: &Path) -> Result<usize, Box<dyn std::error::Error>> {
+        let bytes = serde_json::to_vec_pretty(self)?;
+        std::fs::write(path, &bytes)?;
+        Ok(bytes.len())
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
     }
 
     pub fn lookup_best(&self, key: &str) -> Option<&str> {

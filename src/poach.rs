@@ -1,9 +1,13 @@
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
+
 use poach::EGraph;
 use poach::extraction_cache::ExtractionCache;
-use poach::report::Reporter;
+
+use std::io::stderr;
+
+use poach::report::{MetricValue, Reporter};
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
@@ -117,63 +121,190 @@ pub fn poach() {
             println!("test({:?})", arg);
         }
     }
-    // TODO handle report IO
 }
 
-// Assumes a single input egglog program
+/// TermCache assumes a single input egglog program
 fn train(arg: TrainArgs) {
+    let mut egraph = EGraph::default();
     let mut cache = ExtractionCache::new();
 
-    if arg.debug {
-        eprintln!("training on {}", arg.training_set.display());
-    }
-    let mut egraph = EGraph::default();
-    let src = std::fs::read_to_string(&arg.training_set).expect("failed to read training file");
-    let program = egraph
-        .parser
-        .get_program_from_string(Some(arg.training_set.display().to_string()), &src)
-        .expect("failed to parse training file");
-    let mut reporter = Reporter::new();
-    egraph
-        .run_program_with_reporter_and_cache(program, &mut reporter, &mut cache)
-        .expect("error running training file");
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build_global()
+        .unwrap();
 
-    cache
-        .save(&arg.output_model_file)
-        .expect("failed to write model file");
-
+    let input = arg.training_set;
     if arg.debug {
-        eprintln!("wrote cache to {}", arg.output_model_file.display());
+        let mut reporter = Reporter::new();
+
+        let read_timer = reporter.new_timer("read_egg_file".to_string(), vec!["io".to_string()]);
+        let program = std::fs::read_to_string(input.as_path()).expect("Failed to read file");
+        reporter.record_timer(read_timer);
+
+        let parsed = egraph
+            .parser
+            .get_program_from_string(Some(input.to_str().unwrap().into()), &program)
+            .unwrap_or_else(|e| {
+                panic!(
+                    "Failed to execute {:} with error {:?}",
+                    input.to_string_lossy(),
+                    e
+                )
+            });
+
+        match egraph.run_program_with_reporter_and_cache(parsed, &mut reporter, &mut cache) {
+            Ok(_) => {
+                reporter.record_size(
+                    "egraph_tuples".to_string(),
+                    MetricValue::Count(egraph.num_tuples() as u64),
+                );
+                let serialize_timer =
+                    reporter.new_timer("serialize_model".to_string(), vec!["io".to_string()]);
+                let serialized_size = cache
+                    .save(arg.output_model_file.as_path())
+                    .expect("Failed to write model file");
+                reporter.record_timer(serialize_timer);
+                reporter.record_size(
+                    "model_bytes".to_string(),
+                    MetricValue::Bytes(serialized_size as u64),
+                );
+                reporter.record_size(
+                    "cache_entries".to_string(),
+                    MetricValue::Count(cache.len() as u64),
+                );
+                serde_json::to_writer(&mut stderr(), &reporter.build_report())
+                    .expect("Failed to serialize report");
+                eprintln!();
+            }
+            Err(e) => {
+                panic!(
+                    "Failed to execute {:} with error {:?}",
+                    input.to_string_lossy(),
+                    e
+                );
+            }
+        }
+    } else {
+        let program = std::fs::read_to_string(input.as_path()).expect("Failed to read file");
+
+        match egraph.parse_and_run_program_with_cache(
+            Some(input.to_str().unwrap().into()),
+            &program,
+            &mut cache,
+        ) {
+            Ok(_) => {
+                cache
+                    .save(arg.output_model_file.as_path())
+                    .expect("Failed to write model file");
+            }
+            Err(e) => {
+                panic!(
+                    "Failed to execute {:} with error {:?}",
+                    input.to_string_lossy(),
+                    e
+                );
+            }
+        }
     }
 }
 
+/// TermCache: an extraction memoization layer over a fresh egraph.
+/// NOTE: `multi-extract` always falls through to the real extractor on serve;
+/// its results are still recorded into the cache for later single-extract hits.
 fn serve(arg: ServeArgs) {
-    let mut cache = ExtractionCache::load(&arg.model_file).expect("failed to load model file");
-
     match arg.mode {
-        ServeMode::Single { input_file } => {
-            let mut egraph = EGraph::default();
-            let src = std::fs::read_to_string(&input_file).expect("failed to read input file");
-            let program = egraph
-                .parser
-                .get_program_from_string(Some(input_file.display().to_string()), &src)
-                .expect("failed to parse input file");
-            let mut reporter = Reporter::new();
-            let outputs = egraph
-                .run_program_with_reporter_and_cache(program, &mut reporter, &mut cache)
-                .expect("error running input file");
-            for output in outputs {
-                print!("{}", output);
-            }
-            if arg.debug {
-                eprintln!("served {}", input_file.display());
-            }
-        }
         ServeMode::Streaming => {
-            eprintln!("serve --streaming is not yet implemented");
+            //TODO
+            panic!("Streaming not implemented");
         }
-        ServeMode::Batch { .. } => {
-            eprintln!("serve --batch is not yet implemented");
+        ServeMode::Single { input_file: input } => {
+            if arg.debug {
+                let mut reporter = Reporter::new();
+
+                let load_timer =
+                    reporter.new_timer("load_model_file".to_string(), vec!["io".to_string()]);
+                let mut cache = ExtractionCache::load(arg.model_file.as_path())
+                    .expect("Failed to load model file");
+                reporter.record_timer(load_timer);
+
+                let read_timer = reporter
+                    .new_timer("read_input_program".to_string(), vec!["io".to_string()]);
+                let program =
+                    std::fs::read_to_string(input.as_path()).expect("Failed to read file");
+                reporter.record_timer(read_timer);
+
+                let mut egraph = EGraph::default();
+                let parsed = egraph
+                    .parser
+                    .get_program_from_string(Some(input.to_str().unwrap().into()), &program)
+                    .unwrap_or_else(|e| {
+                        panic!(
+                            "Failed to execute {:} with error {:?}",
+                            input.to_string_lossy(),
+                            e
+                        )
+                    });
+
+                match egraph
+                    .run_program_with_reporter_and_cache(parsed, &mut reporter, &mut cache)
+                {
+                    Ok(msgs) => {
+                        for msg in msgs {
+                            print!("{msg}");
+                        }
+                        reporter.record_size(
+                            "egraph_tuples".to_string(),
+                            MetricValue::Count(egraph.num_tuples() as u64),
+                        );
+                        reporter.record_size(
+                            "cache_entries".to_string(),
+                            MetricValue::Count(cache.len() as u64),
+                        );
+                        serde_json::to_writer(&mut stderr(), &reporter.build_report())
+                            .expect("Failed to serialize report");
+                        eprintln!();
+                    }
+                    Err(e) => {
+                        panic!(
+                            "Failed to execute {:} with error {:?}",
+                            input.to_string_lossy(),
+                            e
+                        );
+                    }
+                }
+            } else {
+                let mut cache = ExtractionCache::load(arg.model_file.as_path())
+                    .expect("Failed to load model file");
+                let mut egraph = EGraph::default();
+                let program =
+                    std::fs::read_to_string(input.as_path()).expect("Failed to read file");
+
+                match egraph.parse_and_run_program_with_cache(
+                    Some(input.to_str().unwrap().into()),
+                    &program,
+                    &mut cache,
+                ) {
+                    Ok(msgs) => {
+                        for msg in msgs {
+                            print!("{msg}");
+                        }
+                    }
+                    Err(e) => {
+                        panic!(
+                            "Failed to execute {:} with error {:?}",
+                            input.to_string_lossy(),
+                            e
+                        );
+                    }
+                }
+            }
+        }
+        ServeMode::Batch {
+            input_dir: _,
+            output_dir: _,
+        } => {
+            //TODO
+            panic!("Batch not implemented");
         }
     }
 }
