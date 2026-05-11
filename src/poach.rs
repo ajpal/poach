@@ -1,14 +1,13 @@
+use std::io::stderr;
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
 
-use poach::EGraph;
-use poach::extraction_cache::ExtractionCache;
-use poach::CommandOutput;
-
-use std::io::stderr;
-
-use poach::report::{MetricValue, Reporter};
+use poach::{
+    CommandOutput, EGraph,
+    extraction_cache::ExtractionCache,
+    report::{MetricValue, Reporter},
+};
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
@@ -107,6 +106,13 @@ struct FineTuneArgs {
 struct TestArgs {}
 
 pub fn poach() {
+    // The global rayon pool can only be initialized once per process, so we
+    // do it here rather than inside each subcommand.
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build_global()
+        .unwrap();
+
     let cli = Cli::parse();
     match cli.command {
         Commands::Train(arg) => {
@@ -145,11 +151,6 @@ fn count_extraction_outcomes(outputs: &[CommandOutput]) -> (u64, u64) {
 fn train(arg: TrainArgs) {
     let mut egraph = EGraph::default();
     let mut cache = ExtractionCache::new();
-
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(1)
-        .build_global()
-        .unwrap();
 
     let input = arg.training_set;
     if arg.debug {
@@ -236,8 +237,6 @@ fn train(arg: TrainArgs) {
 }
 
 /// TermCache: an extraction memoization layer over a fresh egraph.
-/// NOTE: `multi-extract` always falls through to the real extractor on serve;
-/// its results are still recorded into the cache for later single-extract hits.
 fn serve(arg: ServeArgs) {
     match arg.mode {
         ServeMode::Streaming => {

@@ -56,10 +56,12 @@ impl ExtractionCache {
         self.entries.get(key).and_then(|e| e.best.as_deref())
     }
 
-    pub fn lookup_variants(&self, key: &str, n: usize) -> Option<Vec<String>> {
+    /// On a hit, returns up to `n` variants borrowed from the cache.
+    pub fn lookup_variants(&self, key: &str, n: usize) -> Option<&[String]> {
         let entry = self.entries.get(key)?;
         if entry.variants.len() >= n || entry.exhausted {
-            Some(entry.variants.iter().take(n).cloned().collect())
+            let take = n.min(entry.variants.len());
+            Some(&entry.variants[..take])
         } else {
             None
         }

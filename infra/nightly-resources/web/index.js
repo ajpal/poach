@@ -39,7 +39,7 @@ function renderSummary(data) {
   }
 
   document.querySelector("#summary-text").textContent =
-    `${data.summary.benchmark_count} reports across ${data.suites.length} suites | ` +
+    `${data.summary.benchmark_count} benchmarks across ${data.suites.length} suites | ` +
     `Nightly time: ${formatSeconds(data.summary.total_time_seconds)} | ` +
     `Rule running: ${ruleRunningMillis} ms | ` +
     `Extraction: ${extractionMillis} ms | ` +

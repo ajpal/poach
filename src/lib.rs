@@ -1627,14 +1627,14 @@ impl EGraph {
     /// Like [`Self::run_program_with_reporter`], but additionally consults
     /// `cache` on each `(extract ...)` / `(multi-extract ...)` command:
     ///
-    /// - On a cache hit, the cached terms are returned as a
+    /// - On a cache hit for `(extract ...)`, the cached terms are returned as
     ///   [`CommandOutput::CachedExtract`] and the real extractor is **not** run.
+    /// - On a cache hit for `(multi-extract ...)`, the cached terms are
+    ///   returned as [`CommandOutput::CachedMultiExtract`] (all-or-nothing:
+    ///   every sub-expression must be cached at the requested `n`).
     /// - On a miss, the extractor runs normally and the result is inserted
-    ///   into the cache for future hits.
-    ///
-    /// `multi-extract` always falls through to the real extractor for now;
-    /// its results are still decomposed into per-expression entries so that
-    /// later single `(extract ...)` lookups can hit.
+    ///   into the cache for future hits. `multi-extract` results are
+    ///   decomposed into per-expression entries.
     pub fn run_program_with_reporter_and_cache(
         &mut self,
         program: Vec<Command>,
@@ -2107,7 +2107,7 @@ fn try_cache_lookup(
         }
         ExtractKeyInfo::Variants { key, n } => {
             let terms = cache.lookup_variants(&key, n)?;
-            Some(CommandOutput::CachedExtract(terms))
+            Some(CommandOutput::CachedExtract(terms.to_vec()))
         }
         ExtractKeyInfo::Multi { keys, n } => {
             // All-or-nothing: only serve from cache when every expr has
@@ -2116,7 +2116,7 @@ fn try_cache_lookup(
             let mut all = Vec::with_capacity(keys.len());
             for key in &keys {
                 let variants = cache.lookup_variants(key, n)?;
-                all.push(variants);
+                all.push(variants.to_vec());
             }
             Some(CommandOutput::CachedMultiExtract(all))
         }
