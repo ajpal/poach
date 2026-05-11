@@ -178,14 +178,8 @@ fn train(arg: TrainArgs) {
                     "egraph_tuples".to_string(),
                     MetricValue::Count(egraph.num_tuples() as u64),
                 );
-                reporter.record_size(
-                    "cache_hits".to_string(),
-                    MetricValue::Count(hits),
-                );
-                reporter.record_size(
-                    "cache_misses".to_string(),
-                    MetricValue::Count(misses),
-                );
+                reporter.record_size("cache_hits".to_string(), MetricValue::Count(hits));
+                reporter.record_size("cache_misses".to_string(), MetricValue::Count(misses));
                 let serialize_timer =
                     reporter.new_timer("serialize_model".to_string(), vec!["io".to_string()]);
                 let serialized_size = cache
@@ -253,8 +247,8 @@ fn serve(arg: ServeArgs) {
                     .expect("Failed to load model file");
                 reporter.record_timer(load_timer);
 
-                let read_timer = reporter
-                    .new_timer("read_input_program".to_string(), vec!["io".to_string()]);
+                let read_timer =
+                    reporter.new_timer("read_input_program".to_string(), vec!["io".to_string()]);
                 let program =
                     std::fs::read_to_string(input.as_path()).expect("Failed to read file");
                 reporter.record_timer(read_timer);
@@ -271,8 +265,7 @@ fn serve(arg: ServeArgs) {
                         )
                     });
 
-                match egraph
-                    .run_program_with_reporter_and_cache(parsed, &mut reporter, &mut cache)
+                match egraph.run_program_with_reporter_and_cache(parsed, &mut reporter, &mut cache)
                 {
                     Ok(msgs) => {
                         let (hits, misses) = count_extraction_outcomes(&msgs);
@@ -287,14 +280,9 @@ fn serve(arg: ServeArgs) {
                             "cache_entries".to_string(),
                             MetricValue::Count(cache.len() as u64),
                         );
-                        reporter.record_size(
-                            "cache_hits".to_string(),
-                            MetricValue::Count(hits),
-                        );
-                        reporter.record_size(
-                            "cache_misses".to_string(),
-                            MetricValue::Count(misses),
-                        );
+                        reporter.record_size("cache_hits".to_string(), MetricValue::Count(hits));
+                        reporter
+                            .record_size("cache_misses".to_string(), MetricValue::Count(misses));
                         serde_json::to_writer(&mut stderr(), &reporter.build_report())
                             .expect("Failed to serialize report");
                         eprintln!();
