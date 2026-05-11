@@ -18,6 +18,8 @@ mkdir -p nightly/output nightly/tmp
 # Standalone runs do their own setup (toolchain + benchmarks clone). When
 # driven by the combined orchestrator, POACH_NIGHTLY_COMBINED=1 and the
 # benchmarks dir is supplied via POACH_BENCHMARKS_DIR.
+#
+# Avoid -v flag, which requires bash 4.2. MacOS defaults to bash 3.2
 if [ -z "${POACH_NIGHTLY_COMBINED:-}" ]; then
   bash infra/setup.sh
 fi
