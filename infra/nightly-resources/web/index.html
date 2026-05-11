@@ -22,6 +22,19 @@
           <table>
             <thead>
               <tr id="benchmarks-header">
+                <th data-sort-key="benchmark_path">Benchmark</th>
+                <th data-sort-key="train.rule_running_millis">Train Rules</th>
+                <th data-sort-key="train.extraction_millis">Train Extract</th>
+                <th data-sort-key="train.serialize_millis">Train Save</th>
+                <th data-sort-key="train.total_millis">Train Total</th>
+                <th data-sort-key="train.egraph_tuples">Train Egraph Size</th>
+                <th data-sort-key="train.model_size_bytes">Model Size (bytes)</th>
+                <th data-sort-key="train.cache_entries">Cache Entries</th>
+                <th data-sort-key="serve.deserialize_millis">Serve Load</th>
+                <th data-sort-key="serve.rule_running_millis">Serve Rules</th>
+                <th data-sort-key="serve.extraction_millis">Serve Extract</th>
+                <th data-sort-key="serve.total_millis">Serve Total</th>
+                <th data-sort-key="serve.egraph_tuples">Serve Egraph Size</th>
               </tr>
             </thead>
             <tbody id="benchmarks-body"></tbody>
@@ -31,6 +44,5 @@
     </main>
 
     <script type="module" src="./index.js"></script>
-    <script type="module" src="./util.js"></script>
   </body>
 </html>

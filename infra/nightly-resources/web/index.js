@@ -1,4 +1,4 @@
-import { formatMillis } from "./util.js";
+import { formatMillis, formatSeconds } from "./util.js";
 
 let suites = [];
 let activeSuiteName = null;
@@ -39,8 +39,8 @@ function renderSummary(data) {
   }
 
   document.querySelector("#summary-text").textContent =
-    `${data.summary.benchmark_count} benchmarks across ${data.suites.length} suites | ` +
-    `Nightly time: ${data.summary.total_time_seconds.toFixed(1)} s | ` +
+    `${data.summary.benchmark_count} reports across ${data.suites.length} suites | ` +
+    `Nightly time: ${formatSeconds(data.summary.total_time_seconds)} | ` +
     `Rule running: ${ruleRunningMillis} ms | ` +
     `Extraction: ${extractionMillis} ms | ` +
     `Other: ${otherMillis} ms`;
@@ -75,24 +75,29 @@ function renderSuites() {
     return;
   }
 
+  const benchmarks = groupByBenchmark(activeSuite.reports);
   document.querySelector("#active-suite-summary").innerHTML = `
     <div class="suite-header">
       <h3>${activeSuite.name}</h3>
-      <p>${activeSuite.reports.length} benchmarks | ${activeSuite.summary.total_time_seconds.toFixed(1)} s</p>
+      <p>${benchmarks.length} benchmarks | ${formatSeconds(activeSuite.summary.total_time_seconds)}</p>
     </div>
   `;
   document.querySelector("#benchmarks-body").innerHTML = renderRows(
-    sortReports(activeSuite.reports),
+    sortBenchmarks(benchmarks),
   );
   updateHeaderIndicators();
 }
 
-function getSortValue(report, key) {
-  return key.split(".").reduce((acc, part) => acc?.[part], report) ?? 0;
+function getSortValue(benchmark, key) {
+  const [phase, field] = key.split(".");
+  if (field === undefined) {
+    return benchmark[phase];
+  }
+  return benchmark[phase]?.[field] ?? 0;
 }
 
-function sortReports(reports) {
-  const sorted = [...reports];
+function sortBenchmarks(benchmarks) {
+  const sorted = [...benchmarks];
   const dir = sortDir === "asc" ? 1 : -1;
   sorted.sort((a, b) => {
     const av = getSortValue(a, sortKey);
@@ -130,17 +135,37 @@ function updateHeaderIndicators() {
   }
 }
 
-function renderRows(reports) {
-  return reports
-    .map(({ benchmark_path, time_seconds, timing_summary }) => {
+function groupByBenchmark(reports) {
+  const grouped = new Map();
+  for (const report of reports) {
+    if (!grouped.has(report.benchmark_path)) {
+      grouped.set(report.benchmark_path, {
+        benchmark_path: report.benchmark_path,
+      });
+    }
+    grouped.get(report.benchmark_path)[report.phase] = report.timing_summary;
+  }
+  return Array.from(grouped.values());
+}
+
+function renderRows(benchmarks) {
+  return benchmarks
+    .map(({ benchmark_path, train, serve }) => {
       return `
         <tr>
           <td>${benchmark_path}</td>
-          <td>${time_seconds.toFixed(3)} s</td>
-          <td>${formatMillis(timing_summary.rule_running_millis)}</td>
-          <td>${formatMillis(timing_summary.extraction_millis)}</td>
-          <td>${formatMillis(timing_summary.other_millis)}</td>
-          <td>${timing_summary.timing_steps}</td>
+          <td>${formatMillis(train?.rule_running_millis ?? 0)}</td>
+          <td>${formatMillis(train?.extraction_millis ?? 0)}</td>
+          <td>${formatMillis(train?.serialize_millis ?? 0)}</td>
+          <td>${formatMillis(train?.total_millis ?? 0)}</td>
+          <td>${(train?.egraph_tuples ?? 0).toLocaleString()}</td>
+          <td>${(train?.model_size_bytes ?? 0).toLocaleString()}</td>
+          <td>${(train?.cache_entries ?? 0).toLocaleString()}</td>
+          <td>${formatMillis(serve?.deserialize_millis ?? 0)}</td>
+          <td>${formatMillis(serve?.rule_running_millis ?? 0)}</td>
+          <td>${formatMillis(serve?.extraction_millis ?? 0)}</td>
+          <td>${formatMillis(serve?.total_millis ?? 0)}</td>
+          <td>${(serve?.egraph_tuples ?? 0).toLocaleString()}</td>
         </tr>
       `;
     })

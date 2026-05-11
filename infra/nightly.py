@@ -75,13 +75,52 @@ def run_benchmarks(benchmark_dirs: list[Path]) -> list[dict[str, Any]]:
         shutil.rmtree(REPORT_OUTPUT_DIR)
     REPORT_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    results: list[dict[str, Any]] = []
-    # TODO: invoke the poach commands appropriate for this branch (e.g.
-    # `poach train ...` and/or `poach serve ...`) for each benchmark file
-    # and append one result dict per command to `results`. Each result
-    # must include at least: "suite", "benchmark_path", "report_path",
-    # "time_seconds" (plus any branch-specific fields like "phase").
+    results = []
+    for benchmark_dir in benchmark_dirs:
+        benchmark_files = list((benchmark_dir / "train").glob("*.egg"))
+        for benchmark_file in benchmark_files:
+            relative_benchmark = benchmark_file.relative_to(benchmark_dir / "train")
+            bench_out_dir = REPORT_OUTPUT_DIR / benchmark_dir.name / relative_benchmark.with_suffix("")
+            bench_out_dir.mkdir(parents=True, exist_ok=True)
 
+            model_path = bench_out_dir / "model.json"
+            train_command = [
+                str(POACH_BIN),
+                "train",
+                "--debug",
+                str(benchmark_file),
+                str(model_path),
+            ]
+            print("Running benchmark train:", " ".join(train_command))
+            train_result = run_command(train_command, cwd=REPO_ROOT, report_path=(bench_out_dir / "train.report.json"))
+            results.append({
+                "suite": benchmark_dir.name,
+                "benchmark_path": str(relative_benchmark),
+                "phase": "train",
+                **{k: train_result[k] for k in ("argv", "cwd", "report_path", "returncode", "time_seconds")},
+            })
+
+            serve_command = [
+                str(POACH_BIN),
+                "serve",
+                "--debug",
+                str(model_path),
+                "single",
+                str(benchmark_dir / "serve" / relative_benchmark),
+            ]
+            print("Running benchmark serve:", " ".join(serve_command))
+            serve_result = run_command(serve_command, cwd=REPO_ROOT, report_path=(bench_out_dir / "serve.report.json"))
+            results.append({
+                "suite": benchmark_dir.name,
+                "benchmark_path": str(relative_benchmark),
+                "phase": "serve",
+                **{k: serve_result[k] for k in ("argv", "cwd", "report_path", "returncode", "time_seconds")},
+            })
+
+            # Drop the model file after serve to keep the nightly's disk
+            # footprint bounded.
+            if model_path.exists():
+                model_path.unlink()
     return results
 
 
@@ -99,27 +138,53 @@ def display_path(p: Path) -> str:
 def summarize_report(report: dict[str, Any]) -> dict[str, int]:
     rule_running_millis = 0
     extraction_millis = 0
+    serialize_millis = 0
+    deserialize_millis = 0
     other_millis = 0
+    total_millis = 0
 
     for timing in report["timings"]:
+        total_millis += timing["total"]
         if "running_rules" in timing["tags"]:
             rule_running_millis += timing["total"]
         elif "extraction" in timing["tags"]:
             extraction_millis += timing["total"]
+        elif timing["name"] == "serialize_model":
+            serialize_millis += timing["total"]
+            other_millis += timing["total"]
+        elif timing["name"] == "deserialize_model":
+            deserialize_millis += timing["total"]
+            other_millis += timing["total"]
         else:
             other_millis += timing["total"]
+
+    # report["sizes"] is a list of {"name": str, "value": {"Bytes"|"Count": int}}
+    # Re-key by name for direct lookup.
+    sizes = {size["name"]: size["value"] for size in report.get("sizes", [])}
+    model_size_bytes = sizes.get("model_bytes", {}).get("Bytes", 0)
+    egraph_tuples = sizes.get("egraph_tuples", {}).get("Count", 0)
+    cache_entries = sizes.get("cache_entries", {}).get("Count", 0)
 
     return {
         "rule_running_millis": rule_running_millis,
         "extraction_millis": extraction_millis,
+        "serialize_millis": serialize_millis,
+        "deserialize_millis": deserialize_millis,
         "other_millis": other_millis,
+        "total_millis": total_millis,
         "timing_steps": len(report["timings"]),
+        "model_size_bytes": model_size_bytes,
+        "egraph_tuples": egraph_tuples,
+        "cache_entries": cache_entries,
     }
 
 
 def aggregate_reports(
     benchmark_dirs: list[Path], benchmark_results: list[dict[str, Any]]
 ) -> dict[str, Any]:
+    if not benchmark_results:
+        raise SystemExit(f"No report files were generated under {REPORT_OUTPUT_DIR}")
+
     benchmark_root = benchmark_dirs[0].parent
     suites = []
     for benchmark_dir in benchmark_dirs:
@@ -139,6 +204,7 @@ def aggregate_reports(
                     {
                         "suite": benchmark_dir.name,
                         "benchmark_path": result["benchmark_path"],
+                        "phase": result["phase"],
                         "path": str(
                             Path(result["report_path"]).relative_to(OUTPUT_DIR)
                         ),

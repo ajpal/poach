@@ -222,7 +222,7 @@ fn serve(arg: ServeArgs) {
                 let mut reporter = Reporter::new();
 
                 let load_timer =
-                    reporter.new_timer("load_model_file".to_string(), vec!["io".to_string()]);
+                    reporter.new_timer("deserialize_model".to_string(), vec!["io".to_string()]);
                 let mut cache = ExtractionCache::load(arg.model_file.as_path())
                     .expect("Failed to load model file");
                 reporter.record_timer(load_timer);
