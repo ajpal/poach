@@ -106,7 +106,7 @@ def run_benchmarks(benchmark_dirs: list[Path]) -> list[dict[str, Any]]:
                 "--debug",
                 str(model_path),
                 "single",
-                str(benchmark_dir / "serve" / relative_benchmark),
+                str(benchmark_file),
             ]
             print("Running benchmark serve:", " ".join(serve_command))
             serve_result = run_command(serve_command, cwd=REPO_ROOT, report_path=(bench_out_dir / "serve.report.json"))
@@ -164,6 +164,8 @@ def summarize_report(report: dict[str, Any]) -> dict[str, int]:
     model_size_bytes = sizes.get("model_bytes", {}).get("Bytes", 0)
     egraph_tuples = sizes.get("egraph_tuples", {}).get("Count", 0)
     cache_entries = sizes.get("cache_entries", {}).get("Count", 0)
+    cache_hits = sizes.get("cache_hits", {}).get("Count", 0)
+    cache_misses = sizes.get("cache_misses", {}).get("Count", 0)
 
     return {
         "rule_running_millis": rule_running_millis,
@@ -176,6 +178,8 @@ def summarize_report(report: dict[str, Any]) -> dict[str, int]:
         "model_size_bytes": model_size_bytes,
         "egraph_tuples": egraph_tuples,
         "cache_entries": cache_entries,
+        "cache_hits": cache_hits,
+        "cache_misses": cache_misses,
     }
 
 

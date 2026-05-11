@@ -135,6 +135,15 @@ function updateHeaderIndicators() {
   }
 }
 
+function formatCacheHitRate(summary) {
+  if (!summary) return "—";
+  const hits = summary.cache_hits ?? 0;
+  const misses = summary.cache_misses ?? 0;
+  const total = hits + misses;
+  if (total === 0) return "—";
+  return `${((hits / total) * 100).toFixed(1)}%`;
+}
+
 function groupByBenchmark(reports) {
   const grouped = new Map();
   for (const report of reports) {
@@ -143,7 +152,10 @@ function groupByBenchmark(reports) {
         benchmark_path: report.benchmark_path,
       });
     }
-    grouped.get(report.benchmark_path)[report.phase] = report.timing_summary;
+    const summary = { ...report.timing_summary };
+    const total = (summary.cache_hits ?? 0) + (summary.cache_misses ?? 0);
+    summary.cache_hit_rate = total === 0 ? 0 : (summary.cache_hits ?? 0) / total;
+    grouped.get(report.benchmark_path)[report.phase] = summary;
   }
   return Array.from(grouped.values());
 }
@@ -164,6 +176,7 @@ function renderRows(benchmarks) {
           <td>${formatMillis(serve?.deserialize_millis ?? 0)}</td>
           <td>${formatMillis(serve?.rule_running_millis ?? 0)}</td>
           <td>${formatMillis(serve?.extraction_millis ?? 0)}</td>
+          <td>${formatCacheHitRate(serve)}</td>
           <td>${formatMillis(serve?.total_millis ?? 0)}</td>
           <td>${(serve?.egraph_tuples ?? 0).toLocaleString()}</td>
         </tr>

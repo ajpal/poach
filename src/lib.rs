@@ -135,6 +135,8 @@ pub enum CommandOutput {
     UserDefined(Arc<dyn UserDefinedCommandOutput>),
     /// An extraction result served from a cache (poach), without rerunning the extractor.
     CachedExtract(Vec<String>),
+    /// A multi-extract result served from a cache (poach), without rerunning the extractor.
+    CachedMultiExtract(Vec<Vec<String>>),
 }
 
 impl std::fmt::Display for CommandOutput {
@@ -215,6 +217,17 @@ impl std::fmt::Display for CommandOutput {
                     writeln!(f, "{}", term)?;
                 }
                 Ok(())
+            }
+            CommandOutput::CachedMultiExtract(terms) => {
+                writeln!(f, "(")?;
+                for variants in terms {
+                    writeln!(f, "   (")?;
+                    for expr in variants {
+                        writeln!(f, "      {}", expr)?;
+                    }
+                    writeln!(f, "   )")?;
+                }
+                writeln!(f, ")")
             }
         }
     }
@@ -2043,7 +2056,7 @@ enum ExtractKeyInfo {
     /// `(extract expr n)` with `n >= 1` — variants.
     Variants { key: String, n: usize },
     /// `(multi-extract n e1 e2 ...)` — decomposed into per-expr keys.
-    Multi { keys: Vec<String> },
+    Multi { keys: Vec<String>, n: usize },
 }
 
 fn lit_int(e: &ResolvedExpr) -> Option<i64> {
@@ -2075,7 +2088,10 @@ fn extract_key_info(cmd: &ResolvedNCommand) -> Option<ExtractKeyInfo> {
                 return None;
             }
             let keys = exprs.iter().map(|e| e.to_string()).collect();
-            Some(ExtractKeyInfo::Multi { keys })
+            Some(ExtractKeyInfo::Multi {
+                keys,
+                n: n as usize,
+            })
         }
         _ => None,
     }
@@ -2096,8 +2112,17 @@ fn try_cache_lookup(
             let terms = cache.lookup_variants(&key, n)?;
             Some(CommandOutput::CachedExtract(terms))
         }
-        // multi-extract: always fall through to the real extractor for now.
-        ExtractKeyInfo::Multi { .. } => None,
+        ExtractKeyInfo::Multi { keys, n } => {
+            // All-or-nothing: only serve from cache when every expr has
+            // at least `n` variants cached. Otherwise fall through and let
+            // the real extractor run + populate the cache.
+            let mut all = Vec::with_capacity(keys.len());
+            for key in &keys {
+                let variants = cache.lookup_variants(key, n)?;
+                all.push(variants);
+            }
+            Some(CommandOutput::CachedMultiExtract(all))
+        }
     }
 }
 
@@ -2115,7 +2140,7 @@ fn record_cache_entry(
             let strs = terms.iter().map(|t| termdag.to_string(*t)).collect();
             cache.insert_variants(key.clone(), strs);
         }
-        (ExtractKeyInfo::Multi { keys }, CommandOutput::MultiExtractVariants(termdag, terms)) => {
+        (ExtractKeyInfo::Multi { keys, .. }, CommandOutput::MultiExtractVariants(termdag, terms)) => {
             for (key, ts) in keys.iter().zip(terms.iter()) {
                 let strs = ts.iter().map(|t| termdag.to_string(*t)).collect();
                 cache.insert_variants(key.clone(), strs);

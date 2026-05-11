@@ -4,6 +4,7 @@ use clap::{Args, Parser, Subcommand};
 
 use poach::EGraph;
 use poach::extraction_cache::ExtractionCache;
+use poach::CommandOutput;
 
 use std::io::stderr;
 
@@ -123,6 +124,23 @@ pub fn poach() {
     }
 }
 
+/// Count cache hits vs misses among extraction-related outputs in a run.
+/// Hits are [`CommandOutput::CachedExtract`]; misses are the real extractor outputs.
+fn count_extraction_outcomes(outputs: &[CommandOutput]) -> (u64, u64) {
+    let mut hits = 0u64;
+    let mut misses = 0u64;
+    for output in outputs {
+        match output {
+            CommandOutput::CachedExtract(_) | CommandOutput::CachedMultiExtract(_) => hits += 1,
+            CommandOutput::ExtractBest(_, _, _)
+            | CommandOutput::ExtractVariants(_, _)
+            | CommandOutput::MultiExtractVariants(_, _) => misses += 1,
+            _ => {}
+        }
+    }
+    (hits, misses)
+}
+
 /// TermCache assumes a single input egglog program
 fn train(arg: TrainArgs) {
     let mut egraph = EGraph::default();
@@ -153,10 +171,19 @@ fn train(arg: TrainArgs) {
             });
 
         match egraph.run_program_with_reporter_and_cache(parsed, &mut reporter, &mut cache) {
-            Ok(_) => {
+            Ok(msgs) => {
+                let (hits, misses) = count_extraction_outcomes(&msgs);
                 reporter.record_size(
                     "egraph_tuples".to_string(),
                     MetricValue::Count(egraph.num_tuples() as u64),
+                );
+                reporter.record_size(
+                    "cache_hits".to_string(),
+                    MetricValue::Count(hits),
+                );
+                reporter.record_size(
+                    "cache_misses".to_string(),
+                    MetricValue::Count(misses),
                 );
                 let serialize_timer =
                     reporter.new_timer("serialize_model".to_string(), vec!["io".to_string()]);
@@ -249,6 +276,7 @@ fn serve(arg: ServeArgs) {
                     .run_program_with_reporter_and_cache(parsed, &mut reporter, &mut cache)
                 {
                     Ok(msgs) => {
+                        let (hits, misses) = count_extraction_outcomes(&msgs);
                         for msg in msgs {
                             print!("{msg}");
                         }
@@ -259,6 +287,14 @@ fn serve(arg: ServeArgs) {
                         reporter.record_size(
                             "cache_entries".to_string(),
                             MetricValue::Count(cache.len() as u64),
+                        );
+                        reporter.record_size(
+                            "cache_hits".to_string(),
+                            MetricValue::Count(hits),
+                        );
+                        reporter.record_size(
+                            "cache_misses".to_string(),
+                            MetricValue::Count(misses),
                         );
                         serde_json::to_writer(&mut stderr(), &reporter.build_report())
                             .expect("Failed to serialize report");
