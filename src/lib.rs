@@ -2074,10 +2074,7 @@ fn extract_key_info(cmd: &ResolvedNCommand) -> Option<ExtractKeyInfo> {
             if n == 0 {
                 Some(ExtractKeyInfo::Best { key })
             } else if n > 0 {
-                Some(ExtractKeyInfo::Variants {
-                    key,
-                    n: n as usize,
-                })
+                Some(ExtractKeyInfo::Variants { key, n: n as usize })
             } else {
                 None
             }
@@ -2136,14 +2133,17 @@ fn record_cache_entry(
         (ExtractKeyInfo::Best { key }, CommandOutput::ExtractBest(termdag, _cost, term)) => {
             cache.insert_best(key.clone(), termdag.to_string(*term));
         }
-        (ExtractKeyInfo::Variants { key, .. }, CommandOutput::ExtractVariants(termdag, terms)) => {
-            let strs = terms.iter().map(|t| termdag.to_string(*t)).collect();
-            cache.insert_variants(key.clone(), strs);
+        (ExtractKeyInfo::Variants { key, n }, CommandOutput::ExtractVariants(termdag, terms)) => {
+            let strs: Vec<String> = terms.iter().map(|t| termdag.to_string(*t)).collect();
+            cache.insert_variants(key.clone(), strs, *n);
         }
-        (ExtractKeyInfo::Multi { keys, .. }, CommandOutput::MultiExtractVariants(termdag, terms)) => {
+        (
+            ExtractKeyInfo::Multi { keys, n },
+            CommandOutput::MultiExtractVariants(termdag, terms),
+        ) => {
             for (key, ts) in keys.iter().zip(terms.iter()) {
-                let strs = ts.iter().map(|t| termdag.to_string(*t)).collect();
-                cache.insert_variants(key.clone(), strs);
+                let strs: Vec<String> = ts.iter().map(|t| termdag.to_string(*t)).collect();
+                cache.insert_variants(key.clone(), strs, *n);
             }
         }
         _ => {}

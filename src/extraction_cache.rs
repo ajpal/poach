@@ -19,6 +19,11 @@ struct Entry {
     best: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     variants: Vec<String>,
+    /// True if a previous `insert_variants` asked for strictly more variants
+    /// than the extractor returned — i.e., `variants` enumerates everything
+    /// possible. Future lookups for any `n` may then be served from cache.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    exhausted: bool,
 }
 
 impl ExtractionCache {
@@ -53,7 +58,7 @@ impl ExtractionCache {
 
     pub fn lookup_variants(&self, key: &str, n: usize) -> Option<Vec<String>> {
         let entry = self.entries.get(key)?;
-        if entry.variants.len() >= n {
+        if entry.variants.len() >= n || entry.exhausted {
             Some(entry.variants.iter().take(n).cloned().collect())
         } else {
             None
@@ -69,11 +74,16 @@ impl ExtractionCache {
         }
     }
 
-    /// Record a variants result. The cache keeps the longest list seen.
-    pub fn insert_variants(&mut self, key: String, terms: Vec<String>) {
+    /// Record a variants result. `n` is the count the command requested;
+    /// if it strictly exceeded what came back, the entry is marked exhausted
+    /// so future lookups for any `n` can be served from cache.
+    pub fn insert_variants(&mut self, key: String, terms: Vec<String>, n: usize) {
         let entry = self.entries.entry(key).or_default();
         if terms.len() > entry.variants.len() {
             entry.variants = terms;
+        }
+        if n > entry.variants.len() {
+            entry.exhausted = true;
         }
     }
 }
