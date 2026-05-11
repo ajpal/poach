@@ -1,6 +1,9 @@
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
+use poach::EGraph;
+use poach::extraction_cache::ExtractionCache;
+use poach::report::Reporter;
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
@@ -117,14 +120,62 @@ pub fn poach() {
     // TODO handle report IO
 }
 
+// Assumes a single input egglog program
 fn train(arg: TrainArgs) {
-    println!("train({:?})", arg);
-    //TODO
+    let mut cache = ExtractionCache::new();
+
+    if arg.debug {
+        eprintln!("training on {}", arg.training_set.display());
+    }
+    let mut egraph = EGraph::default();
+    let src = std::fs::read_to_string(&arg.training_set).expect("failed to read training file");
+    let program = egraph
+        .parser
+        .get_program_from_string(Some(arg.training_set.display().to_string()), &src)
+        .expect("failed to parse training file");
+    let mut reporter = Reporter::new();
+    egraph
+        .run_program_with_reporter_and_cache(program, &mut reporter, &mut cache)
+        .expect("error running training file");
+
+    cache
+        .save(&arg.output_model_file)
+        .expect("failed to write model file");
+
+    if arg.debug {
+        eprintln!("wrote cache to {}", arg.output_model_file.display());
+    }
 }
 
 fn serve(arg: ServeArgs) {
-    println!("serve({:?})", arg);
-    //TODO
+    let mut cache = ExtractionCache::load(&arg.model_file).expect("failed to load model file");
+
+    match arg.mode {
+        ServeMode::Single { input_file } => {
+            let mut egraph = EGraph::default();
+            let src = std::fs::read_to_string(&input_file).expect("failed to read input file");
+            let program = egraph
+                .parser
+                .get_program_from_string(Some(input_file.display().to_string()), &src)
+                .expect("failed to parse input file");
+            let mut reporter = Reporter::new();
+            let outputs = egraph
+                .run_program_with_reporter_and_cache(program, &mut reporter, &mut cache)
+                .expect("error running input file");
+            for output in outputs {
+                print!("{}", output);
+            }
+            if arg.debug {
+                eprintln!("served {}", input_file.display());
+            }
+        }
+        ServeMode::Streaming => {
+            eprintln!("serve --streaming is not yet implemented");
+        }
+        ServeMode::Batch { .. } => {
+            eprintln!("serve --batch is not yet implemented");
+        }
+    }
 }
 
 fn fine_tune(arg: FineTuneArgs) {

@@ -19,6 +19,7 @@ mod command_macro;
 pub mod constraint;
 mod core;
 pub mod extract;
+pub mod extraction_cache;
 pub mod prelude;
 pub mod report;
 pub mod scheduler;
@@ -132,6 +133,8 @@ pub enum CommandOutput {
     RunSchedule(RunReport),
     /// A user defined output
     UserDefined(Arc<dyn UserDefinedCommandOutput>),
+    /// An extraction result served from a cache (poach), without rerunning the extractor.
+    CachedExtract(Vec<String>),
 }
 
 impl std::fmt::Display for CommandOutput {
@@ -206,6 +209,12 @@ impl std::fmt::Display for CommandOutput {
             CommandOutput::RunSchedule(_report) => Ok(()),
             CommandOutput::UserDefined(output) => {
                 write!(f, "{}", *output)
+            }
+            CommandOutput::CachedExtract(terms) => {
+                for term in terms {
+                    writeln!(f, "{}", term)?;
+                }
+                Ok(())
             }
         }
     }
@@ -1602,6 +1611,57 @@ impl EGraph {
         Ok(outputs)
     }
 
+    /// Like [`Self::run_program_with_reporter`], but additionally consults
+    /// `cache` on each `(extract ...)` / `(multi-extract ...)` command:
+    ///
+    /// - On a cache hit, the cached terms are returned as a
+    ///   [`CommandOutput::CachedExtract`] and the real extractor is **not** run.
+    /// - On a miss, the extractor runs normally and the result is inserted
+    ///   into the cache for future hits.
+    ///
+    /// `multi-extract` always falls through to the real extractor for now;
+    /// its results are still decomposed into per-expression entries so that
+    /// later single `(extract ...)` lookups can hit.
+    pub fn run_program_with_reporter_and_cache(
+        &mut self,
+        program: Vec<Command>,
+        reporter: &mut report::Reporter,
+        cache: &mut extraction_cache::ExtractionCache,
+    ) -> Result<Vec<CommandOutput>, Error> {
+        let mut outputs = Vec::new();
+
+        for command in program {
+            for processed in self.resolve_command(command)? {
+                // Try to serve from cache before running.
+                if let Some(cached) = try_cache_lookup(&processed, cache) {
+                    outputs.push(cached);
+                    continue;
+                }
+
+                let command_name = processed.to_command().to_string();
+                let command_category = match &processed {
+                    ResolvedNCommand::RunSchedule(_) => "running_rules",
+                    ResolvedNCommand::Extract(_, _, _)
+                    | ResolvedNCommand::MultiExtract(_, _, _) => "extraction",
+                    ResolvedNCommand::Check(_, _) => "check",
+                    _ => "other",
+                };
+                let key_info = extract_key_info(&processed);
+                let timer = reporter.new_timer(command_name, vec![command_category.to_string()]);
+                let result = self.run_command(processed)?;
+                reporter.record_timer(timer);
+                if let Some(output) = result {
+                    if let Some(info) = key_info {
+                        record_cache_entry(cache, &info, &output);
+                    }
+                    outputs.push(output);
+                }
+            }
+        }
+
+        Ok(outputs)
+    }
+
     /// Desugars an egglog program by parsing and desugaring each command.
     /// Outputs a new egglog program without any syntactic sugar, either user provided ([`CommandMacro`]) or built-in (e.g., `rewrite` commands).
     pub fn desugar_program(
@@ -1959,6 +2019,95 @@ fn literal_to_value(egraph: &egglog_bridge::EGraph, l: &Literal) -> Value {
         Literal::String(x) => egraph.base_values().get::<sort::S>(sort::S::new(x.clone())),
         Literal::Bool(x) => egraph.base_values().get::<bool>(*x),
         Literal::Unit => egraph.base_values().get::<()>(()),
+    }
+}
+
+/// Pre-computed key info for caching an `Extract` / `MultiExtract` command.
+enum ExtractKeyInfo {
+    /// `(extract expr)` — best extraction. `key = expr.to_string()`.
+    Best { key: String },
+    /// `(extract expr n)` with `n >= 1` — variants.
+    Variants { key: String, n: usize },
+    /// `(multi-extract n e1 e2 ...)` — decomposed into per-expr keys.
+    Multi { keys: Vec<String> },
+}
+
+fn lit_int(e: &ResolvedExpr) -> Option<i64> {
+    match e {
+        GenericExpr::Lit(_, Literal::Int(n)) => Some(*n),
+        _ => None,
+    }
+}
+
+fn extract_key_info(cmd: &ResolvedNCommand) -> Option<ExtractKeyInfo> {
+    match cmd {
+        ResolvedNCommand::Extract(_, expr, variants) => {
+            let n = lit_int(variants)?;
+            let key = expr.to_string();
+            if n == 0 {
+                Some(ExtractKeyInfo::Best { key })
+            } else if n > 0 {
+                Some(ExtractKeyInfo::Variants {
+                    key,
+                    n: n as usize,
+                })
+            } else {
+                None
+            }
+        }
+        ResolvedNCommand::MultiExtract(_, variants, exprs) => {
+            let n = lit_int(variants)?;
+            if n < 0 {
+                return None;
+            }
+            let keys = exprs.iter().map(|e| e.to_string()).collect();
+            Some(ExtractKeyInfo::Multi { keys })
+        }
+        _ => None,
+    }
+}
+
+/// On a cache hit, synthesize a [`CommandOutput::CachedExtract`].
+/// Returns `None` for misses (or for commands we don't cache).
+fn try_cache_lookup(
+    cmd: &ResolvedNCommand,
+    cache: &extraction_cache::ExtractionCache,
+) -> Option<CommandOutput> {
+    match extract_key_info(cmd)? {
+        ExtractKeyInfo::Best { key } => {
+            let term = cache.lookup_best(&key)?;
+            Some(CommandOutput::CachedExtract(vec![term.to_string()]))
+        }
+        ExtractKeyInfo::Variants { key, n } => {
+            let terms = cache.lookup_variants(&key, n)?;
+            Some(CommandOutput::CachedExtract(terms))
+        }
+        // multi-extract: always fall through to the real extractor for now.
+        ExtractKeyInfo::Multi { .. } => None,
+    }
+}
+
+/// Insert into the cache after running an extraction command.
+fn record_cache_entry(
+    cache: &mut extraction_cache::ExtractionCache,
+    info: &ExtractKeyInfo,
+    output: &CommandOutput,
+) {
+    match (info, output) {
+        (ExtractKeyInfo::Best { key }, CommandOutput::ExtractBest(termdag, _cost, term)) => {
+            cache.insert_best(key.clone(), termdag.to_string(*term));
+        }
+        (ExtractKeyInfo::Variants { key, .. }, CommandOutput::ExtractVariants(termdag, terms)) => {
+            let strs = terms.iter().map(|t| termdag.to_string(*t)).collect();
+            cache.insert_variants(key.clone(), strs);
+        }
+        (ExtractKeyInfo::Multi { keys }, CommandOutput::MultiExtractVariants(termdag, terms)) => {
+            for (key, ts) in keys.iter().zip(terms.iter()) {
+                let strs = ts.iter().map(|t| termdag.to_string(*t)).collect();
+                cache.insert_variants(key.clone(), strs);
+            }
+        }
+        _ => {}
     }
 }
 
