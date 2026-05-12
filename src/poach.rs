@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
+use hashbrown::HashMap;
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
@@ -98,8 +99,19 @@ struct FineTuneArgs {
 #[derive(Debug, Args)]
 struct TestArgs {}
 
+// The model is a cache tracking the extractions that were computed in the training set and what the results were
+// There are two caches, one for `best` and one for `variants`.
+// It is currently the case that `extract-variants 1` and `extract` have the same behavior,
+// but that is not part of the egglog interface, so we should not depend on it being true.
+// Model:
+// BestCache: HashMap<String, String>
+// VariantsCache: HashMap<String, Vec<String>>
+
 pub fn poach() {
     let cli = Cli::parse();
+
+    // initialize thread pool
+
     match cli.command {
         Commands::Train(arg) => {
             train(arg);
@@ -114,17 +126,86 @@ pub fn poach() {
             println!("test({:?})", arg);
         }
     }
-    // TODO handle report IO
 }
 
 fn train(arg: TrainArgs) {
-    println!("train({:?})", arg);
-    //TODO
+    if arg.debug {
+        // Metrics
+        // * time for each command
+        // * time to serialize
+        // * Number of keys in each cache
+        // * Number of variants for each key in variants cache
+        // * size of egraph (num_tuples)
+        // * size of serialized model (bytes)
+
+        // read and parse program
+
+        // make a new egraph + reporter
+        // call run_program_with_reporter to run each command + record timing info
+        // returns a Vec<CommandOutput>
+
+        // extract_cmds = Vec<Command> filtered down to just Extract, MultiExtract
+        // extract_outs = Vec<CommandOutput> filtered down to just
+        // ExtractBest, ExtractVariants, MultiExtractVariants
+        // Should match up exactly
+
+        // Traverse pairwise and construct caches (Best and Variants)
+
+        // serialize caches as one JSON object:
+        // {best: {...}, variants: {...}}
+    } else {
+        // No reporting overhead
+
+        // Same logic as above, but call run_program not run_program_with_reporter
+    }
 }
 
 fn serve(arg: ServeArgs) {
-    println!("serve({:?})", arg);
-    //TODO
+    match arg.mode {
+        ServeMode::Streaming => todo!("not yet implemented"),
+        ServeMode::Single { input_file } => {
+            if arg.debug {
+                // Metrics
+                // * time to deserialize model
+                // * time for each command (including checking the cache for extracts)
+                // * size of egraph (could be 0)
+
+                // Deserialize model into two caches: `best` and `variants`
+
+                // read and parse program
+
+                // We can't easily use run_program_with_reporter because we
+                // want to check the cache first
+                // Option 1: Pass cache into run_program_with_reporter (and run_program for non-debug version)
+                // Option 2: Basically inline run_program_with_reporter here so we can check the caches first
+                // Option 3: Preprocess program commands to look for all extract commands first,
+                // and check for cache hits. Call run_program_with_reporter for the other commands
+                // and then splice the results together
+
+                // I think we should do Option 3.
+                // If there are no outputs other than extracts that are cached,
+                // we can skip making an egraph entirely, which is easiest to capitalize on in Option 3.
+
+                // Command types that produce outputs:
+                // RunSchedule, PrintOverallStatistics, Extract, MultiExtract,
+                // PrintFunction, PrintSize, UserDefined
+
+                // Find the commands that should produce outputs
+                // Find the extractions (a subset of the above)
+                // Find hits/misses in the caches
+                // Figure out which outputs we still need (non-extract commands + cache misses)
+                // If there are none, we're done-- don't even need to make an egraph
+                // Else, make an egraph and run all commands except cache hitting extracts (call run_program_with_reporter)
+                // Splice the cache hit extract results into the Vec<CommandOutput> we get back at the right places
+            } else {
+                // Same logic as above, but without reporting overhead
+            }
+        }
+        ServeMode::Batch {
+            input_dir,
+            output_dir,
+        } => todo!("not yet implemented"),
+    }
 }
 
 fn fine_tune(arg: FineTuneArgs) {
