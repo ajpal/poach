@@ -105,7 +105,20 @@ struct TestArgs {}
 // but that is not part of the egglog interface, so we should not depend on it being true.
 // Model:
 // BestCache: HashMap<String, String>
-// VariantsCache: HashMap<String, Vec<String>>
+// VariantsCache: HashMap<String, (Vec<String>, bool)> (keep track of `exhausted`, see notes below)
+
+// Notes on cache lookup:
+// Multi-extracts should be decomposed into individual extractions for the purposes of the cache
+// cache hit if all extracts in a multi-extract are present, cache miss if any are absent (compute the whole multi-extract in that case)
+// When building the cache, extract variants should keep track of how many
+// variants were requested and how many were found. If found < requested, that
+// means that's all the variants there are in the egraph
+// Extract variants should hit if we have at least the number of variants requested
+// Miss if we don't have enough variants
+// Unless `exhausted` is true, then just return all of the variants we have in the cache
+
+// Question: in train, `extract-variants 1` populate the `best` cache too? Probably not, for the same reasonig as above
+// Question: in serve, should `extract-variants 1` check the `best` cache if the `variants` cache is a miss? Probably yes.
 
 pub fn poach() {
     let cli = Cli::parse();
@@ -194,6 +207,10 @@ fn serve(arg: ServeArgs) {
                 // Find the extractions (a subset of the above)
                 // Find hits/misses in the caches
                 // Figure out which outputs we still need (non-extract commands + cache misses)
+                // Question: If there are no extracts/prints left, but there are some RunSchedule
+                // commands, do we still run them to make sure the Vec<CommandOutput> exactly
+                // matches the non-cache version? Or are we okay to drop those since we probably
+                // don't care about the RunReport absent any printing/extracting
                 // If there are none, we're done-- don't even need to make an egraph
                 // Else, make an egraph and run all commands except cache hitting extracts (call run_program_with_reporter)
                 // Splice the cache hit extract results into the Vec<CommandOutput> we get back at the right places
