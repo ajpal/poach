@@ -82,6 +82,41 @@ def run_benchmarks(benchmark_dirs: list[Path]) -> list[dict[str, Any]]:
     # must include at least: "suite", "benchmark_path", "report_path",
     # "time_seconds" (plus any branch-specific fields like "phase").
 
+    # for each benchmark:
+        # run train/<file.egg> to produce model at out/models/<file.model.json> and report at out/reports/<file.train.json>
+        #
+        # run serve train/<file.egg> models/<file.model.json> to produce report at out/reports/<file.serve.json>
+        # Note that we serve using the train file as well-- the serve file only has extractions and assumes it will
+        # be starting from a deserialized egraph
+
+        # add to results:
+        {
+            "suite": benchmark_dir.name,
+            "benchmark_name": benchmark_name,
+            "time_seconds": 0, # sum of total time for train and serve
+            "train": {
+                # aggregate from report
+                "rules_time_ms": 0,
+                "extract_time_ms": 0,
+                "serialize_time_ms": 0,
+                "other_time_ms": 0,
+                "egraph_size": 0,
+                "model_size": 0,
+                "best_cache_num_keys": 0,
+                "variants_cache_num_keys": 0,
+                "avg_num_variants": 0
+            },
+            "serve": {
+                # aggregate from report
+                "deserialize_time_ms": 0,
+                "rules_time_ms": 0,
+                "extract_time_ms": 0, # expect to be 0
+                "cache hit rate": 0 # expect to be 100%
+            }
+        }
+
+        # delete model and reports since we don't need it anymore and keeping them all around gets a bit big
+
     return results
 
 
@@ -117,45 +152,7 @@ def summarize_report(report: dict[str, Any]) -> dict[str, int]:
     }
 
 
-def aggregate_reports(
-    benchmark_dirs: list[Path], benchmark_results: list[dict[str, Any]]
-) -> dict[str, Any]:
-    benchmark_root = benchmark_dirs[0].parent
-    suites = []
-    for benchmark_dir in benchmark_dirs:
-        suite_results = [
-            result for result in benchmark_results if result["suite"] == benchmark_dir.name
-        ]
-        suites.append(
-            {
-                "name": benchmark_dir.name,
-                "benchmark_root": display_path(benchmark_dir),
-                "summary": {
-                    "total_time_seconds": sum(
-                        result["time_seconds"] for result in suite_results
-                    ),
-                },
-                "reports": [
-                    {
-                        "suite": benchmark_dir.name,
-                        "benchmark_path": result["benchmark_path"],
-                        "path": str(
-                            Path(result["report_path"]).relative_to(OUTPUT_DIR)
-                        ),
-                        "time_seconds": result["time_seconds"],
-                        "timing_summary": summarize_report(
-                            json.loads(
-                                Path(result["report_path"]).read_text(
-                                    encoding="utf-8"
-                                )
-                            )
-                        ),
-                    }
-                    for result in suite_results
-                ],
-            }
-        )
-
+def aggregate_reports(benchmark_results: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "benchmark_root": display_path(benchmark_root),
@@ -165,8 +162,10 @@ def aggregate_reports(
                 result["time_seconds"] for result in benchmark_results
             ),
         },
-        "suites": suites,
-        "reports": [report for suite in suites for report in suite["reports"]],
+        "suites": {
+            "suite_name": [], # reports for that suite
+            # for each suite
+        },
     }
 
 
