@@ -1,13 +1,13 @@
 use std::path::PathBuf;
-use std::time::Instant;
 
 use clap::{Args, Parser, Subcommand};
 use hashbrown::HashMap;
 use serde::{Deserialize, Serialize};
 
 use ::poach::ast::{Command, Expr, Literal, Parser as EgglogParser};
-use ::poach::report::Reporter;
+use ::poach::report::{MetricValue, Reporter};
 use ::poach::{CommandOutput, EGraph, TermDag, TermId};
+use std::io::stderr;
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
@@ -105,13 +105,6 @@ struct FineTuneArgs {
 #[derive(Debug, Args)]
 struct TestArgs {}
 
-// The model is a cache tracking the extractions that were computed in the training set and what the results were
-// There are two caches, one for `best` and one for `variants`.
-// It is currently the case that `extract-variants 1` and `extract` have the same behavior,
-// but that is not part of the egglog interface, so we should not depend on it being true.
-// Model:
-// BestCache: HashMap<String, String>
-// VariantsCache: HashMap<String, (Vec<String>, bool)> (keep track of `exhausted`, see notes below)
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct Model {
     best: HashMap<String, BestEntry>,
@@ -121,12 +114,16 @@ struct Model {
 #[derive(Debug, Serialize, Deserialize)]
 struct BestEntry {
     term: String,
-    cost: u64,
+    cost: u64, // Need to cache what the cost was so we can reconstruct a CommandOutput on hit
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct VariantsEntry {
     variants: Vec<String>,
+    // True when the extraction returned fewer variants than requested,
+    // meaning this is all of the variants represented in the egraph
+    // When true, we will return the cached result even when it's less
+    // than the number of variants requested.
     exhausted: bool,
 }
 
@@ -184,17 +181,9 @@ pub fn poach() {
 
 fn train(arg: TrainArgs) {
     if arg.debug {
-        // Metrics
-        // * time for each command
-        // * time to serialize
-        // * Number of keys in each cache
-        // * Number of variants for each key in variants cache
-        // * size of egraph (num_tuples)
-        // * size of serialized model (bytes)
-
-        // read and parse program
-        let input = std::fs::read_to_string(&arg.training_set).expect("read training set");
         let mut egraph = EGraph::default();
+
+        let input = std::fs::read_to_string(&arg.training_set).expect("read training set");
         let program = egraph
             .parser
             .get_program_from_string(
@@ -203,68 +192,76 @@ fn train(arg: TrainArgs) {
             )
             .expect("parse training set");
 
-        // make a new egraph + reporter
-        // call run_program_with_reporter to run each command + record timing info
-        // returns a Vec<CommandOutput>
         let mut reporter = Reporter::new();
         let outputs = egraph
             .run_program_with_reporter(program.clone(), &mut reporter)
             .expect("run training set");
 
-        // extract_cmds = Vec<Command> filtered down to just Extract, MultiExtract
-        // extract_outs = Vec<CommandOutput> filtered down to just
-        // ExtractBest, ExtractVariants, MultiExtractVariants
-        // Should match up exactly
-        let extract_cmds = program
+        let extract_cmds: Vec<_> = program
             .iter()
-            .filter(|c| matches!(c, Command::Extract(..) | Command::MultiExtract(..)));
-        let extract_outs = outputs.iter().filter(|o| {
-            matches!(
-                o,
-                CommandOutput::ExtractBest(..)
-                    | CommandOutput::ExtractVariants(..)
-                    | CommandOutput::MultiExtractVariants(..)
-            )
-        });
+            .filter(|c| matches!(c, Command::Extract(..) | Command::MultiExtract(..)))
+            .collect();
+        let extract_outs: Vec<_> = outputs
+            .iter()
+            .filter(|o| {
+                matches!(
+                    o,
+                    CommandOutput::ExtractBest(..)
+                        | CommandOutput::ExtractVariants(..)
+                        | CommandOutput::MultiExtractVariants(..)
+                )
+            })
+            .collect();
+        assert!(extract_cmds.len() == extract_outs.len());
 
-        // Traverse pairwise and construct caches (Best and Variants)
+        // Traverse extract commands/outputs pairwise and construct caches
+        let build_cache_timer =
+            reporter.new_timer("build_model".to_string(), vec!["build_model".to_string()]);
         let mut model = Model::default();
-        for (cmd, out) in extract_cmds.zip(extract_outs) {
+        for (cmd, out) in extract_cmds.iter().zip(extract_outs) {
             absorb_extract(&mut model, cmd, out);
         }
+        reporter.record_timer(build_cache_timer);
 
-        // serialize caches as one JSON object:
-        // {best: {...}, variants: {...}}
-        let serialize_start = Instant::now();
-        let json = serde_json::to_string(&model).expect("serialize model");
-        let serialize_elapsed = serialize_start.elapsed();
-        std::fs::write(&arg.output_model_file, &json).expect("write model file");
+        let serialize_timer =
+            reporter.new_timer("serialize".to_string(), vec!["serialize".to_string()]);
+        let model_file = std::fs::File::create(&arg.output_model_file).expect("create model file");
+        serde_json::to_writer(model_file, &model).expect("serialize and write model");
+        reporter.record_timer(serialize_timer);
 
-        let report = reporter.build_report();
-        let stderr = std::io::stderr();
-        let mut err = stderr.lock();
-        use std::io::Write as _;
-        writeln!(err, "{report}").ok();
-        writeln!(err, "serialize_time = {:?}", serialize_elapsed).ok();
-        writeln!(err, "best_cache_keys = {}", model.best.len()).ok();
-        writeln!(err, "variants_cache_keys = {}", model.variants.len()).ok();
+        let model_bytes = std::fs::metadata(&arg.output_model_file)
+            .map(|m| m.len())
+            .unwrap_or(0);
+
+        reporter.record_size(
+            "best_cache_keys".to_string(),
+            MetricValue::Count(model.best.len() as u64),
+        );
+        reporter.record_size(
+            "variants_cache_keys".to_string(),
+            MetricValue::Count(model.variants.len() as u64),
+        );
         for (k, v) in &model.variants {
-            writeln!(
-                err,
-                "variants[{k}] = {} (exhausted={})",
-                v.variants.len(),
-                v.exhausted
-            )
-            .ok();
+            reporter.record_size(
+                format!("variants[{k}]"),
+                MetricValue::Count(v.variants.len() as u64),
+            );
         }
-        writeln!(err, "egraph_num_tuples = {}", egraph.num_tuples()).ok();
-        writeln!(err, "serialized_model_bytes = {}", json.len()).ok();
-    } else {
-        // No reporting overhead
+        reporter.record_size(
+            "egraph_num_tuples".to_string(),
+            MetricValue::Count(egraph.num_tuples() as u64),
+        );
+        reporter.record_size(
+            "serialized_model".to_string(),
+            MetricValue::Bytes(model_bytes),
+        );
 
-        // Same logic as above, but call run_program not run_program_with_reporter
-        let input = std::fs::read_to_string(&arg.training_set).expect("read training set");
+        serde_json::to_writer(&mut stderr(), &reporter.build_report())
+            .expect("Failed to serialize report");
+    } else {
         let mut egraph = EGraph::default();
+
+        let input = std::fs::read_to_string(&arg.training_set).expect("read training set");
         let program = egraph
             .parser
             .get_program_from_string(
@@ -272,26 +269,36 @@ fn train(arg: TrainArgs) {
                 &input,
             )
             .expect("parse training set");
+
         let outputs = egraph
             .run_program(program.clone())
             .expect("run training set");
-        let extract_cmds = program
+
+        let extract_cmds: Vec<_> = program
             .iter()
-            .filter(|c| matches!(c, Command::Extract(..) | Command::MultiExtract(..)));
-        let extract_outs = outputs.iter().filter(|o| {
-            matches!(
-                o,
-                CommandOutput::ExtractBest(..)
-                    | CommandOutput::ExtractVariants(..)
-                    | CommandOutput::MultiExtractVariants(..)
-            )
-        });
+            .filter(|c| matches!(c, Command::Extract(..) | Command::MultiExtract(..)))
+            .collect();
+        let extract_outs: Vec<_> = outputs
+            .iter()
+            .filter(|o| {
+                matches!(
+                    o,
+                    CommandOutput::ExtractBest(..)
+                        | CommandOutput::ExtractVariants(..)
+                        | CommandOutput::MultiExtractVariants(..)
+                )
+            })
+            .collect();
+        assert!(extract_cmds.len() == extract_outs.len());
+
+        // Traverse extract commands/outputs pairwise and construct caches
         let mut model = Model::default();
-        for (cmd, out) in extract_cmds.zip(extract_outs) {
+        for (cmd, out) in extract_cmds.iter().zip(extract_outs) {
             absorb_extract(&mut model, cmd, out);
         }
-        let json = serde_json::to_string(&model).expect("serialize model");
-        std::fs::write(&arg.output_model_file, json).expect("write model file");
+
+        let model_file = std::fs::File::create(&arg.output_model_file).expect("create model file");
+        serde_json::to_writer(model_file, &model).expect("serialize and write model");
     }
 }
 
@@ -360,11 +367,14 @@ fn serve(arg: ServeArgs) {
                 // * time for each command (including checking the cache for extracts)
                 // * size of egraph (could be 0)
 
+                let mut reporter = Reporter::new();
+
                 // Deserialize model into two caches: `best` and `variants`
                 let model_bytes = std::fs::read(&arg.model_file).expect("read model file");
-                let deserialize_start = Instant::now();
+                let deserialize_timer =
+                    reporter.new_timer("deserialize".to_string(), vec!["deserialize".to_string()]);
                 let model: Model = serde_json::from_slice(&model_bytes).expect("deserialize model");
-                let deserialize_elapsed = deserialize_start.elapsed();
+                reporter.record_timer(deserialize_timer);
 
                 // read and parse program
                 let input = std::fs::read_to_string(&input_file).expect("read input file");
@@ -409,7 +419,6 @@ fn serve(arg: ServeArgs) {
                     .any(|s| matches!(s, OutputSource::FromEgraph));
 
                 // Else, make an egraph and run all commands except cache hitting extracts (call run_program_with_reporter)
-                let mut reporter = Reporter::new();
                 let egraph_outputs = if needs_egraph {
                     egraph
                         .run_program_with_reporter(egraph_program, &mut reporter)
@@ -420,9 +429,8 @@ fn serve(arg: ServeArgs) {
 
                 // Splice the cache hit extract results into the Vec<CommandOutput> we get back at the right places
                 let mut egraph_iter = egraph_outputs.into_iter();
-                let stdout = std::io::stdout();
-                let mut handle = stdout.lock();
                 use std::io::Write as _;
+                let mut out_handle = std::io::stdout();
                 for source in sources {
                     let out = match source {
                         OutputSource::Cache(o) => o,
@@ -430,19 +438,22 @@ fn serve(arg: ServeArgs) {
                             .next()
                             .expect("egraph produced fewer outputs than expected"),
                     };
-                    write!(handle, "{out}").expect("write stdout");
+                    write!(out_handle, "{out}").expect("write stdout");
                 }
 
-                let stderr = std::io::stderr();
-                let mut err = stderr.lock();
-                writeln!(err, "deserialize_time = {:?}", deserialize_elapsed).ok();
-                writeln!(err, "{}", reporter.build_report()).ok();
-                writeln!(
-                    err,
-                    "egraph_num_tuples = {}",
-                    if needs_egraph { egraph.num_tuples() } else { 0 }
-                )
-                .ok();
+                reporter.record_size(
+                    "egraph_num_tuples".to_string(),
+                    MetricValue::Count(if needs_egraph {
+                        egraph.num_tuples() as u64
+                    } else {
+                        0
+                    }),
+                );
+
+                let mut err = std::io::stderr();
+                let report_json =
+                    serde_json::to_string(&reporter.build_report()).expect("serialize report");
+                writeln!(err, "{report_json}").ok();
             } else {
                 // Same logic as above, but without reporting overhead
                 let model_bytes = std::fs::read(&arg.model_file).expect("read model file");
@@ -466,9 +477,8 @@ fn serve(arg: ServeArgs) {
                     Vec::new()
                 };
                 let mut egraph_iter = egraph_outputs.into_iter();
-                let stdout = std::io::stdout();
-                let mut handle = stdout.lock();
                 use std::io::Write as _;
+                let mut out_handle = std::io::stdout();
                 for source in sources {
                     let out = match source {
                         OutputSource::Cache(o) => o,
@@ -476,14 +486,11 @@ fn serve(arg: ServeArgs) {
                             .next()
                             .expect("egraph produced fewer outputs than expected"),
                     };
-                    write!(handle, "{out}").expect("write stdout");
+                    write!(out_handle, "{out}").expect("write stdout");
                 }
             }
         }
-        ServeMode::Batch {
-            input_dir,
-            output_dir,
-        } => todo!("not yet implemented"),
+        ServeMode::Batch { .. } => todo!("not yet implemented"),
     }
 }
 
