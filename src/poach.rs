@@ -383,10 +383,12 @@ fn serve(arg: ServeArgs) {
                 let mut reporter = Reporter::new();
 
                 // Deserialize model into two caches: `best` and `variants`
-                let model_bytes = std::fs::read(&arg.model_file).expect("read model file");
                 let deserialize_timer =
                     reporter.new_timer("deserialize".to_string(), vec!["deserialize".to_string()]);
-                let model: Model = serde_json::from_slice(&model_bytes).expect("deserialize model");
+                let model: Model = serde_json::from_reader(
+                    std::fs::File::open(&arg.model_file).expect("open model file"),
+                )
+                .expect("deserialize model");
                 reporter.record_timer(deserialize_timer);
 
                 // read and parse program
