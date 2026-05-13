@@ -219,7 +219,7 @@ fn train(arg: TrainArgs) {
             reporter.new_timer("build_model".to_string(), vec!["build_model".to_string()]);
         let mut model = Model::default();
         for (cmd, out) in extract_cmds.iter().zip(extract_outs) {
-            absorb_extract(&mut model, cmd, out);
+            add_to_cache(&mut model, cmd, out);
         }
         reporter.record_timer(build_cache_timer);
 
@@ -294,7 +294,7 @@ fn train(arg: TrainArgs) {
         // Traverse extract commands/outputs pairwise and construct caches
         let mut model = Model::default();
         for (cmd, out) in extract_cmds.iter().zip(extract_outs) {
-            absorb_extract(&mut model, cmd, out);
+            add_to_cache(&mut model, cmd, out);
         }
 
         let model_file = std::fs::File::create(&arg.output_model_file).expect("create model file");
@@ -302,48 +302,39 @@ fn train(arg: TrainArgs) {
     }
 }
 
-/// Add one extract command + output pair to the model.
-/// Per the resolved design:
-/// - `extract X` (n=0) populates only the `best` cache.
-/// - `extract X n` (n>=1) populates only the `variants` cache, with `exhausted = found < requested`.
-/// - `multi-extract n (X1 X2 ...)` is decomposed into one `variants` entry per sub-expression,
-///   all sharing the same `n`.
-/// - Non-literal variant counts are skipped (we can't tell `requested` without evaluating).
-fn absorb_extract(model: &mut Model, cmd: &Command, out: &CommandOutput) {
-    match (cmd, out) {
-        (Command::Extract(_, expr, _variants_e), CommandOutput::ExtractBest(td, cost, term)) => {
-            model.best.insert(
-                expr.to_string(),
-                BestEntry {
-                    term: td.to_string(*term),
-                    cost: *cost,
-                },
-            );
+// Add one extract command + output pair to the model
+// ExtractBest populates the Best Cache
+// ExtractVariants populates the Variants Cache
+// MultiExtractVariants is decomposed into individual extractions, which
+// each populate the Variants Cache
+fn add_to_cache(model: &mut Model, cmd: &Command, result: &CommandOutput) {
+    let get_variants_count = |e: &Expr| -> Option<usize> {
+        if let Expr::Lit(_, Literal::Int(n)) = e {
+            if *n >= 0 { Some(*n as usize) } else { None }
+        } else {
+            None
         }
-        (Command::Extract(_, expr, variants_e), CommandOutput::ExtractVariants(td, terms)) => {
-            let Some(n_req) = variants_count(variants_e) else {
-                return;
-            };
-            let variants = terms.iter().map(|t| td.to_string(*t)).collect::<Vec<_>>();
-            let exhausted = variants.len() < n_req;
-            model.variants.insert(
-                expr.to_string(),
-                VariantsEntry {
-                    variants,
-                    exhausted,
-                },
-            );
-        }
-        (
-            Command::MultiExtract(_, variants_e, exprs),
-            CommandOutput::MultiExtractVariants(td, all_terms),
-        ) => {
-            let Some(n_req) = variants_count(variants_e) else {
-                return;
-            };
-            for (expr, terms) in exprs.iter().zip(all_terms.iter()) {
-                let variants = terms.iter().map(|t| td.to_string(*t)).collect::<Vec<_>>();
-                let exhausted = variants.len() < n_req;
+    };
+
+    match cmd {
+        Command::Extract(_span, expr, variants_e) => match result {
+            CommandOutput::ExtractBest(term_dag, cost, term) => {
+                model.best.insert(
+                    expr.to_string(),
+                    BestEntry {
+                        term: term_dag.to_string(*term),
+                        cost: *cost,
+                    },
+                );
+            }
+            CommandOutput::ExtractVariants(term_dag, terms) => {
+                let variants = terms
+                    .iter()
+                    .map(|t| term_dag.to_string(*t))
+                    .collect::<Vec<_>>();
+
+                let exhausted = get_variants_count(variants_e).is_some_and(|n| variants.len() < n);
+
                 model.variants.insert(
                     expr.to_string(),
                     VariantsEntry {
@@ -352,8 +343,30 @@ fn absorb_extract(model: &mut Model, cmd: &Command, out: &CommandOutput) {
                     },
                 );
             }
+            _ => panic!("Unexpected result to add to cache: {}", result),
+        },
+        Command::MultiExtract(_span, variants_e, exprs) => {
+            if let CommandOutput::MultiExtractVariants(term_dag, all_terms) = result {
+                let n = get_variants_count(variants_e);
+                for (expr, terms) in exprs.iter().zip(all_terms.iter()) {
+                    let variants = terms
+                        .iter()
+                        .map(|t| term_dag.to_string(*t))
+                        .collect::<Vec<_>>();
+                    let exhausted = n.is_some_and(|n| variants.len() < n);
+                    model.variants.insert(
+                        expr.to_string(),
+                        VariantsEntry {
+                            variants,
+                            exhausted,
+                        },
+                    );
+                }
+            } else {
+                panic!("Unexpected result to add to cache: {}", result)
+            }
         }
-        _ => {}
+        _ => panic!("Unexpected cmd to add to cache: {}", cmd),
     }
 }
 
