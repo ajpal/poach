@@ -1,7 +1,13 @@
 use std::path::PathBuf;
+use std::time::Instant;
 
 use clap::{Args, Parser, Subcommand};
 use hashbrown::HashMap;
+use serde::{Deserialize, Serialize};
+
+use ::poach::ast::{Command, Expr, Literal, Parser as EgglogParser};
+use ::poach::report::Reporter;
+use ::poach::{CommandOutput, EGraph, TermDag, TermId};
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
@@ -106,6 +112,23 @@ struct TestArgs {}
 // Model:
 // BestCache: HashMap<String, String>
 // VariantsCache: HashMap<String, (Vec<String>, bool)> (keep track of `exhausted`, see notes below)
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct Model {
+    best: HashMap<String, BestEntry>,
+    variants: HashMap<String, VariantsEntry>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct BestEntry {
+    term: String,
+    cost: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct VariantsEntry {
+    variants: Vec<String>,
+    exhausted: bool,
+}
 
 // Notes on cache lookup:
 // Multi-extracts should be decomposed into individual extractions for the purposes of the cache
@@ -119,6 +142,24 @@ struct TestArgs {}
 
 // Question: in train, `extract-variants 1` populate the `best` cache too? Probably not, for the same reasonig as above
 // Question: in serve, should `extract-variants 1` check the `best` cache if the `variants` cache is a miss? Probably yes.
+
+/// Extract the integer count from a variants expression, if it is a literal.
+/// Non-literal variant counts are skipped both for training and for cache lookup.
+fn variants_count(e: &Expr) -> Option<usize> {
+    match e {
+        Expr::Lit(_, Literal::Int(n)) if *n >= 0 => Some(*n as usize),
+        _ => None,
+    }
+}
+
+/// Re-parse a cached term string into a fresh `TermDag` rooted at the returned `TermId`.
+/// Uses `Parser::default()`, which does not know about any user-defined sorts or constructors;
+/// for current cache use this is fine because the cached strings are flat term shapes
+/// (apps + literals). Revisit if user-defined macros start appearing in extracted terms.
+fn parse_cached_term(td: &mut TermDag, s: &str) -> Option<TermId> {
+    let expr = EgglogParser::default().get_expr_from_string(None, s).ok()?;
+    Some(td.expr_to_term(&expr))
+}
 
 pub fn poach() {
     let cli = Cli::parse();
@@ -152,24 +193,160 @@ fn train(arg: TrainArgs) {
         // * size of serialized model (bytes)
 
         // read and parse program
+        let input = std::fs::read_to_string(&arg.training_set).expect("read training set");
+        let mut egraph = EGraph::default();
+        let program = egraph
+            .parser
+            .get_program_from_string(
+                Some(arg.training_set.to_string_lossy().into_owned()),
+                &input,
+            )
+            .expect("parse training set");
 
         // make a new egraph + reporter
         // call run_program_with_reporter to run each command + record timing info
         // returns a Vec<CommandOutput>
+        let mut reporter = Reporter::new();
+        let outputs = egraph
+            .run_program_with_reporter(program.clone(), &mut reporter)
+            .expect("run training set");
 
         // extract_cmds = Vec<Command> filtered down to just Extract, MultiExtract
         // extract_outs = Vec<CommandOutput> filtered down to just
         // ExtractBest, ExtractVariants, MultiExtractVariants
         // Should match up exactly
+        let extract_cmds = program
+            .iter()
+            .filter(|c| matches!(c, Command::Extract(..) | Command::MultiExtract(..)));
+        let extract_outs = outputs.iter().filter(|o| {
+            matches!(
+                o,
+                CommandOutput::ExtractBest(..)
+                    | CommandOutput::ExtractVariants(..)
+                    | CommandOutput::MultiExtractVariants(..)
+            )
+        });
 
         // Traverse pairwise and construct caches (Best and Variants)
+        let mut model = Model::default();
+        for (cmd, out) in extract_cmds.zip(extract_outs) {
+            absorb_extract(&mut model, cmd, out);
+        }
 
         // serialize caches as one JSON object:
         // {best: {...}, variants: {...}}
+        let serialize_start = Instant::now();
+        let json = serde_json::to_string(&model).expect("serialize model");
+        let serialize_elapsed = serialize_start.elapsed();
+        std::fs::write(&arg.output_model_file, &json).expect("write model file");
+
+        let report = reporter.build_report();
+        let stderr = std::io::stderr();
+        let mut err = stderr.lock();
+        use std::io::Write as _;
+        writeln!(err, "{report}").ok();
+        writeln!(err, "serialize_time = {:?}", serialize_elapsed).ok();
+        writeln!(err, "best_cache_keys = {}", model.best.len()).ok();
+        writeln!(err, "variants_cache_keys = {}", model.variants.len()).ok();
+        for (k, v) in &model.variants {
+            writeln!(
+                err,
+                "variants[{k}] = {} (exhausted={})",
+                v.variants.len(),
+                v.exhausted
+            )
+            .ok();
+        }
+        writeln!(err, "egraph_num_tuples = {}", egraph.num_tuples()).ok();
+        writeln!(err, "serialized_model_bytes = {}", json.len()).ok();
     } else {
         // No reporting overhead
 
         // Same logic as above, but call run_program not run_program_with_reporter
+        let input = std::fs::read_to_string(&arg.training_set).expect("read training set");
+        let mut egraph = EGraph::default();
+        let program = egraph
+            .parser
+            .get_program_from_string(
+                Some(arg.training_set.to_string_lossy().into_owned()),
+                &input,
+            )
+            .expect("parse training set");
+        let outputs = egraph
+            .run_program(program.clone())
+            .expect("run training set");
+        let extract_cmds = program
+            .iter()
+            .filter(|c| matches!(c, Command::Extract(..) | Command::MultiExtract(..)));
+        let extract_outs = outputs.iter().filter(|o| {
+            matches!(
+                o,
+                CommandOutput::ExtractBest(..)
+                    | CommandOutput::ExtractVariants(..)
+                    | CommandOutput::MultiExtractVariants(..)
+            )
+        });
+        let mut model = Model::default();
+        for (cmd, out) in extract_cmds.zip(extract_outs) {
+            absorb_extract(&mut model, cmd, out);
+        }
+        let json = serde_json::to_string(&model).expect("serialize model");
+        std::fs::write(&arg.output_model_file, json).expect("write model file");
+    }
+}
+
+/// Add one extract command + output pair to the model.
+/// Per the resolved design:
+/// - `extract X` (n=0) populates only the `best` cache.
+/// - `extract X n` (n>=1) populates only the `variants` cache, with `exhausted = found < requested`.
+/// - `multi-extract n (X1 X2 ...)` is decomposed into one `variants` entry per sub-expression,
+///   all sharing the same `n`.
+/// - Non-literal variant counts are skipped (we can't tell `requested` without evaluating).
+fn absorb_extract(model: &mut Model, cmd: &Command, out: &CommandOutput) {
+    match (cmd, out) {
+        (Command::Extract(_, expr, _variants_e), CommandOutput::ExtractBest(td, cost, term)) => {
+            model.best.insert(
+                expr.to_string(),
+                BestEntry {
+                    term: td.to_string(*term),
+                    cost: *cost,
+                },
+            );
+        }
+        (Command::Extract(_, expr, variants_e), CommandOutput::ExtractVariants(td, terms)) => {
+            let Some(n_req) = variants_count(variants_e) else {
+                return;
+            };
+            let variants = terms.iter().map(|t| td.to_string(*t)).collect::<Vec<_>>();
+            let exhausted = variants.len() < n_req;
+            model.variants.insert(
+                expr.to_string(),
+                VariantsEntry {
+                    variants,
+                    exhausted,
+                },
+            );
+        }
+        (
+            Command::MultiExtract(_, variants_e, exprs),
+            CommandOutput::MultiExtractVariants(td, all_terms),
+        ) => {
+            let Some(n_req) = variants_count(variants_e) else {
+                return;
+            };
+            for (expr, terms) in exprs.iter().zip(all_terms.iter()) {
+                let variants = terms.iter().map(|t| td.to_string(*t)).collect::<Vec<_>>();
+                let exhausted = variants.len() < n_req;
+                model.variants.insert(
+                    expr.to_string(),
+                    VariantsEntry {
+                        variants,
+                        exhausted,
+                    },
+                );
+            }
+        }
+        _ => {}
     }
 }
 
@@ -184,8 +361,21 @@ fn serve(arg: ServeArgs) {
                 // * size of egraph (could be 0)
 
                 // Deserialize model into two caches: `best` and `variants`
+                let model_bytes = std::fs::read(&arg.model_file).expect("read model file");
+                let deserialize_start = Instant::now();
+                let model: Model = serde_json::from_slice(&model_bytes).expect("deserialize model");
+                let deserialize_elapsed = deserialize_start.elapsed();
 
                 // read and parse program
+                let input = std::fs::read_to_string(&input_file).expect("read input file");
+                let mut egraph = EGraph::default();
+                let program = egraph
+                    .parser
+                    .get_program_from_string(
+                        Some(input_file.to_string_lossy().into_owned()),
+                        &input,
+                    )
+                    .expect("parse input file");
 
                 // We can't easily use run_program_with_reporter because we
                 // want to check the cache first
@@ -207,21 +397,195 @@ fn serve(arg: ServeArgs) {
                 // Find the extractions (a subset of the above)
                 // Find hits/misses in the caches
                 // Figure out which outputs we still need (non-extract commands + cache misses)
+                let (sources, egraph_program) = plan_serve(program, &model);
+
                 // Question: If there are no extracts/prints left, but there are some RunSchedule
                 // commands, do we still run them to make sure the Vec<CommandOutput> exactly
                 // matches the non-cache version? Or are we okay to drop those since we probably
                 // don't care about the RunReport absent any printing/extracting
                 // If there are none, we're done-- don't even need to make an egraph
+                let needs_egraph = sources
+                    .iter()
+                    .any(|s| matches!(s, OutputSource::FromEgraph));
+
                 // Else, make an egraph and run all commands except cache hitting extracts (call run_program_with_reporter)
+                let mut reporter = Reporter::new();
+                let egraph_outputs = if needs_egraph {
+                    egraph
+                        .run_program_with_reporter(egraph_program, &mut reporter)
+                        .expect("run input file")
+                } else {
+                    Vec::new()
+                };
+
                 // Splice the cache hit extract results into the Vec<CommandOutput> we get back at the right places
+                let mut egraph_iter = egraph_outputs.into_iter();
+                let stdout = std::io::stdout();
+                let mut handle = stdout.lock();
+                use std::io::Write as _;
+                for source in sources {
+                    let out = match source {
+                        OutputSource::Cache(o) => o,
+                        OutputSource::FromEgraph => egraph_iter
+                            .next()
+                            .expect("egraph produced fewer outputs than expected"),
+                    };
+                    write!(handle, "{out}").expect("write stdout");
+                }
+
+                let stderr = std::io::stderr();
+                let mut err = stderr.lock();
+                writeln!(err, "deserialize_time = {:?}", deserialize_elapsed).ok();
+                writeln!(err, "{}", reporter.build_report()).ok();
+                writeln!(
+                    err,
+                    "egraph_num_tuples = {}",
+                    if needs_egraph { egraph.num_tuples() } else { 0 }
+                )
+                .ok();
             } else {
                 // Same logic as above, but without reporting overhead
+                let model_bytes = std::fs::read(&arg.model_file).expect("read model file");
+                let model: Model = serde_json::from_slice(&model_bytes).expect("deserialize model");
+                let input = std::fs::read_to_string(&input_file).expect("read input file");
+                let mut egraph = EGraph::default();
+                let program = egraph
+                    .parser
+                    .get_program_from_string(
+                        Some(input_file.to_string_lossy().into_owned()),
+                        &input,
+                    )
+                    .expect("parse input file");
+                let (sources, egraph_program) = plan_serve(program, &model);
+                let needs_egraph = sources
+                    .iter()
+                    .any(|s| matches!(s, OutputSource::FromEgraph));
+                let egraph_outputs = if needs_egraph {
+                    egraph.run_program(egraph_program).expect("run input file")
+                } else {
+                    Vec::new()
+                };
+                let mut egraph_iter = egraph_outputs.into_iter();
+                let stdout = std::io::stdout();
+                let mut handle = stdout.lock();
+                use std::io::Write as _;
+                for source in sources {
+                    let out = match source {
+                        OutputSource::Cache(o) => o,
+                        OutputSource::FromEgraph => egraph_iter
+                            .next()
+                            .expect("egraph produced fewer outputs than expected"),
+                    };
+                    write!(handle, "{out}").expect("write stdout");
+                }
             }
         }
         ServeMode::Batch {
             input_dir,
             output_dir,
         } => todo!("not yet implemented"),
+    }
+}
+
+/// Where a slot in the final output stream comes from.
+#[allow(clippy::large_enum_variant)]
+enum OutputSource {
+    Cache(CommandOutput),
+    FromEgraph,
+}
+
+/// Walk the parsed program once. For each command:
+/// - If it is an Extract/MultiExtract that we can serve from the cache, record a `Cache` source
+///   and drop the command from what we send to the egraph.
+/// - Otherwise, record a `FromEgraph` source for output-producing commands and forward the
+///   command to the egraph (so any side effects still happen).
+fn plan_serve(program: Vec<Command>, model: &Model) -> (Vec<OutputSource>, Vec<Command>) {
+    let mut sources = Vec::new();
+    let mut egraph_program = Vec::with_capacity(program.len());
+    for cmd in program {
+        if let Some(out) = try_cache_hit(&cmd, model) {
+            sources.push(OutputSource::Cache(out));
+        } else {
+            if produces_output(&cmd) {
+                sources.push(OutputSource::FromEgraph);
+            }
+            egraph_program.push(cmd);
+        }
+    }
+    (sources, egraph_program)
+}
+
+/// Commands whose execution yields a `CommandOutput` in `run_program`'s return value.
+fn produces_output(cmd: &Command) -> bool {
+    matches!(
+        cmd,
+        Command::RunSchedule(..)
+            | Command::PrintOverallStatistics(..)
+            | Command::Extract(..)
+            | Command::MultiExtract(..)
+            | Command::PrintFunction(..)
+            | Command::PrintSize(..)
+            | Command::UserDefined(..)
+    )
+}
+
+/// Attempt to satisfy an extract command from the cache.
+/// Returns `None` (cache miss / not an extract / non-literal variant count), and the command
+/// is then forwarded to the egraph.
+fn try_cache_hit(cmd: &Command, model: &Model) -> Option<CommandOutput> {
+    match cmd {
+        Command::Extract(_, expr, variants_e) => {
+            let n = variants_count(variants_e)?;
+            let key = expr.to_string();
+            if n == 0 {
+                let entry = model.best.get(&key)?;
+                let mut td = TermDag::default();
+                let tid = parse_cached_term(&mut td, &entry.term)?;
+                Some(CommandOutput::ExtractBest(td, entry.cost, tid))
+            } else {
+                if let Some(entry) = model.variants.get(&key) {
+                    if n <= entry.variants.len() || entry.exhausted {
+                        let take = n.min(entry.variants.len());
+                        let mut td = TermDag::default();
+                        let mut tids = Vec::with_capacity(take);
+                        for s in &entry.variants[..take] {
+                            tids.push(parse_cached_term(&mut td, s)?);
+                        }
+                        return Some(CommandOutput::ExtractVariants(td, tids));
+                    }
+                }
+                // Variants miss. Per the resolved Question on `extract-variants 1`:
+                // fall back to the `best` cache when exactly one variant was requested.
+                if n == 1 {
+                    let entry = model.best.get(&key)?;
+                    let mut td = TermDag::default();
+                    let tid = parse_cached_term(&mut td, &entry.term)?;
+                    Some(CommandOutput::ExtractVariants(td, vec![tid]))
+                } else {
+                    None
+                }
+            }
+        }
+        Command::MultiExtract(_, variants_e, exprs) => {
+            let n = variants_count(variants_e)?;
+            let mut td = TermDag::default();
+            let mut all_tids: Vec<Vec<TermId>> = Vec::with_capacity(exprs.len());
+            for expr in exprs {
+                let key = expr.to_string();
+                let entry = model.variants.get(&key)?;
+                if !(n <= entry.variants.len() || entry.exhausted) {
+                    return None;
+                }
+                let take = n.min(entry.variants.len());
+                let mut tids = Vec::with_capacity(take);
+                for s in &entry.variants[..take] {
+                    tids.push(parse_cached_term(&mut td, s)?);
+                }
+                all_tids.push(tids);
+            }
+            Some(CommandOutput::MultiExtractVariants(td, all_tids))
+        }
+        _ => None,
     }
 }
 
