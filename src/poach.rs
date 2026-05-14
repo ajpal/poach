@@ -3,7 +3,8 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand};
 use hashbrown::HashMap;
 use poach::Term;
-use serde::Serialize;
+use poach::prelude::exprs;
+use serde::{Deserialize, Serialize};
 
 use ::poach::ast::{Command, Expr, Literal, Parser as EgglogParser};
 use ::poach::report::{MetricValue, Reporter};
@@ -106,7 +107,7 @@ struct FineTuneArgs {
 #[derive(Debug, Args)]
 struct TestArgs {}
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 struct CacheEntry {
     terms: Vec<String>,
     lowest_cost: u64,
@@ -135,9 +136,11 @@ fn term_cost(td: &TermDag, t: TermId) -> u64 {
 /// Uses `Parser::default()`, which does not know about any user-defined sorts or constructors;
 /// for current cache use this is fine because the cached strings are flat term shapes
 /// (apps + literals). Revisit if user-defined macros start appearing in extracted terms.
-fn parse_cached_term(td: &mut TermDag, s: &str) -> Option<TermId> {
-    let expr = EgglogParser::default().get_expr_from_string(None, s).ok()?;
-    Some(td.expr_to_term(&expr))
+fn parse_cached_term(td: &mut TermDag, s: &str) -> TermId {
+    let expr = EgglogParser::default()
+        .get_expr_from_string(None, s)
+        .expect("failed to parse cached term");
+    td.expr_to_term(&expr)
 }
 
 pub fn poach() {
@@ -339,11 +342,106 @@ fn build_cache(cmds: Vec<&Command>, outs: Vec<&CommandOutput>) -> TermCache {
     cache
 }
 
+fn try_cache(cmd: &Command, cache: &TermCache) -> Option<CommandOutput> {
+    let mut td = TermDag::default();
+    match cmd {
+        Command::Extract(_span, expr, variants_e) => {
+            // Always a cache miss if `variants_e` is not a literal
+            let n = variants_count(variants_e)?;
+
+            if let Some(CacheEntry {
+                terms: extracted_variants,
+                lowest_cost,
+                exhausted,
+            }) = cache.get(&expr.to_string())
+            {
+                if n == 0 {
+                    // Best
+                    let term_id = parse_cached_term(&mut td, extracted_variants.first()?);
+                    Some(CommandOutput::ExtractBest(td, *lowest_cost, term_id))
+                } else if n <= extracted_variants.len() || *exhausted {
+                    // Variants Hit
+                    let n = n.min(extracted_variants.len());
+                    let tids: Vec<TermId> = extracted_variants[..n]
+                        .iter()
+                        .map(|s| parse_cached_term(&mut td, s))
+                        .collect();
+                    Some(CommandOutput::ExtractVariants(td, tids))
+                } else {
+                    // Variants Miss (Not enough variants in cache)
+                    None
+                }
+            } else {
+                None
+            }
+        }
+        Command::MultiExtract(_span, variants_e, exprs) => {
+            // Always a cache miss if `variants_e` is not a literal
+            let n = variants_count(variants_e)?;
+
+            let mut all_tids = vec![];
+
+            for expr in exprs {
+                if let Some(CacheEntry {
+                    terms: extracted_variants,
+                    lowest_cost: _lowest_cost,
+                    exhausted,
+                }) = cache.get(&expr.to_string())
+                {
+                    if n > extracted_variants.len() && !*exhausted {
+                        // Cache miss (Not enough variants)
+                        return None;
+                    }
+                    let n = n.min(extracted_variants.len());
+                    let tids: Vec<TermId> = extracted_variants[..n]
+                        .iter()
+                        .map(|s| parse_cached_term(&mut td, s))
+                        .collect();
+                    all_tids.push(tids);
+                } else {
+                    // Cache miss (No entry for expr)
+                    return None;
+                }
+            }
+
+            Some(CommandOutput::MultiExtractVariants(td, all_tids))
+        }
+        _ => panic!("Not an extract command"),
+    }
+}
+
 fn serve(arg: ServeArgs) {
     match arg.mode {
         ServeMode::Streaming => todo!("not yet implemented"),
         ServeMode::Single { input_file } => {
             if arg.debug {
+                let mut reporter = Reporter::new();
+
+                let deserialize_timer =
+                    reporter.new_timer("deserialize".to_string(), vec!["deserialize".to_string()]);
+                let cache: TermCache = serde_json::from_reader(
+                    std::fs::File::open(&arg.model_file).expect("open model file"),
+                )
+                .expect("deserialize model");
+
+                let input = std::fs::read_to_string(&input_file).expect("read input file");
+                let mut egraph = EGraph::default();
+                let program = egraph
+                    .parser
+                    .get_program_from_string(
+                        Some(input_file.to_string_lossy().into_owned()),
+                        &input,
+                    )
+                    .expect("parse input file");
+
+                // Find the commands that should produce outputs
+                // Find the extractions
+                // Find hits/misses in the cache
+                // Figure out which outputs we still need
+
+                // If any, run egraph
+
+                // Splice the cache hit extract results and the other outputs back together
             } else {
             }
         }
