@@ -19,10 +19,20 @@
  * Sorting still uses the raw value from `rows`; rendering uses the formatted
  * string. Columns not listed are rendered as-is.
  *
+ * @param {Function} [renderDetail]
+ * Optional callback (row) => HTMLElement. When provided, rows become
+ * clickable and toggle an inline detail row beneath them containing the
+ * element returned by the callback. Sorting collapses all open details.
+ *
  * @return An HTML <table> DOM element
  * Sortable by column, defaults to sorted by first column
  */
-export function convertToTable(columns, rows, displayFns = {}) {
+export function convertToTable(
+  columns,
+  rows,
+  displayFns = {},
+  renderDetail = null,
+) {
   const table = document.createElement("table");
 
   const STATE = {
@@ -98,6 +108,28 @@ export function convertToTable(columns, rows, displayFns = {}) {
         }
         tr.appendChild(td);
       }
+
+      if (renderDetail) {
+        tr.classList.add("expandable-row");
+        tr.addEventListener("click", () => {
+          const detailElt = tr.nextElementSibling;
+
+          if (detailElt && detailElt.classList.contains("detail-row")) {
+            // Detail is currently shown, this click should remove it.
+            detailElt.remove();
+          } else {
+            // Detail is currently closed, this click should show it.
+            const detailTr = document.createElement("tr");
+            detailTr.classList.add("detail-row");
+            const detailTd = document.createElement("td");
+            detailTd.colSpan = columns.length;
+            detailTd.appendChild(renderDetail(row));
+            detailTr.appendChild(detailTd);
+            tr.after(detailTr);
+          }
+        });
+      }
+
       tbody.appendChild(tr);
     }
     table.appendChild(tbody);
