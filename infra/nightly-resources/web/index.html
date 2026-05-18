@@ -9,6 +9,11 @@
   <body>
     <main class="page">
       <h1>Poach Nightly</h1>
+      <fieldset id="time-display-selector">
+        <legend>Time Display</legend>
+        <label><input type="radio" name="time-display" value="readable" checked /> Readable</label>
+        <label><input type="radio" name="time-display" value="raw" /> Raw</label>
+      </fieldset>
       <p id="status">Loading <code>data/data.json</code>...</p>
       <div id="contents">
         <div id="summary">
@@ -19,19 +24,11 @@
           <h2>Reports</h2>
           <div id="suite-tabs"></div>
           <div id="active-suite-summary"></div>
-          <table>
-            <thead>
-              <tr id="benchmarks-header">
-                <!-- Columns: Benchmark || Train Rules | Train Extract | Train Serialize | Train Total | EGraph Size | Cache Sizes || Serve Deserialize | Serve Rules | Serve Extract | Serve Cache Hit Rate  -->
-              </tr>
-            </thead>
-            <tbody id="benchmarks-body"></tbody>
-          </table>
+          <div id="active-suite-table"></div>
         </div>
       </div>
     </main>
 
     <script type="module" src="./index.js"></script>
-    <script type="module" src="./util.js"></script>
   </body>
 </html>
