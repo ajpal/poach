@@ -155,6 +155,7 @@ function renderTable() {
     "Train Total Time",
     "Serve Total Time",
     "Speedup",
+    "EGraph Size",
     "Cache Hit %",
   ];
 
@@ -168,7 +169,9 @@ function renderTable() {
       Benchmark: b.benchmark_name,
       "Train Total Time": trainTime,
       "Serve Total Time": serveTime,
-      Speedup: trainTime === 0 || serveTime === 0 ? null : trainTime / serveTime,
+      Speedup:
+        trainTime === 0 || serveTime === 0 ? null : trainTime / serveTime,
+      "EGraph Size": unwrapCount(b.serve.report.egraph_size),
       "Cache Hit %": total === 0 ? null : (hits / total) * 100,
     };
   });
