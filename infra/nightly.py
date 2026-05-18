@@ -69,16 +69,16 @@ def summarize_train_report(report):
   # aggregate timing steps by type
   for time_step in report["timings"]:
     aggregated["total_micros"] += time_step["total"]
-  if "running_rules" in time_step["tags"]:
-    aggregated["rule_micros"] += time_step["total"]
-  elif "extraction" in time_step["tags"]:
-    aggregated["extraction_micros"] += time_step["total"]
-  elif "serialize" in time_step["tags"]:
-    aggregated["serialize"] += time_step["total"]
-  elif "build_model" in time_step["tags"]:
-    aggregated["build_model"] += time_step["total"]
-  else:
-    aggregated["other_micros"] += time_step["total"]
+    if "running_rules" in time_step["tags"]:
+      aggregated["rule_micros"] += time_step["total"]
+    elif "extraction" in time_step["tags"]:
+      aggregated["extraction_micros"] += time_step["total"]
+    elif "serialize" in time_step["tags"]:
+      aggregated["serialize"] += time_step["total"]
+    elif "build_model" in time_step["tags"]:
+      aggregated["build_model"] += time_step["total"]
+    else:
+      aggregated["other_micros"] += time_step["total"]
   
   # sizes
   for size in report["sizes"]:
@@ -103,16 +103,16 @@ def summarize_serve_report(report):
   # aggregate timing steps by type
   for time_step in report["timings"]:
     aggregated["total_micros"] += time_step["total"]
-  if "running_rules" in time_step["tags"]:
-    aggregated["rule_micros"] += time_step["total"]
-  elif "extraction" in time_step["tags"]:
-    aggregated["extraction_micros"] += time_step["total"]
-  elif "deserialize" in time_step["tags"]:
-    aggregated["deserialize"] += time_step["total"]
-  elif "cache_overhead" in time_step["tags"]:
-    aggregated["cache_overhead"] += time_step["total"]
-  else:
-    aggregated["other_micros"] += time_step["total"]
+    if "running_rules" in time_step["tags"]:
+      aggregated["rule_micros"] += time_step["total"]
+    elif "extraction" in time_step["tags"]:
+      aggregated["extraction_micros"] += time_step["total"]
+    elif "deserialize" in time_step["tags"]:
+      aggregated["deserialize"] += time_step["total"]
+    elif "cache_overhead" in time_step["tags"]:
+      aggregated["cache_overhead"] += time_step["total"]
+    else:
+      aggregated["other_micros"] += time_step["total"]
 
   # sizes
   for size in report["sizes"]:
@@ -133,7 +133,7 @@ def run_benchmarks(benchmark_dir):
 
   reports = []
   failing_benchmarks = []
-  for benchmark in benchmarks[0:10]:
+  for benchmark in benchmarks:
     relative_path = benchmark.relative_to(benchmark_dir)
     suite_name = str(relative_path.parent)
     benchmark_name = relative_path.name

@@ -73,15 +73,21 @@ function renderSummary() {
   let otherMicros = 0;
 
   for (const reportSummary of GLOBAL_DATA.data.passing_benchmarks) {
-    ruleMicros += reportSummary.report.rule_micros;
-    extractMicros += reportSummary.report.extraction_micros;
-    otherMicros += reportSummary.report.other_micros;
+    ruleMicros +=
+      reportSummary.train.report.rule_micros +
+      reportSummary.serve.report.rule_micros;
+    extractMicros +=
+      reportSummary.train.report.extraction_micros +
+      reportSummary.serve.report.extraction_micros;
+    otherMicros +=
+      reportSummary.train.report.other_micros +
+      reportSummary.serve.report.other_micros;
   }
 
   const numPassing = GLOBAL_DATA.data.passing_benchmarks.length;
   const numFailing = GLOBAL_DATA.data.failing_benchmarks.length;
   const totalTime = GLOBAL_DATA.data.passing_benchmarks
-    .map((x) => x.wall_time_micros)
+    .map((x) => x.train.wall_time_micros + x.serve.wall_time_micros)
     .reduce((a, b) => a + b, 0);
 
   document.querySelector("#summary-text").textContent =
@@ -124,35 +130,54 @@ function setupSuiteSelectors() {
   }
 }
 
+function unwrapCount(v) {
+  if (typeof v === "number") return v;
+  if (v && typeof v === "object" && "Count" in v) return v.Count;
+  return 0;
+}
+
 function renderTable() {
   const benchmarks = GLOBAL_DATA.data.passing_benchmarks.filter(
     (x) => x.suite_name === STATE.activeSuite,
   );
   const totalTime = benchmarks
-    .map((x) => x.wall_time_micros)
+    .map((x) => x.train.wall_time_micros + x.serve.wall_time_micros)
     .reduce((a, b) => a + b, 0);
 
   document.querySelector("#active-suite-summary").innerHTML = `
   <div>
     <h3>${STATE.activeSuite}</h3>
-    <p>${benchmarks.length} benchmarks | ${totalTime} s</p>
+    <p>${benchmarks.length} benchmarks | ${displayTime(totalTime)}</p>
   </div>`;
 
-  const columns = ["Benchmark", "Wall Time", "Rules", "Extraction", "Other"];
+  const columns = [
+    "Benchmark",
+    "Train Total Time",
+    "Serve Total Time",
+    "Speedup",
+    "Cache Hit %",
+  ];
 
-  const rows = benchmarks.map((b) => ({
-    Benchmark: b.benchmark_name,
-    "Wall Time": b.wall_time_micros,
-    Rules: b.report.rule_micros,
-    Extraction: b.report.extraction_micros,
-    Other: b.report.other_micros,
-  }));
+  const rows = benchmarks.map((b) => {
+    const hits = unwrapCount(b.serve.report.cache_hits);
+    const misses = unwrapCount(b.serve.report.cache_misses);
+    const total = hits + misses;
+    const trainTime = b.train.wall_time_micros;
+    const serveTime = b.serve.wall_time_micros;
+    return {
+      Benchmark: b.benchmark_name,
+      "Train Total Time": trainTime,
+      "Serve Total Time": serveTime,
+      Speedup: trainTime === 0 || serveTime === 0 ? null : trainTime / serveTime,
+      "Cache Hit %": total === 0 ? null : (hits / total) * 100,
+    };
+  });
 
   const displayFns = {
-    "Wall Time": displayTime,
-    Rules: displayTime,
-    Extraction: displayTime,
-    Other: displayTime,
+    "Train Total Time": displayTime,
+    "Serve Total Time": displayTime,
+    Speedup: (v) => (v === null ? "—" : `${v.toFixed(2)}×`),
+    "Cache Hit %": (v) => (v === null ? "—" : `${v.toFixed(1)}%`),
   };
 
   const tableDiv = document.querySelector("#active-suite-table");
