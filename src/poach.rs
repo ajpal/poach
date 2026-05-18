@@ -1,6 +1,10 @@
-use std::path::PathBuf;
+use std::{fs::File, path::PathBuf};
 
 use clap::{Args, Parser, Subcommand};
+use poach::{
+    EGraph,
+    report::{MetricValue, Reporter},
+};
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
@@ -114,17 +118,39 @@ pub fn poach() {
             println!("test({:?})", arg);
         }
     }
-    // TODO handle report IO
 }
 
 fn train(arg: TrainArgs) {
-    println!("train({:?})", arg);
-    //TODO
+    // Extremely basic placeholder: Just creates an empty file
+    if arg.debug {
+        let mut reporter = Reporter::new();
+        let timer = reporter.new_timer("train".to_string(), vec![]);
+        let _ = File::create(arg.output_model_file.as_path());
+        reporter.record_timer(timer);
+
+        serde_json::to_writer(&mut std::io::stderr(), &reporter.build_report())
+            .expect("Failed to serialize report");
+    } else {
+        let _ = File::create(arg.output_model_file.as_path());
+    }
 }
 
 fn serve(arg: ServeArgs) {
-    println!("serve({:?})", arg);
-    //TODO
+    // Extremely basic placeholder: Just creates an empty egraph
+    if arg.debug {
+        let mut reporter = Reporter::new();
+        let timer = reporter.new_timer("serve".to_string(), vec![]);
+        let egraph = EGraph::default();
+        reporter.record_size(
+            "egraph size".to_string(),
+            MetricValue::Count(egraph.num_tuples() as u64),
+        );
+        reporter.record_timer(timer);
+        serde_json::to_writer(&mut std::io::stderr(), &reporter.build_report())
+            .expect("Failed to serialize report");
+    } else {
+        let _ = EGraph::default();
+    }
 }
 
 fn fine_tune(arg: FineTuneArgs) {
