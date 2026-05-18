@@ -446,14 +446,11 @@ fn serve(arg: ServeArgs) {
                             c,
                             Command::Extract(..)
                                 | Command::MultiExtract(..)
-                                // Technically, RunSchedule produces a run report
-                                // but I think if the *only* output we need that's not cached
-                                // is the run report, we are okay to skip it
-                                // | Command::RunSchedule(..)
                                 | Command::PrintOverallStatistics(..)
                                 | Command::PrintFunction(..)
                                 | Command::PrintSize(..)
                                 | Command::UserDefined(..)
+                                | Command::RunSchedule(..)
                         )
                     })
                     .map(|c| match c {
@@ -480,7 +477,18 @@ fn serve(arg: ServeArgs) {
                 // Figure out which outputs we still need
                 let needs_egraph = cmds_with_outputs_and_cache_results
                     .iter()
-                    .any(|(_, r)| r.is_none());
+                    .filter(|(cmd, cache_res)| match (cmd, cache_res) {
+                        // Cache hit — we already have the answer.
+                        (_, Some(_)) => false,
+                        // Side-effect-only commands produce only run reports,
+                        // which we're fine to skip when nothing else needs the egraph.
+                        (Command::RunSchedule(..), _) => false,
+                        (Command::UserDefined(_, name, _), _) if name == "run-schedule" => false,
+                        // Otherwise we need the egraph.
+                        _ => true,
+                    })
+                    .next()
+                    .is_some();
 
                 let all_outputs: Vec<_> = if needs_egraph {
                     // We need to build an egraph and run the program to get outputs that
@@ -531,6 +539,11 @@ fn serve(arg: ServeArgs) {
 
                     cmds_with_outputs_and_cache_results
                         .into_iter()
+                        // Skip running the egraph entirely, so skip run report outputs
+                        .filter(|(cmd, _)| {
+                            !matches!(cmd, Command::RunSchedule(..))
+                                && !matches!(cmd, Command::UserDefined(_, name, _) if name == "run-schedule")
+                        })
                         .map(|(_, cached)| cached.expect("output_needed empty implies all cached"))
                         .collect()
                 };
