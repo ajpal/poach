@@ -137,7 +137,7 @@ def run_benchmarks(benchmark_dir):
     relative_path = benchmark.relative_to(benchmark_dir)
     suite_name = str(relative_path.parent)
     benchmark_name = relative_path.name
-    model_path = model_dir / f"{benchmark.stem}.model.json"
+    model_path = model_dir / f"{benchmark.stem}.model.fb"
 
     report = {
         "benchmark_name": benchmark_name,

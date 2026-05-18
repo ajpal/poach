@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
+use flexbuffers::{FlexbufferSerializer, Reader};
 use hashbrown::HashMap;
 use poach::Term;
 use serde::{Deserialize, Serialize};
@@ -209,8 +210,9 @@ fn train(arg: TrainArgs) {
         // 4. Serialize extraction cache
         let serialize_timer =
             reporter.new_timer("serialize".to_string(), vec!["serialize".to_string()]);
-        let model_file = std::fs::File::create(&arg.output_model_file).expect("create model file");
-        serde_json::to_writer(model_file, &cache).expect("serialize and write model");
+        let mut buf = FlexbufferSerializer::new();
+        cache.serialize(&mut buf).expect("serialize model");
+        std::fs::write(&arg.output_model_file, buf.view()).expect("write model file");
         reporter.record_timer(serialize_timer);
 
         let model_bytes = std::fs::metadata(&arg.output_model_file)
@@ -275,8 +277,9 @@ fn train(arg: TrainArgs) {
         // Traverse extract commands/outputs pairwise and construct caches
         let cache = build_cache(extract_cmds, extract_outs);
 
-        let model_file = std::fs::File::create(&arg.output_model_file).expect("create model file");
-        serde_json::to_writer(model_file, &cache).expect("serialize and write model");
+        let mut buf = FlexbufferSerializer::new();
+        cache.serialize(&mut buf).expect("serialize model");
+        std::fs::write(&arg.output_model_file, buf.view()).expect("write model file");
     }
 }
 
@@ -421,10 +424,9 @@ fn serve(arg: ServeArgs) {
 
                 let deserialize_timer =
                     reporter.new_timer("deserialize".to_string(), vec!["deserialize".to_string()]);
-                let cache: TermCache = serde_json::from_reader(
-                    std::fs::File::open(&arg.model_file).expect("open model file"),
-                )
-                .expect("deserialize model");
+                let bytes = std::fs::read(&arg.model_file).expect("read model file");
+                let reader = Reader::get_root(bytes.as_slice()).expect("read flexbuffer model");
+                let cache = TermCache::deserialize(reader).expect("deserialize model");
                 reporter.record_timer(deserialize_timer);
 
                 let input = std::fs::read_to_string(&input_file).expect("read input file");
