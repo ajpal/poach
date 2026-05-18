@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand};
 use hashbrown::HashMap;
 use poach::Term;
-use poach::prelude::exprs;
 use serde::{Deserialize, Serialize};
 
 use ::poach::ast::{Command, Expr, Literal, Parser as EgglogParser};
@@ -281,6 +280,7 @@ fn train(arg: TrainArgs) {
     }
 }
 
+// Todo: incremental instead of overwrite
 fn build_cache(cmds: Vec<&Command>, outs: Vec<&CommandOutput>) -> TermCache {
     let mut cache = HashMap::default();
     for (cmd, out) in cmds.iter().zip(outs) {
@@ -334,6 +334,8 @@ fn build_cache(cmds: Vec<&Command>, outs: Vec<&CommandOutput>) -> TermCache {
                             },
                         );
                     }
+                } else {
+                    panic!("Not a MultiExtract output")
                 }
             }
             _ => panic!("Not an extract command"),
@@ -423,6 +425,7 @@ fn serve(arg: ServeArgs) {
                     std::fs::File::open(&arg.model_file).expect("open model file"),
                 )
                 .expect("deserialize model");
+                reporter.record_timer(deserialize_timer);
 
                 let input = std::fs::read_to_string(&input_file).expect("read input file");
                 let mut egraph = EGraph::default();
@@ -434,15 +437,113 @@ fn serve(arg: ServeArgs) {
                     )
                     .expect("parse input file");
 
-                // Find the commands that should produce outputs
-                // Find the extractions
-                // Find hits/misses in the cache
+                let cache_overhead_timer =
+                    reporter.new_timer("cache_overhead".to_string(), vec!["overhead".to_string()]);
+                let cmds_with_outputs_and_cache_results: Vec<_> = program
+                    .iter()
+                    .filter(|c| {
+                        matches!(
+                            c,
+                            Command::Extract(..)
+                                | Command::MultiExtract(..)
+                                // Technically, RunSchedule produces a run report
+                                // but I think if the *only* output we need that's not cached
+                                // is the run report, we are okay to skip it
+                                // | Command::RunSchedule(..)
+                                | Command::PrintOverallStatistics(..)
+                                | Command::PrintFunction(..)
+                                | Command::PrintSize(..)
+                                | Command::UserDefined(..)
+                        )
+                    })
+                    .map(|c| match c {
+                        Command::Extract(..) | Command::MultiExtract(..) => {
+                            (c, try_cache(c, &cache))
+                        }
+                        _ => (c, None),
+                    })
+                    .collect();
+
+                // Count hits/misses
+                let (cache_hits, cache_misses) = cmds_with_outputs_and_cache_results
+                    .iter()
+                    .filter(|(c, _)| matches!(c, Command::Extract(..) | Command::MultiExtract(..)))
+                    .fold(
+                        (0, 0),
+                        |(h, m), (_, r)| {
+                            if r.is_some() { (h + 1, m) } else { (h, m + 1) }
+                        },
+                    );
+                reporter.record_size("cache_hits".to_string(), MetricValue::Count(cache_hits));
+                reporter.record_size("cache_misses".to_string(), MetricValue::Count(cache_misses));
+
                 // Figure out which outputs we still need
+                let needs_egraph = cmds_with_outputs_and_cache_results
+                    .iter()
+                    .any(|(_, r)| r.is_none());
 
-                // If any, run egraph
+                let all_outputs: Vec<_> = if needs_egraph {
+                    // We need to build an egraph and run the program to get outputs that
+                    // are not available from the Cache (either extraction cache misses or non-extraction outputs)
 
-                // Splice the cache hit extract results and the other outputs back together
+                    // Filter cache-hitting extractions out of the program
+                    let egraph_program: Vec<Command> = program
+                        .iter()
+                        .filter(|c| match c {
+                            Command::Extract(..) | Command::MultiExtract(..) => {
+                                try_cache(c, &cache).is_none()
+                            }
+                            _ => true,
+                        })
+                        .cloned()
+                        .collect();
+
+                    reporter.record_timer(cache_overhead_timer);
+
+                    let egraph_outputs = egraph
+                        .run_program_with_reporter(egraph_program, &mut reporter)
+                        .expect("run input file");
+
+                    reporter.record_size(
+                        "egraph_size".to_string(),
+                        MetricValue::Count(egraph.num_tuples() as u64),
+                    );
+
+                    let mut egraph_iter = egraph_outputs.into_iter();
+                    cmds_with_outputs_and_cache_results
+                        .into_iter()
+                        .map(|(_, cached)| {
+                            if let Some(cached_output) = cached {
+                                cached_output
+                            } else {
+                                egraph_iter
+                                    .next()
+                                    .expect("egraph produced fewer outputs than expected")
+                            }
+                        })
+                        .collect()
+                } else {
+                    reporter.record_timer(cache_overhead_timer);
+                    // There are no cache misses or non-extraction outputs, so we don't need an egraph at all
+
+                    // No egraph
+                    reporter.record_size("egraph_size".to_string(), MetricValue::Count(0));
+
+                    cmds_with_outputs_and_cache_results
+                        .into_iter()
+                        .map(|(_, cached)| cached.expect("output_needed empty implies all cached"))
+                        .collect()
+                };
+
+                for msg in all_outputs {
+                    println!("{}", msg);
+                }
+
+                serde_json::to_writer(&mut stderr(), &reporter.build_report())
+                    .expect("Failed to serialize report");
             } else {
+                // TODO: Figure out what to factor out of the above to reduce code duplication
+                todo!("not done yet");
             }
         }
         ServeMode::Batch { .. } => todo!("not yet implemented"),
