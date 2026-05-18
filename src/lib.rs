@@ -31,6 +31,10 @@ pub mod util;
 pub use command_macro::{CommandMacro, CommandMacroRegistry};
 mod get_size_prim;
 
+mod custom_schedulers;
+pub mod get_size_prim;
+pub use custom_schedulers::*;
+
 // This is used to allow the `add_primitive` macro to work in
 // both this crate and other crates by referring to `::egglog`.
 extern crate flexbuffers;
@@ -1945,9 +1949,9 @@ impl EGraph {
                     ResolvedNCommand::Check(_, _) => "check",
                     _ => "other",
                 };
-                let timer = reporter.start_timer(command_name, vec![command_category.to_string()]);
+                let timer = reporter.new_timer(command_name, vec![command_category.to_string()]);
                 let result = self.run_command(processed)?;
-                reporter.finish_timer(timer);
+                reporter.record_timer(timer);
                 if let Some(output) = result {
                     outputs.push(output);
                 }

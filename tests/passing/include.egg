@@ -1,0 +1,2 @@
+(include "tests/passing/web-demo/path.egg")
+(check (path 1 3))
