@@ -135,7 +135,7 @@ function renderTable() {
   document.querySelector("#active-suite-summary").innerHTML = `
   <div>
     <h3>${STATE.activeSuite}</h3>
-    <p>${benchmarks.length} benchmarks | ${totalTime} s</p>
+    <p>${benchmarks.length} benchmarks | ${displayTime(totalTime)} </p>
   </div>`;
 
   const columns = ["Benchmark", "Wall Time", "Rules", "Extraction", "Other"];

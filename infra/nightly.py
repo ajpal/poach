@@ -40,7 +40,7 @@ def run_command(cmd):
   time_micros = (time.perf_counter_ns() - started) // 1000
   if cmd_result.returncode != 0:
     return {
-      "cmd": cmd,
+      "cmd": " ".join(cmd),
       "status": "error",
       "wall_time_micros": time_micros
     }
