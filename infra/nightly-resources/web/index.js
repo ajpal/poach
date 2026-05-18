@@ -68,35 +68,49 @@ function displayTime(rawValue) {
 }
 
 function renderSummary() {
-  let ruleMicros = 0;
-  let extractMicros = 0;
-  let otherMicros = 0;
-
-  for (const reportSummary of GLOBAL_DATA.data.passing_benchmarks) {
-    ruleMicros +=
-      reportSummary.train.report.rule_micros +
-      reportSummary.serve.report.rule_micros;
-    extractMicros +=
-      reportSummary.train.report.extraction_micros +
-      reportSummary.serve.report.extraction_micros;
-    otherMicros +=
-      reportSummary.train.report.other_micros +
-      reportSummary.serve.report.other_micros;
-  }
-
-  const numPassing = GLOBAL_DATA.data.passing_benchmarks.length;
+  const passing = GLOBAL_DATA.data.passing_benchmarks;
+  const numPassing = passing.length;
   const numFailing = GLOBAL_DATA.data.failing_benchmarks.length;
-  const totalTime = GLOBAL_DATA.data.passing_benchmarks
+
+  const totalTime = passing
     .map((x) => x.train.wall_time_micros + x.serve.wall_time_micros)
     .reduce((a, b) => a + b, 0);
+
+  const speedups = passing
+    .map((x) => {
+      const t = x.train.wall_time_micros;
+      const s = x.serve.wall_time_micros;
+      return t === 0 || s === 0 ? null : t / s;
+    })
+    .filter((v) => v !== null);
+
+  const minSpeedup = speedups.length ? Math.min(...speedups) : null;
+  const maxSpeedup = speedups.length ? Math.max(...speedups) : null;
+  const avgSpeedup = speedups.length
+    ? speedups.reduce((a, b) => a + b, 0) / speedups.length
+    : null;
+
+  const egraphSizes = passing
+    .map((x) => unwrapCount(x.serve.report.egraph_size))
+    .filter((v) => v !== undefined && v !== null);
+  const avgEgraphSize = egraphSizes.length
+    ? egraphSizes.reduce((a, b) => a + b, 0) / egraphSizes.length
+    : null;
+
+  const fmtSpeedup = (v) => (v === null ? "—" : `${v.toFixed(2)}×`);
+  const fmtSize = (v) =>
+    v === null
+      ? "—"
+      : v.toLocaleString(undefined, { maximumFractionDigits: 0 });
 
   document.querySelector("#summary-text").textContent =
     `Passing Benchmarks: ${numPassing} | ` +
     `Failing Benchmarks: ${numFailing} | ` +
-    `Nightly time: ${displayTime(totalTime)} | ` +
-    `Rule running: ${displayTime(ruleMicros)} | ` +
-    `Extraction: ${displayTime(extractMicros)} | ` +
-    `Other: ${displayTime(otherMicros)}`;
+    `Total time: ${displayTime(totalTime)} | ` +
+    `Min speedup: ${fmtSpeedup(minSpeedup)} | ` +
+    `Max speedup: ${fmtSpeedup(maxSpeedup)} | ` +
+    `Avg speedup: ${fmtSpeedup(avgSpeedup)} | ` +
+    `Avg egraph size: ${fmtSize(avgEgraphSize)}`;
 }
 
 function setupSuiteSelectors() {
