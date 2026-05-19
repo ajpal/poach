@@ -1580,21 +1580,23 @@ impl EGraph {
         reporter: &mut report::Reporter,
     ) -> Result<Vec<CommandOutput>, Error> {
         let mut outputs = Vec::new();
+        let timer = reporter.new_timer("run_program");
 
         // No support for macros or includes yet
         for command in program {
             for processed in self.resolve_command(command)? {
-                let command_name = processed.to_command().to_string();
                 let command_category = match &processed {
                     ResolvedNCommand::RunSchedule(_) => "running_rules",
+                    ResolvedNCommand::UserDefined(_, name, _) if name == "run-schedule" => {
+                        "running_rules"
+                    }
                     ResolvedNCommand::Extract(_, _, _)
                     | ResolvedNCommand::MultiExtract(_, _, _) => "extraction",
                     ResolvedNCommand::Check(_, _) => "check",
                     _ => "other",
                 };
-                let timer = reporter.new_timer(command_name, vec![command_category.to_string()]);
                 let result = self.run_command(processed)?;
-                reporter.record_timer(timer);
+                reporter.record_timer(timer, command_category);
                 if let Some(output) = result {
                     outputs.push(output);
                 }
