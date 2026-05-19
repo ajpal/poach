@@ -1,4 +1,12 @@
 import { convertToTable } from "./table.js";
+import {
+  formatTime,
+  fmtSpeedup,
+  fmtPct,
+  fmtSize,
+  unwrapCount,
+  average,
+} from "./util.js";
 
 const STATE = {
   activeSuite: null,
@@ -29,12 +37,38 @@ async function load() {
   ].sort();
   STATE.activeSuite = GLOBAL_DATA.suites[0] ?? null;
 
-  // Set up interactive elements
   setupSuiteSelectors();
   setupTimeDisplaySelector();
-
   render();
 }
+
+// ─── Formatting ─────────────────────────────────────────────────────────
+
+const displayTime = (v) => formatTime(v, STATE.timeDisplay);
+
+// ─── Metrics ───────────────────────────────────────────────────────────-
+
+function speedup(b) {
+  const t = b.train.report.run_program;
+  const s = b.serve.wall_time_micros;
+  return t === 0 || s === 0 ? null : t / s;
+}
+
+function cacheHitRate(b) {
+  const hits = unwrapCount(b.serve.report.cache_hits);
+  const misses = unwrapCount(b.serve.report.cache_misses);
+  const total = hits + misses;
+  return total === 0 ? null : (hits / total) * 100;
+}
+
+function totalTime(benchmarks) {
+  return benchmarks.reduce(
+    (sum, b) => sum + b.train.wall_time_micros + b.serve.wall_time_micros,
+    0,
+  );
+}
+
+// ─── Interaction ────────────────────────────────────────────────────────
 
 function setupTimeDisplaySelector() {
   for (const radio of document.querySelectorAll('input[name="time-display"]')) {
@@ -45,72 +79,6 @@ function setupTimeDisplaySelector() {
       }
     });
   }
-}
-
-function displayTime(rawValue) {
-  const ONE_MIN = 60000000;
-  const ONE_SEC = 1000000;
-  const ONE_MILLI = 1000;
-  if (STATE.timeDisplay === "raw") {
-    return `${rawValue} μs`;
-  } else {
-    console.assert(STATE.timeDisplay === "readable");
-    if (rawValue >= ONE_MIN) {
-      return `${(rawValue / ONE_MIN).toFixed(2)} min`;
-    } else if (rawValue >= ONE_SEC) {
-      return `${(rawValue / ONE_SEC).toFixed(2)} s`;
-    } else if (rawValue >= ONE_MILLI) {
-      return `${(rawValue / ONE_MILLI).toFixed(2)} ms`;
-    } else {
-      return `${rawValue} μs`;
-    }
-  }
-}
-
-function renderSummary() {
-  const passing = GLOBAL_DATA.data.passing_benchmarks;
-  const numPassing = passing.length;
-  const numFailing = GLOBAL_DATA.data.failing_benchmarks.length;
-
-  const totalTime = passing
-    .map((x) => x.train.wall_time_micros + x.serve.wall_time_micros)
-    .reduce((a, b) => a + b, 0);
-
-  const speedups = passing
-    .map((x) => {
-      const t = x.train.report.run_program;
-      const s = x.serve.wall_time_micros;
-      return t === 0 || s === 0 ? null : t / s;
-    })
-    .filter((v) => v !== null);
-
-  const minSpeedup = speedups.length ? Math.min(...speedups) : null;
-  const maxSpeedup = speedups.length ? Math.max(...speedups) : null;
-  const avgSpeedup = speedups.length
-    ? speedups.reduce((a, b) => a + b, 0) / speedups.length
-    : null;
-
-  const egraphSizes = passing
-    .map((x) => unwrapCount(x.serve.report.egraph_size))
-    .filter((v) => v !== undefined && v !== null);
-  const avgEgraphSize = egraphSizes.length
-    ? egraphSizes.reduce((a, b) => a + b, 0) / egraphSizes.length
-    : null;
-
-  const fmtSpeedup = (v) => (v === null ? "—" : `${v.toFixed(2)}×`);
-  const fmtSize = (v) =>
-    v === null
-      ? "—"
-      : v.toLocaleString(undefined, { maximumFractionDigits: 0 });
-
-  document.querySelector("#summary-text").textContent =
-    `Passing Benchmarks: ${numPassing} | ` +
-    `Failing Benchmarks: ${numFailing} | ` +
-    `Total time: ${displayTime(totalTime)} | ` +
-    `Min speedup: ${fmtSpeedup(minSpeedup)} | ` +
-    `Max speedup: ${fmtSpeedup(maxSpeedup)} | ` +
-    `Avg speedup: ${fmtSpeedup(avgSpeedup)} | ` +
-    `Avg egraph size: ${fmtSize(avgEgraphSize)}`;
 }
 
 function setupSuiteSelectors() {
@@ -131,37 +99,51 @@ function setupSuiteSelectors() {
   for (const button of document.querySelectorAll(".suite-tab")) {
     button.addEventListener("click", () => {
       STATE.activeSuite = button.dataset.suiteName;
-
       for (const btn of document.querySelectorAll(".suite-tab")) {
         btn.classList.toggle(
           "is-active",
           btn.dataset.suiteName === STATE.activeSuite,
         );
       }
-
       renderTable();
     });
   }
 }
 
-function unwrapCount(v) {
-  if (typeof v === "number") return v;
-  if (v && typeof v === "object" && "Count" in v) return v.Count;
-  return 0;
+// ─── Rendering ──────────────────────────────────────────────────────────
+
+function render() {
+  renderSummary();
+  renderTable();
+}
+
+function renderSummary() {
+  const passing = GLOBAL_DATA.data.passing_benchmarks;
+  const numFailing = GLOBAL_DATA.data.failing_benchmarks.length;
+
+  const speedups = passing.map(speedup).filter((v) => v !== null);
+  const egraphSizes = passing.map((x) =>
+    unwrapCount(x.serve.report.egraph_size),
+  );
+
+  document.querySelector("#summary-text").textContent =
+    `Passing Benchmarks: ${passing.length} | ` +
+    `Failing Benchmarks: ${numFailing} | ` +
+    `Total time: ${displayTime(totalTime(passing))} | ` +
+    `Min speedup: ${fmtSpeedup(speedups.length ? Math.min(...speedups) : null)} | ` +
+    `Max speedup: ${fmtSpeedup(speedups.length ? Math.max(...speedups) : null)} | ` +
+    `Avg speedup: ${fmtSpeedup(average(speedups))} | ` +
+    `Avg egraph size: ${fmtSize(average(egraphSizes))}`;
 }
 
 function renderTable() {
   const benchmarks = GLOBAL_DATA.data.passing_benchmarks.filter(
     (x) => x.suite_name === STATE.activeSuite,
   );
-  const totalTime = benchmarks
-    .map((x) => x.train.wall_time_micros + x.serve.wall_time_micros)
-    .reduce((a, b) => a + b, 0);
-
   document.querySelector("#active-suite-summary").innerHTML = `
   <div>
     <h3>${STATE.activeSuite}</h3>
-    <p>${benchmarks.length} benchmarks | ${displayTime(totalTime)}</p>
+    <p>${benchmarks.length} benchmarks | ${displayTime(totalTime(benchmarks))}</p>
   </div>`;
 
   const columns = [
@@ -172,31 +154,20 @@ function renderTable() {
     "Speedup",
   ];
 
-  const rows = benchmarks.map((b) => {
-    const trainTime =
-      b.train.report.rule_micros +
-      b.train.report.extraction_micros +
-      b.train.report.serialize;
-    const serveTime = b.serve.wall_time_micros;
-    const runProgramTime = b.train.report.run_program;
-    return {
-      Benchmark: b.benchmark_name,
-      "Train Total Time": trainTime,
-      "Program Run Time": runProgramTime,
-      "Serve Total Time": serveTime,
-      Speedup:
-        runProgramTime === 0 || serveTime === 0
-          ? null
-          : runProgramTime / serveTime,
-      _benchmark: b,
-    };
-  });
+  const rows = benchmarks.map((b) => ({
+    Benchmark: b.benchmark_name,
+    "Program Run Time": b.train.report.run_program,
+    "Train Total Time": b.train.wall_time_micros,
+    "Serve Total Time": b.serve.wall_time_micros,
+    Speedup: speedup(b),
+    _benchmark: b,
+  }));
 
   const displayFns = {
-    "Train Total Time": displayTime,
     "Program Run Time": displayTime,
+    "Train Total Time": displayTime,
     "Serve Total Time": displayTime,
-    Speedup: (v) => (v === null ? "—" : `${v.toFixed(2)}×`),
+    Speedup: fmtSpeedup,
   };
 
   const tableDiv = document.querySelector("#active-suite-table");
@@ -207,21 +178,11 @@ function renderTable() {
 }
 
 function renderBenchmarkDetail(row) {
-  const elt = document.createElement("div");
-  elt.className = "benchmark-detail";
-
   const train = row._benchmark.train.report;
   const serve = row._benchmark.serve.report;
 
-  const hits = unwrapCount(serve.cache_hits);
-  const misses = unwrapCount(serve.cache_misses);
-  const totalLookups = hits + misses;
-  const cacheHitRate = totalLookups === 0 ? null : (hits / totalLookups) * 100;
-
-  const fmtSize = (v) =>
-    v.toLocaleString(undefined, { maximumFractionDigits: 0 });
-  const fmtPct = (v) => (v === null ? "—" : `${v.toFixed(1)}%`);
-
+  const elt = document.createElement("div");
+  elt.className = "benchmark-detail";
   elt.innerHTML = `
     <div class="detail-columns">
       <div class="detail-column">
@@ -241,16 +202,10 @@ function renderBenchmarkDetail(row) {
           <li>Running Rules: ${displayTime(serve.rule_micros)}</li>
           <li>Extraction: ${displayTime(serve.extraction_micros)}</li>
           <li>EGraph size: ${fmtSize(unwrapCount(serve.egraph_size))}</li>
-          <li>Cache hit rate: ${fmtPct(cacheHitRate)}</li>
+          <li>Cache hit rate: ${fmtPct(cacheHitRate(row._benchmark))}</li>
         </ul>
       </div>
     </div>
   `;
-
   return elt;
-}
-
-function render() {
-  renderSummary();
-  renderTable();
 }
