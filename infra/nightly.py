@@ -14,8 +14,6 @@ NIGHTLY_DIR = POACH_ROOT / "nightly"
 POACH_BINARY = POACH_ROOT / "target" / "release" / "poach"
 
 def main(benchmark_dir):
-  print(benchmark_dir)
-
   (benchmark_results, failing_benchmarks) = run_benchmarks(benchmark_dir)
 
   data = {
@@ -27,7 +25,7 @@ def main(benchmark_dir):
   data_out_path.parent.mkdir(parents=True, exist_ok=True)
   data_out_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
-def run_command(cmd):
+def run_command(cmd, summarize_report):
   started = time.perf_counter_ns()
   cmd_result = subprocess.run(
     cmd,
@@ -53,72 +51,91 @@ def run_command(cmd):
     "report": summarize_report(report),
     "wall_time_micros": time_micros
   }
-  
-def summarize_report(report):
-  # aggregate timing steps by type
-  rule_micros = 0
-  extraction_micros = 0
-  other_micros = 0
-  total_micros = 0
-  for time_step in report["timings"]:
-    total_micros += time_step["total"]
-    if "running_rules" in time_step["tags"]:
-      rule_micros += time_step["total"]
-    elif "extraction" in time_step["tags"]:
-      extraction_micros += time_step["total"]
-    else:
-      other_micros += time_step["total"]
 
-  # Add size and other information to the report here
-
-  return {
-    "rule_micros": rule_micros,
-    "extraction_micros": extraction_micros,
-    "other_micros": other_micros,
-    "timing_steps": len(report["timings"])
+def summarize_train_report(report):
+  aggregated = {
+    "total_micros": 0
   }
+  
+  # Aggregate time of all steps
+  for time_step in report["timings"]:
+    aggregated["total_micros"] += time_step["total"]
+
+  # Rekey sizes
+  for size in report["sizes"]:
+    aggregated[size["name"]] = size["value"]
+
+  return aggregated
+
+def summarize_serve_report(report):
+  aggregated = {
+    "total_micros": 0
+  }
+  
+  # Aggregate time of all steps
+  for time_step in report["timings"]:
+    aggregated["total_micros"] += time_step["total"]
+
+  # Rekey sizes
+  for size in report["sizes"]:
+    aggregated[size["name"]] = size["value"]
+  
+  return aggregated
 
 def run_benchmarks(benchmark_dir):
-  report_dir = NIGHTLY_DIR / "reports"
-  report_dir.mkdir(parents=True, exist_ok=True)
-
   # Find benchmarks
   # benchmark_dir is the root of the benchmark directory 
   benchmarks = list(Path(benchmark_dir).rglob("train/*.egg"))
-  # For this treatment, we don't do anything at train time,
-  # we just use the train benchmarks at serve time
-
-  # TODO: invoke the poach commands appropriate for this branch (e.g.
-  # `poach train ...` and/or `poach serve ...`) for each benchmark file
-  # and append one result dict per command to `results`. Each result
-  # must include at least: "suite_name", "benchmark_name", "status",
-  # "wall_time_micros" (plus any branch-specific fields like "phase").
-
-  results = []
+  
+  reports = []
   failing_benchmarks = []
   for benchmark in benchmarks:
     relative_path = benchmark.relative_to(benchmark_dir)
     suite_name = str(relative_path.parent)
     benchmark_name = relative_path.name
-    command = [
+    
+    # We don't actually save the models, it gets overwritten each iter
+    # but that's okay because we don't need it after the serve command each iter
+    model_path = NIGHTLY_DIR / "model.model"
+
+    report = {
+      "benchmark_name": benchmark_name,
+      "suite_name": suite_name
+    }
+
+    # Train
+    train_command = [
+      str(POACH_BINARY),
+      "train",
+      "--debug",
+      str(benchmark),
+      str(model_path)
+    ]
+    train_result = run_command(train_command, summarize_train_report)
+    if train_result["status"] == "success":
+      report["train"] = train_result
+    else:
+      failing_benchmarks.append(relative_path)
+      continue
+
+    # Serve
+    serve_command = [
       str(POACH_BINARY),
       "serve",
       "--debug",
-      "EMPTY.MODEL",
+      str(model_path),
       "single",
       str(benchmark)
     ]
     
-    result = run_command(command)
-    result["benchmark_name"] = benchmark_name
-    result["suite_name"] = suite_name
-    if result["status"] == "success":
-      print(f"Success: {benchmark_name}")
-      results.append(result)
+    serve_result = run_command(serve_command, summarize_serve_report)
+    if serve_result["status"] == "success":
+      report["serve"] = serve_result
+      reports.append(report)
     else:
       failing_benchmarks.append(relative_path)
 
-  return (results, failing_benchmarks)
+  return (reports, failing_benchmarks)
 
 if __name__ == "__main__":
   if len(sys.argv) != 2:

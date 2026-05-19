@@ -44,10 +44,7 @@ h1 {
 
 #benchmarks {
   margin: 0 0 16px;
-}
-
-.suite {
-  margin: 0 0 24px;
+  overflow-x: auto;
 }
 
 .suite-tab {
@@ -65,18 +62,6 @@ h1 {
   background: #111;
   border-color: #111;
   color: #fff;
-}
-
-.suite-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 16px;
-  margin: 0 0 8px;
-}
-
-.suite-header p {
-  margin: 0;
 }
 
 h3 {
@@ -112,6 +97,16 @@ th:not(:first-child) {
   text-align: right;
 }
 
-#benchmarks {
-  overflow-x: auto;
+.expandable-row {
+  cursor: pointer;
+}
+
+.expandable-row:hover > td {
+  background: #f5f5f5;
+}
+
+.detail-row > td {
+  background: #fafafa;
+  padding: 16px 16px;
+  text-align: left;
 }
