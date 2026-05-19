@@ -199,7 +199,17 @@ function renderTable() {
 
   const tableDiv = document.querySelector("#active-suite-table");
   tableDiv.innerHTML = "";
-  tableDiv.appendChild(convertToTable(columns, rows, displayFns));
+  tableDiv.appendChild(
+    convertToTable(columns, rows, displayFns, renderBenchmarkDetail),
+  );
+}
+
+function renderBenchmarkDetail(row) {
+  const elt = document.createElement("div");
+  elt.className = "benchmark-detail";
+  elt.innerText = `Details for ${row.Benchmark}`;
+
+  return elt;
 }
 
 function render() {
