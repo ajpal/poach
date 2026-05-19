@@ -120,7 +120,7 @@ def run_benchmarks(benchmark_dir):
   
   reports = []
   failing_benchmarks = []
-  for train_file in benchmarks[::20]:
+  for train_file in benchmarks:
     suite_dir = train_file.parent.parent
     serve_file = suite_dir / "serve" / train_file.name
     suite_name = str(suite_dir.relative_to(benchmark_dir))
