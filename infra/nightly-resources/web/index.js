@@ -17,7 +17,7 @@ async function load() {
 
   const response = await fetch("./data/data.json");
   if (!response.ok) {
-    statusNode.textContent = `Failed to load data/data.json: ${error}`;
+    statusNode.textContent = `Failed to load data/data.json: ${response.status} ${response.statusText}`;
     return;
   }
 
@@ -135,7 +135,7 @@ function renderTable() {
   document.querySelector("#active-suite-summary").innerHTML = `
   <div>
     <h3>${STATE.activeSuite}</h3>
-    <p>${benchmarks.length} benchmarks | ${totalTime} s</p>
+    <p>${benchmarks.length} benchmarks | ${displayTime(totalTime)} </p>
   </div>`;
 
   const columns = ["Benchmark", "Wall Time", "Rules", "Extraction", "Other"];
