@@ -17,7 +17,7 @@ async function load() {
 
   const response = await fetch("./data/data.json");
   if (!response.ok) {
-    statusNode.textContent = `Failed to load data/data.json: ${error}`;
+    statusNode.textContent = `Failed to load data/data.json: ${response.status} ${response.statusText}`;
     return;
   }
 
