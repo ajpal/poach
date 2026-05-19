@@ -69,10 +69,14 @@ def summarize_train_report(report):
   }
   # aggregate timing steps by type
   for time_step in report["timings"]:
-    aggregated["total_micros"] += time_step["total"]
+    # run_program wraps inner timers (rules, extraction, ...) that are already
+    # counted separately, so skip adding it to total_micros.
     if "run_program" in time_step["tags"]:
       aggregated["run_program"] += time_step["total"]
-    elif "running_rules" in time_step["tags"]:
+      continue
+
+    aggregated["total_micros"] += time_step["total"]
+    if "running_rules" in time_step["tags"]:
       aggregated["rule_micros"] += time_step["total"]
     elif "extraction" in time_step["tags"]:
       aggregated["extraction_micros"] += time_step["total"]
