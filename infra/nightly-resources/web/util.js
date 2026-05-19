@@ -1,4 +1,5 @@
 export function formatTime(rawValue, mode) {
+  if (rawValue === undefined) return "-";
   const ONE_MIN = 60000000;
   const ONE_SEC = 1000000;
   const ONE_MILLI = 1000;
@@ -16,9 +17,12 @@ export const fmtSize = (v) =>
   v === null ? "—" : v.toLocaleString(undefined, { maximumFractionDigits: 0 });
 
 export function unwrapCount(v) {
-  if (typeof v === "number") return v;
-  if (v && typeof v === "object" && "Count" in v) return v.Count;
-  return 0;
+  if (!v || typeof v !== "object" || !("Count" in v)) {
+    throw new Error(
+      `unwrapCount expected {Count: N}, got ${JSON.stringify(v)}`,
+    );
+  }
+  return v.Count;
 }
 
 export function average(xs) {
