@@ -51,11 +51,11 @@ impl Reporter {
         Self::default()
     }
 
-    pub fn new_timer(&mut self, name: String, tags: Vec<String>) -> TimerHandle {
+    pub fn new_timer(&mut self, name: &str, tags: Vec<&str>) -> TimerHandle {
         let handle = self.timers.len();
         self.timers.push(Timer {
-            name,
-            tags,
+            name: name.to_string(),
+            tags: tags.iter().map(|t| t.to_string()).collect(),
             started_at: Instant::now(),
             breakdown: vec![],
         });
@@ -180,10 +180,10 @@ mod tests {
     fn build_report_aggregates_timers_by_name_and_preserves_tags() {
         let mut reporter = Reporter::new();
 
-        let step_timer_one = reporter.new_timer("step_one".to_string(), vec!["tag".to_string()]);
+        let step_timer_one = reporter.new_timer("step_one", vec!["tag"]);
         reporter.record_timer(step_timer_one);
 
-        let step_timer_two = reporter.new_timer("step_two".to_string(), vec!["tag".to_string()]);
+        let step_timer_two = reporter.new_timer("step_two", vec!["tag"]);
         std::thread::sleep(Duration::from_millis(50));
         reporter.record_timer(step_timer_two);
         std::thread::sleep(Duration::from_millis(50));

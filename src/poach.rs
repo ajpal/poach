@@ -180,8 +180,7 @@ fn train(arg: TrainArgs) {
 
         // 2. Run program
         let mut reporter = Reporter::new();
-        let program_timer =
-            reporter.new_timer("run_program".to_string(), vec!["run_program".to_string()]);
+        let program_timer = reporter.new_timer("run_program", vec!["run_program"]);
         let outputs = egraph
             .run_program_with_reporter(program.clone(), &mut reporter)
             .expect("run training set");
@@ -205,14 +204,12 @@ fn train(arg: TrainArgs) {
             .collect();
         assert!(extract_cmds.len() == extract_outs.len());
 
-        let build_cache_timer =
-            reporter.new_timer("build_model".to_string(), vec!["build_model".to_string()]);
+        let build_cache_timer = reporter.new_timer("build_model", vec!["build_model"]);
         let cache = build_cache(extract_cmds, extract_outs);
         reporter.record_timer(build_cache_timer);
 
         // 4. Serialize extraction cache
-        let serialize_timer =
-            reporter.new_timer("serialize".to_string(), vec!["serialize".to_string()]);
+        let serialize_timer = reporter.new_timer("serialize", vec!["serialize"]);
         let mut buf = FlexbufferSerializer::new();
         cache.serialize(&mut buf).expect("serialize model");
         std::fs::write(&arg.output_model_file, buf.view()).expect("write model file");
@@ -425,8 +422,7 @@ fn serve(arg: ServeArgs) {
             if arg.debug {
                 let mut reporter = Reporter::new();
 
-                let deserialize_timer =
-                    reporter.new_timer("deserialize".to_string(), vec!["deserialize".to_string()]);
+                let deserialize_timer = reporter.new_timer("deserialize", vec!["deserialize"]);
                 let bytes = std::fs::read(&arg.model_file).expect("read model file");
                 let reader = Reader::get_root(bytes.as_slice()).expect("read flexbuffer model");
                 let cache = TermCache::deserialize(reader).expect("deserialize model");
@@ -442,8 +438,7 @@ fn serve(arg: ServeArgs) {
                     )
                     .expect("parse input file");
 
-                let cache_overhead_timer =
-                    reporter.new_timer("cache_overhead".to_string(), vec!["overhead".to_string()]);
+                let cache_overhead_timer = reporter.new_timer("cache_overhead", vec!["overhead"]);
                 let cmds_with_outputs_and_cache_results: Vec<_> = program
                     .iter()
                     .filter(|c| {
