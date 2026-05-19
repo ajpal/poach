@@ -171,7 +171,6 @@ fn train(arg: TrainArgs) {
         let end_to_end_timer = reporter.new_timer("end_to_end");
 
         // 1. Setup
-        let read_timer = reporter.new_timer("read");
         let mut egraph = EGraph::default();
 
         let input = std::fs::read_to_string(&arg.training_set).expect("read training set");
@@ -182,15 +181,15 @@ fn train(arg: TrainArgs) {
                 &input,
             )
             .expect("parse training set");
-        reporter.record_timer(read_timer, "");
+        reporter.record_timer(end_to_end_timer, "read_program");
 
         // 2. Run program
         let outputs = egraph
             .run_program_with_reporter(program.clone(), &mut reporter)
             .expect("run training set");
+        reporter.record_timer(end_to_end_timer, "run_program");
 
         // 3. Build extraction cache
-        let build_cache_timer = reporter.new_timer("build_model");
         let extract_cmds: Vec<_> = program
             .iter()
             .filter(|c| matches!(c, Command::Extract(..) | Command::MultiExtract(..)))
@@ -209,14 +208,13 @@ fn train(arg: TrainArgs) {
         assert!(extract_cmds.len() == extract_outs.len());
 
         let cache = build_cache(extract_cmds, extract_outs);
-        reporter.record_timer(build_cache_timer, "");
+        reporter.record_timer(end_to_end_timer, "build_cache");
 
         // 4. Serialize extraction cache
-        let serialize_timer = reporter.new_timer("serialize");
         let mut buf = FlexbufferSerializer::new();
         cache.serialize(&mut buf).expect("serialize model");
         std::fs::write(&arg.output_model_file, buf.view()).expect("write model file");
-        reporter.record_timer(serialize_timer, "");
+        reporter.record_timer(end_to_end_timer, "serialize");
 
         let model_bytes = std::fs::metadata(&arg.output_model_file)
             .map(|m| m.len())
@@ -420,12 +418,12 @@ fn serve(arg: ServeArgs) {
         ServeMode::Single { input_file } => {
             if arg.debug {
                 let mut reporter = Reporter::new();
+                let end_to_end_timer = reporter.new_timer("end_to_end");
 
-                let deserialize_timer = reporter.new_timer("deserialize");
                 let bytes = std::fs::read(&arg.model_file).expect("read model file");
                 let reader = Reader::get_root(bytes.as_slice()).expect("read flexbuffer model");
                 let cache = TermCache::deserialize(reader).expect("deserialize model");
-                reporter.record_timer(deserialize_timer, "");
+                reporter.record_timer(end_to_end_timer, "deserialize");
 
                 let input = std::fs::read_to_string(&input_file).expect("read input file");
                 let mut egraph = EGraph::default();
@@ -437,7 +435,8 @@ fn serve(arg: ServeArgs) {
                     )
                     .expect("parse input file");
 
-                let cache_overhead_timer = reporter.new_timer("cache_overhead");
+                reporter.record_timer(end_to_end_timer, "read_program");
+
                 let cmds_with_outputs_and_cache_results: Vec<_> = program
                     .iter()
                     .filter(|c| {
@@ -505,11 +504,13 @@ fn serve(arg: ServeArgs) {
                         .cloned()
                         .collect();
 
-                    reporter.record_timer(cache_overhead_timer, "");
+                    reporter.record_timer(end_to_end_timer, "cache_overhead");
 
                     let egraph_outputs = egraph
                         .run_program_with_reporter(egraph_program, &mut reporter)
                         .expect("run input file");
+
+                    reporter.record_timer(end_to_end_timer, "run_program");
 
                     reporter.record_size("egraph_size", Metric::Count(egraph.num_tuples() as u64));
 
@@ -527,7 +528,7 @@ fn serve(arg: ServeArgs) {
                         })
                         .collect()
                 } else {
-                    reporter.record_timer(cache_overhead_timer, "");
+                    reporter.record_timer(end_to_end_timer, "cache_overhead");
                     // There are no cache misses or non-extraction outputs, so we don't need an egraph at all
 
                     // No egraph
@@ -547,6 +548,8 @@ fn serve(arg: ServeArgs) {
                 for msg in all_outputs {
                     println!("{}", msg);
                 }
+
+                reporter.record_timer(end_to_end_timer, "");
 
                 serde_json::to_writer(&mut stderr(), &reporter.build_report())
                     .expect("Failed to serialize report");

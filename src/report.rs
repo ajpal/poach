@@ -29,7 +29,7 @@ struct TimingStep {
 
 #[derive(Serialize)]
 pub struct RunReport {
-    times: Vec<Timer>,
+    timers: Vec<Timer>,
     sizes: Vec<Size>,
 }
 
@@ -79,7 +79,7 @@ impl Reporter {
 
     pub fn build_report(&self) -> RunReport {
         RunReport {
-            times: self.timers.clone(),
+            timers: self.timers.clone(),
             sizes: self.sizes.clone(),
         }
     }
@@ -97,7 +97,7 @@ where
 impl Display for RunReport {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         writeln!(f, "Timers:")?;
-        for t in self.times.iter() {
+        for t in self.timers.iter() {
             writeln!(f, "  {}", t)?;
         }
 
@@ -167,11 +167,11 @@ mod tests {
 
         println!("{}", report);
 
-        assert_eq!(report.times.len(), 2);
-        assert_eq!(report.times[0].steps.len(), 1);
-        assert_eq!(report.times[0].steps[0].step_name, "step_one");
-        assert_eq!(report.times[1].steps.len(), 2);
-        assert!(report.times[1].steps[1].duration >= Duration::from_millis(50));
+        assert_eq!(report.timers.len(), 2);
+        assert_eq!(report.timers[0].steps.len(), 1);
+        assert_eq!(report.timers[0].steps[0].step_name, "step_one");
+        assert_eq!(report.timers[1].steps.len(), 2);
+        assert!(report.timers[1].steps[1].duration >= Duration::from_millis(50));
 
         assert_eq!(report.sizes.len(), 1);
         assert_eq!(report.sizes[0].value, Metric::Count(10));
