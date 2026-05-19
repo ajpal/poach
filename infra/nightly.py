@@ -69,7 +69,7 @@ def summarize_report(report):
     else:
       other_micros += time_step["total"]
 
-  # Add size and other information to the report here
+  # No sizes in vanilla egglog reports
 
   return {
     "rule_micros": rule_micros,
@@ -87,12 +87,6 @@ def run_benchmarks(benchmark_dir):
   benchmarks = list(Path(benchmark_dir).rglob("train/*.egg"))
   # For this treatment, we don't do anything at train time,
   # we just use the train benchmarks at serve time
-
-  # TODO: invoke the poach commands appropriate for this branch (e.g.
-  # `poach train ...` and/or `poach serve ...`) for each benchmark file
-  # and append one result dict per command to `results`. Each result
-  # must include at least: "suite_name", "benchmark_name", "status",
-  # "wall_time_micros" (plus any branch-specific fields like "phase").
 
   results = []
   failing_benchmarks = []

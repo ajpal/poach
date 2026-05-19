@@ -1,4 +1,6 @@
-use std::path::PathBuf;
+use poach::{EGraph, report::Reporter};
+
+use std::{fs::File, io::Write, path::PathBuf, process::exit};
 
 use clap::{Args, Parser, Subcommand};
 
@@ -111,23 +113,94 @@ pub fn poach() {
             fine_tune(arg);
         }
         Commands::Test(arg) => {
-            println!("test({:?})", arg);
+            eprintln!("test({:?})", arg);
+            //TODO: run vanilla egglog tests
         }
     }
     // TODO handle report IO
 }
 
+/// VanillaEgglog's model is just unit
+/// Still, it would create an empty file
 fn train(arg: TrainArgs) {
-    println!("train({:?})", arg);
-    //TODO
+    let _ = File::create(arg.output_model_file.as_path());
 }
 
+/// VanillaEgglog
 fn serve(arg: ServeArgs) {
-    println!("serve({:?})", arg);
-    //TODO
+    match arg.mode {
+        ServeMode::Streaming => {
+            let mut egraph = EGraph::default();
+
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(1)
+                .build_global()
+                .unwrap();
+
+            match egraph.repl(poach::RunMode::Normal) {
+                Ok(_) => {}
+                _ => {
+                    exit(-1);
+                }
+            }
+        }
+        ServeMode::Single { input_file: input } => {
+            let mut egraph = EGraph::default();
+
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(1)
+                .build_global()
+                .unwrap();
+
+            let program = std::fs::read_to_string(input.as_path()).unwrap_or_else(|_| {
+                let arg = input.to_string_lossy();
+                panic!("Failed to read file {arg}")
+            });
+
+            let result: Result<_, poach::Error> = if arg.debug {
+                let filename = Some(input.to_str().unwrap().into());
+                match egraph.parser.get_program_from_string(filename, &program) {
+                    Ok(parsed) => {
+                        let mut reporter = Reporter::new();
+                        let result = egraph.run_program_with_reporter(parsed, &mut reporter);
+                        if result.is_ok() {
+                            serde_json::to_writer(&mut std::io::stderr(), &reporter.build_report())
+                                .expect("failed to serialize debug report");
+                            writeln!(std::io::stderr()).expect("failed to terminate debug report");
+                        }
+                        result
+                    }
+                    Err(err) => Err(err.into()),
+                }
+            } else {
+                egraph
+                    .parse_and_run_program(Some(input.to_str().unwrap().into()), &program)
+                    .map_err(Into::into)
+            };
+
+            match result {
+                Ok(msgs) => {
+                    for msg in msgs {
+                        print!("{msg}");
+                    }
+                }
+                _ => {
+                    exit(-1);
+                }
+            }
+        }
+        ServeMode::Batch {
+            input_dir: _,
+            output_dir: _,
+        } => {
+            //TODO
+            panic!("Batch not implemented");
+        }
+    }
 }
 
+/// VanillaEgglog's model is just unit
+/// Still, it would create an empty file
 fn fine_tune(arg: FineTuneArgs) {
-    println!("fine_tune({:?})", arg);
-    //TODO
+    let _ = File::create(arg.output_model_file.as_path());
 }
