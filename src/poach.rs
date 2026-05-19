@@ -177,8 +177,10 @@ fn train(arg: TrainArgs) {
                     "egraph_tuples".to_string(),
                     MetricValue::Count(egraph.num_tuples() as u64),
                 );
-                let serialize_timer =
-                    reporter.new_timer("serialize_model".to_string(), vec!["io".to_string()]);
+                let serialize_timer = reporter.new_timer(
+                    "serialize_model".to_string(),
+                    vec!["io".to_string(), "serialize".to_string()],
+                );
                 let serialized_size =
                     serialize_egraph_to_file(&mut egraph, arg.output_model_file.as_path());
                 reporter.record_timer(serialize_timer);
@@ -233,8 +235,10 @@ fn deserialize_egraph_from_file(egraph_file: &Path, reporter: Option<&mut Report
         reporter.record_timer(read_timer);
 
         let r = Reader::get_root(buf.as_slice()).unwrap();
-        let deserialize_timer =
-            reporter.new_timer("deserialize_model".to_string(), vec!["io".to_string()]);
+        let deserialize_timer = reporter.new_timer(
+            "deserialize_model".to_string(),
+            vec!["io".to_string(), "deserialize".to_string()],
+        );
 
         let mut egraph = EGraph::deserialize(r).unwrap();
 

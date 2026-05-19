@@ -1,172 +1,178 @@
-import { formatMillis, formatSeconds } from "./util.js";
+import { convertToTable } from "./table.js";
+import { formatTime, formatBytes, unwrapBytes } from "./util.js";
 
-let suites = [];
-let activeSuiteName = null;
-let sortKey = "benchmark_path";
-let sortDir = "asc";
+const STATE = {
+  activeSuite: null,
+  timeDisplay: "readable",
+};
+
+const GLOBAL_DATA = {
+  data: null,
+  suites: null,
+};
+
 load();
-installHeaderSortHandlers();
 
 async function load() {
   const statusNode = document.querySelector("#status");
 
-  try {
-    const response = await fetch("./data/data.json");
-    if (!response.ok) {
-      throw new Error(`Failed to load data.json (${response.status})`);
-    }
+  const response = await fetch("./data/data.json");
+  if (!response.ok) {
+    statusNode.textContent = `Failed to load data/data.json: ${response.status} ${response.statusText}`;
+    return;
+  }
 
-    const data = await response.json();
-    suites = [...data.suites].sort((a, b) => a.name.localeCompare(b.name));
-    activeSuiteName = suites[0]?.name ?? null;
-    statusNode.textContent = "Loaded data/data.json";
-    renderSummary(data);
-    renderSuites();
-  } catch (error) {
-    statusNode.textContent = `Failed to load data/data.json: ${error}`;
+  GLOBAL_DATA.data = await response.json();
+  statusNode.innerHTML = 'Loaded <a href="./data/data.json">data/data.json</a>';
+
+  GLOBAL_DATA.suites = [
+    ...new Set(GLOBAL_DATA.data.passing_benchmarks.map((x) => x.suite_name)),
+  ].sort();
+  STATE.activeSuite = GLOBAL_DATA.suites[0] ?? null;
+
+  // Set up interactive elements
+  setupSuiteSelectors();
+  setupTimeDisplaySelector();
+
+  render();
+}
+
+const displayTime = (v) => formatTime(v, STATE.timeDisplay);
+const displayBytes = (v) => formatBytes(v, STATE.timeDisplay);
+
+function totalTime(benchmarks) {
+  return benchmarks.reduce(
+    (sum, b) => sum + b.train.wall_time_micros + b.serve.wall_time_micros,
+    0,
+  );
+}
+
+function setupTimeDisplaySelector() {
+  for (const radio of document.querySelectorAll('input[name="time-display"]')) {
+    radio.addEventListener("change", () => {
+      if (radio.checked) {
+        STATE.timeDisplay = radio.value;
+        render();
+      }
+    });
   }
 }
 
-function renderSummary(data) {
-  let ruleRunningMillis = 0;
-  let extractionMillis = 0;
-  let otherMillis = 0;
+function renderSummary() {
+  let trainMicros = 0;
+  let serveMicros = 0;
 
-  for (const { timing_summary } of data.reports) {
-    ruleRunningMillis += timing_summary.rule_running_millis;
-    extractionMillis += timing_summary.extraction_millis;
-    otherMillis += timing_summary.other_millis;
+  for (const b of GLOBAL_DATA.data.passing_benchmarks) {
+    trainMicros += b.train.wall_time_micros;
+    serveMicros += b.serve.wall_time_micros;
   }
+
+  const numPassing = GLOBAL_DATA.data.passing_benchmarks.length;
+  const numFailing = GLOBAL_DATA.data.failing_benchmarks.length;
 
   document.querySelector("#summary-text").textContent =
-    `${data.summary.benchmark_count} reports across ${data.suites.length} suites | ` +
-    `Nightly time: ${formatSeconds(data.summary.total_time_seconds)} | ` +
-    `Rule running: ${ruleRunningMillis} ms | ` +
-    `Extraction: ${extractionMillis} ms | ` +
-    `Other: ${otherMillis} ms`;
+    `Passing Benchmarks: ${numPassing} | ` +
+    `Failing Benchmarks: ${numFailing} | ` +
+    `Total time: ${displayTime(trainMicros + serveMicros)} | ` +
+    `Total train time: ${displayTime(trainMicros)} | ` +
+    `Total serve time: ${displayTime(serveMicros)}`;
 }
 
-function renderSuites() {
-  document.querySelector("#suite-tabs").innerHTML = suites
-    .map((suite) => {
-      return `
-        <button
-          type="button"
-          class="suite-tab${suite.name === activeSuiteName ? " is-active" : ""}"
-          data-suite-name="${suite.name}"
-        >
-          ${suite.name}
-        </button>
-      `;
-    })
+function setupSuiteSelectors() {
+  document.querySelector("#suite-tabs").innerHTML = GLOBAL_DATA.suites
+    .map(
+      (suite) =>
+        `<button
+    type="button"
+    class="suite-tab ${suite === STATE.activeSuite ? " is-active" : ""}"
+    data-suite-name="${suite}"
+      >
+      ${suite}
+      </button>
+      `,
+    )
     .join("");
 
   for (const button of document.querySelectorAll(".suite-tab")) {
     button.addEventListener("click", () => {
-      activeSuiteName = button.dataset.suiteName;
-      renderSuites();
+      STATE.activeSuite = button.dataset.suiteName;
+
+      for (const btn of document.querySelectorAll(".suite-tab")) {
+        btn.classList.toggle(
+          "is-active",
+          btn.dataset.suiteName === STATE.activeSuite,
+        );
+      }
+
+      renderTable();
     });
   }
+}
 
-  const activeSuite = suites.find((suite) => suite.name === activeSuiteName);
-  if (!activeSuite) {
-    document.querySelector("#active-suite-summary").textContent = "";
-    document.querySelector("#benchmarks-body").innerHTML = "";
-    return;
-  }
+function renderTable() {
+  const benchmarks = GLOBAL_DATA.data.passing_benchmarks.filter(
+    (x) => x.suite_name === STATE.activeSuite,
+  );
 
-  const benchmarks = groupByBenchmark(activeSuite.reports);
   document.querySelector("#active-suite-summary").innerHTML = `
-    <div class="suite-header">
-      <h3>${activeSuite.name}</h3>
-      <p>${benchmarks.length} benchmarks | ${formatSeconds(activeSuite.summary.total_time_seconds)}</p>
+  <div>
+    <h3>${STATE.activeSuite}</h3>
+    <p>${benchmarks.length} benchmarks | ${displayTime(totalTime(benchmarks))} </p>
+  </div>`;
+
+  const columns = ["Benchmark", "Train Time", "Model Size", "Serve Time"];
+
+  const rows = benchmarks.map((b) => ({
+    Benchmark: b.benchmark_name,
+    "Train Time": b.train.wall_time_micros,
+    "Model Size": unwrapBytes(b.train.report.model_bytes),
+    "Serve Time": b.serve.wall_time_micros,
+    _benchmark: b,
+  }));
+
+  const displayFns = {
+    "Train Time": displayTime,
+    "Model Size": displayBytes,
+    "Serve Time": displayTime,
+  };
+
+  const tableDiv = document.querySelector("#active-suite-table");
+  tableDiv.innerHTML = "";
+  tableDiv.appendChild(
+    convertToTable(columns, rows, displayFns, renderBenchmarkDetail),
+  );
+}
+
+function renderBenchmarkDetail(row) {
+  const train = row._benchmark.train.report;
+  const serve = row._benchmark.serve.report;
+
+  const elt = document.createElement("div");
+  elt.className = "benchmark-detail";
+  elt.innerHTML = `
+    <div class="detail-columns">
+      <div class="detail-column">
+        <h4>Train</h4>
+        <ul>
+          <li>Rules: ${displayTime(train.rule_micros)}</li>
+          <li>Extract: ${displayTime(train.extraction_micros)}</li>
+          <li>Serialize: ${displayTime(train.serialize)}</li>
+        </ul>
+      </div>
+      <div class="detail-column">
+        <h4>Serve</h4>
+        <ul>
+          <li>Deserialize: ${displayTime(serve.deserialize)}</li>
+          <li>Rules: ${displayTime(serve.rule_micros)}</li>
+          <li>Extract: ${displayTime(serve.extraction_micros)}</li>
+        </ul>
+      </div>
     </div>
   `;
-  document.querySelector("#benchmarks-body").innerHTML = renderRows(
-    sortBenchmarks(benchmarks),
-  );
-  updateHeaderIndicators();
+  return elt;
 }
 
-function getSortValue(benchmark, key) {
-  const [phase, field] = key.split(".");
-  if (field === undefined) {
-    return benchmark[phase];
-  }
-  return benchmark[phase]?.[field] ?? 0;
-}
-
-function sortBenchmarks(benchmarks) {
-  const sorted = [...benchmarks];
-  const dir = sortDir === "asc" ? 1 : -1;
-  sorted.sort((a, b) => {
-    const av = getSortValue(a, sortKey);
-    const bv = getSortValue(b, sortKey);
-    if (typeof av === "string" || typeof bv === "string") {
-      return String(av).localeCompare(String(bv)) * dir;
-    }
-    return (av - bv) * dir;
-  });
-  return sorted;
-}
-
-function installHeaderSortHandlers() {
-  for (const th of document.querySelectorAll("#benchmarks-header th")) {
-    th.style.cursor = "pointer";
-    th.addEventListener("click", () => {
-      const key = th.dataset.sortKey;
-      if (sortKey === key) {
-        sortDir = sortDir === "asc" ? "desc" : "asc";
-      } else {
-        sortKey = key;
-        sortDir = "asc";
-      }
-      renderSuites();
-    });
-  }
-}
-
-function updateHeaderIndicators() {
-  for (const th of document.querySelectorAll("#benchmarks-header th")) {
-    const label = th.textContent.replace(/[ ▲▼]+$/, "");
-    const arrow =
-      th.dataset.sortKey === sortKey ? (sortDir === "asc" ? " ▲" : " ▼") : "";
-    th.textContent = label + arrow;
-  }
-}
-
-function groupByBenchmark(reports) {
-  const grouped = new Map();
-  for (const report of reports) {
-    if (!grouped.has(report.benchmark_path)) {
-      grouped.set(report.benchmark_path, {
-        benchmark_path: report.benchmark_path,
-      });
-    }
-    grouped.get(report.benchmark_path)[report.phase] = report.timing_summary;
-  }
-  return Array.from(grouped.values());
-}
-
-function renderRows(benchmarks) {
-  return benchmarks
-    .map(({ benchmark_path, train, serve }) => {
-      return `
-        <tr>
-          <td>${benchmark_path}</td>
-          <td>${formatMillis(train?.rule_running_millis ?? 0)}</td>
-          <td>${formatMillis(train?.extraction_millis ?? 0)}</td>
-          <td>${formatMillis(train?.serialize_millis ?? 0)}</td>
-          <td>${formatMillis(train?.total_millis ?? 0)}</td>
-          <td>${(train?.egraph_tuples ?? 0).toLocaleString()}</td>
-          <td>${(train?.model_size_bytes ?? 0).toLocaleString()}</td>
-          <td>${formatMillis(serve?.deserialize_millis ?? 0)}</td>
-          <td>${formatMillis(serve?.rule_running_millis ?? 0)}</td>
-          <td>${formatMillis(serve?.extraction_millis ?? 0)}</td>
-          <td>${formatMillis(serve?.total_millis ?? 0)}</td>
-          <td>${(serve?.egraph_tuples ?? 0).toLocaleString()}</td>
-        </tr>
-      `;
-    })
-    .join("");
+function render() {
+  renderSummary();
+  renderTable();
 }

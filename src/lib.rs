@@ -659,8 +659,10 @@ impl Default for EGraph {
         eg.rulesets
             .insert("".into(), Ruleset::Rules(Default::default()));
 
-        // support get-size! macro for Herbie
+        // support get-size! macro, custom scheduler for Herbie
         eg.add_primitive(get_size_prim::GetSizePrimitive);
+        eg.add_command("run-schedule".into(), Arc::new(RunExtendedSchedule))
+            .unwrap();
 
         eg
     }
@@ -1943,6 +1945,9 @@ impl EGraph {
                 let command_name = processed.to_command().to_string();
                 let command_category = match &processed {
                     ResolvedNCommand::RunSchedule(_) => "running_rules",
+                    ResolvedNCommand::UserDefined(_, name, _) if name == "run-schedule" => {
+                        "running_rules"
+                    }
                     ResolvedNCommand::Extract(_, _, _)
                     | ResolvedNCommand::MultiExtract(_, _, _) => "extraction",
                     ResolvedNCommand::Check(_, _) => "check",
