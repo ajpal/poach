@@ -27,7 +27,7 @@ def main(benchmark_dir):
   data_out_path.parent.mkdir(parents=True, exist_ok=True)
   data_out_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
-def run_command(cmd):
+def run_command(cmd, summary_fn):
   started = time.perf_counter_ns()
   cmd_result = subprocess.run(
     cmd,
@@ -50,75 +50,141 @@ def run_command(cmd):
   return {
     "cmd": " ".join(cmd),
     "status": "success",
-    "report": summarize_report(report),
+    "report": summary_fn(report),
     "wall_time_micros": time_micros
   }
-  
-def summarize_report(report):
-  # aggregate timing steps by type
-  rule_micros = 0
-  extraction_micros = 0
-  other_micros = 0
-  total_micros = 0
-  for time_step in report["timings"]:
-    total_micros += time_step["total"]
-    if "running_rules" in time_step["tags"]:
-      rule_micros += time_step["total"]
-    elif "extraction" in time_step["tags"]:
-      extraction_micros += time_step["total"]
-    else:
-      other_micros += time_step["total"]
 
-  # Add size and other information to the report here
+def summarize_train_report(report):
+  aggregated = {
+    "total_micros": 0,
+    # from running egraph
+    "rule_micros": 0,
+    "extraction_micros": 0,
+    "other_micros": 0,
 
-  return {
-    "rule_micros": rule_micros,
-    "extraction_micros": extraction_micros,
-    "other_micros": other_micros,
-    "timing_steps": len(report["timings"])
+    # other reported time steps
+    "run_program": 0,
+    "serialize": 0,
+    "build_model": 0
   }
+  # aggregate timing steps by type
+  for time_step in report["timings"]:
+    # run_program wraps inner timers (rules, extraction, ...) that are already
+    # counted separately, so skip adding it to total_micros.
+    if "run_program" in time_step["tags"]:
+      aggregated["run_program"] += time_step["total"]
+      continue
+
+    aggregated["total_micros"] += time_step["total"]
+    if "running_rules" in time_step["tags"]:
+      aggregated["rule_micros"] += time_step["total"]
+    elif "extraction" in time_step["tags"]:
+      aggregated["extraction_micros"] += time_step["total"]
+    elif "serialize" in time_step["tags"]:
+      aggregated["serialize"] += time_step["total"]
+    elif "build_model" in time_step["tags"]:
+      aggregated["build_model"] += time_step["total"]
+    else:
+      aggregated["other_micros"] += time_step["total"]
+  
+  # sizes
+  for size in report["sizes"]:
+    aggregated[size["name"]] = size["value"]
+  
+  return aggregated
+
+def summarize_serve_report(report):
+  # aggregate timing steps by type
+  aggregated = {
+    "total_micros": 0,
+    # from running egraph
+    "rule_micros": 0,
+    "extraction_micros": 0,
+    "other_micros": 0,
+
+    # other reported time steps
+    "deserialize": 0,
+    "cache_overhead": 0,
+  }
+
+  # aggregate timing steps by type
+  for time_step in report["timings"]:
+    aggregated["total_micros"] += time_step["total"]
+    if "running_rules" in time_step["tags"]:
+      aggregated["rule_micros"] += time_step["total"]
+    elif "extraction" in time_step["tags"]:
+      aggregated["extraction_micros"] += time_step["total"]
+    elif "deserialize" in time_step["tags"]:
+      aggregated["deserialize"] += time_step["total"]
+    elif "cache_overhead" in time_step["tags"]:
+      aggregated["cache_overhead"] += time_step["total"]
+    else:
+      aggregated["other_micros"] += time_step["total"]
+
+  # sizes
+  for size in report["sizes"]:
+    aggregated[size["name"]] = size["value"]
+
+  return aggregated
 
 def run_benchmarks(benchmark_dir):
   report_dir = NIGHTLY_DIR / "reports"
   report_dir.mkdir(parents=True, exist_ok=True)
 
+  model_dir = NIGHTLY_DIR / "models"
+  model_dir.mkdir(parents=True, exist_ok=True)
+
   # Find benchmarks
   # benchmark_dir is the root of the benchmark directory 
   benchmarks = list(Path(benchmark_dir).rglob("train/*.egg"))
-  # For this treatment, we don't do anything at train time,
-  # we just use the train benchmarks at serve time
 
-  # TODO: invoke the poach commands appropriate for this branch (e.g.
-  # `poach train ...` and/or `poach serve ...`) for each benchmark file
-  # and append one result dict per command to `results`. Each result
-  # must include at least: "suite_name", "benchmark_name", "status",
-  # "wall_time_micros" (plus any branch-specific fields like "phase").
-
-  results = []
+  reports = []
   failing_benchmarks = []
   for benchmark in benchmarks:
     relative_path = benchmark.relative_to(benchmark_dir)
     suite_name = str(relative_path.parent)
     benchmark_name = relative_path.name
-    command = [
+    model_path = model_dir / f"{benchmark.stem}.model.fb"
+
+    report = {
+        "benchmark_name": benchmark_name,
+        "suite_name": suite_name
+    }
+
+    # Train: Build cache
+    train_command = [
+        str(POACH_BINARY),
+        "train",
+        "--debug",
+        str(benchmark),
+        str(model_path),
+    ]
+    train_result = run_command(train_command, summarize_train_report)
+    if train_result["status"] == "success":
+        report["train"] = train_result
+    else:
+        print(f"Failure: {benchmark_name}")
+        failing_benchmarks.append(relative_path)
+        continue
+    
+    serve_command = [
       str(POACH_BINARY),
       "serve",
       "--debug",
-      "EMPTY.MODEL",
+      str(model_path),
       "single",
       str(benchmark)
     ]
     
-    result = run_command(command)
-    result["benchmark_name"] = benchmark_name
-    result["suite_name"] = suite_name
-    if result["status"] == "success":
-      print(f"Success: {benchmark_name}")
-      results.append(result)
+    serve_result = run_command(serve_command, summarize_serve_report)
+    if serve_result["status"] == "success":
+      report["serve"] = serve_result
+      reports.append(report)
     else:
+      print(f"Serve Failure: {benchmark_name}")
       failing_benchmarks.append(relative_path)
 
-  return (results, failing_benchmarks)
+  return (reports, failing_benchmarks)
 
 if __name__ == "__main__":
   if len(sys.argv) != 2:
