@@ -78,7 +78,7 @@ function renderSummary() {
 
   const speedups = passing
     .map((x) => {
-      const t = x.train.wall_time_micros;
+      const t = x.train.report.run_program;
       const s = x.serve.wall_time_micros;
       return t === 0 || s === 0 ? null : t / s;
     })
@@ -166,35 +166,37 @@ function renderTable() {
 
   const columns = [
     "Benchmark",
+    "Program Run Time",
     "Train Total Time",
     "Serve Total Time",
     "Speedup",
-    "EGraph Size",
-    "Cache Hit %",
   ];
 
   const rows = benchmarks.map((b) => {
-    const hits = unwrapCount(b.serve.report.cache_hits);
-    const misses = unwrapCount(b.serve.report.cache_misses);
-    const total = hits + misses;
-    const trainTime = b.train.wall_time_micros;
+    const trainTime =
+      b.train.report.rule_micros +
+      b.train.report.extraction_micros +
+      b.train.report.serialize;
     const serveTime = b.serve.wall_time_micros;
+    const runProgramTime = b.train.report.run_program;
     return {
       Benchmark: b.benchmark_name,
       "Train Total Time": trainTime,
+      "Program Run Time": runProgramTime,
       "Serve Total Time": serveTime,
       Speedup:
-        trainTime === 0 || serveTime === 0 ? null : trainTime / serveTime,
-      "EGraph Size": unwrapCount(b.serve.report.egraph_size),
-      "Cache Hit %": total === 0 ? null : (hits / total) * 100,
+        runProgramTime === 0 || serveTime === 0
+          ? null
+          : runProgramTime / serveTime,
+      _benchmark: b,
     };
   });
 
   const displayFns = {
     "Train Total Time": displayTime,
+    "Program Run Time": displayTime,
     "Serve Total Time": displayTime,
     Speedup: (v) => (v === null ? "—" : `${v.toFixed(2)}×`),
-    "Cache Hit %": (v) => (v === null ? "—" : `${v.toFixed(1)}%`),
   };
 
   const tableDiv = document.querySelector("#active-suite-table");
@@ -207,7 +209,43 @@ function renderTable() {
 function renderBenchmarkDetail(row) {
   const elt = document.createElement("div");
   elt.className = "benchmark-detail";
-  elt.innerText = `Details for ${row.Benchmark}`;
+
+  const train = row._benchmark.train.report;
+  const serve = row._benchmark.serve.report;
+
+  const hits = unwrapCount(serve.cache_hits);
+  const misses = unwrapCount(serve.cache_misses);
+  const totalLookups = hits + misses;
+  const cacheHitRate = totalLookups === 0 ? null : (hits / totalLookups) * 100;
+
+  const fmtSize = (v) =>
+    v.toLocaleString(undefined, { maximumFractionDigits: 0 });
+  const fmtPct = (v) => (v === null ? "—" : `${v.toFixed(1)}%`);
+
+  elt.innerHTML = `
+    <div class="detail-columns">
+      <div class="detail-column">
+        <h4>Train</h4>
+        <ul>
+          <li>Running Rules: ${displayTime(train.rule_micros)}</li>
+          <li>Extraction: ${displayTime(train.extraction_micros)}</li>
+          <li>Serialization: ${displayTime(train.serialize)}</li>
+          <li>EGraph size: ${fmtSize(unwrapCount(train.egraph_num_tuples))}</li>
+        </ul>
+      </div>
+      <div class="detail-column">
+        <h4>Serve</h4>
+        <ul>
+          <li>Deserialization: ${displayTime(serve.deserialize)}</li>
+          <li>Cache overhead: ${displayTime(serve.cache_overhead)}</li>
+          <li>Running Rules: ${displayTime(serve.rule_micros)}</li>
+          <li>Extraction: ${displayTime(serve.extraction_micros)}</li>
+          <li>EGraph size: ${fmtSize(unwrapCount(serve.egraph_size))}</li>
+          <li>Cache hit rate: ${fmtPct(cacheHitRate)}</li>
+        </ul>
+      </div>
+    </div>
+  `;
 
   return elt;
 }

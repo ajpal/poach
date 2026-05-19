@@ -180,9 +180,12 @@ fn train(arg: TrainArgs) {
 
         // 2. Run program
         let mut reporter = Reporter::new();
+        let program_timer =
+            reporter.new_timer("run_program".to_string(), vec!["run_program".to_string()]);
         let outputs = egraph
             .run_program_with_reporter(program.clone(), &mut reporter)
             .expect("run training set");
+        reporter.record_timer(program_timer);
 
         // 3. Build extraction cache
         let extract_cmds: Vec<_> = program

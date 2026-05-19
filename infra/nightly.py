@@ -63,13 +63,16 @@ def summarize_train_report(report):
     "other_micros": 0,
 
     # other reported time steps
+    "run_program": 0,
     "serialize": 0,
     "build_model": 0
   }
   # aggregate timing steps by type
   for time_step in report["timings"]:
     aggregated["total_micros"] += time_step["total"]
-    if "running_rules" in time_step["tags"]:
+    if "run_program" in time_step["tags"]:
+      aggregated["run_program"] += time_step["total"]
+    elif "running_rules" in time_step["tags"]:
       aggregated["rule_micros"] += time_step["total"]
     elif "extraction" in time_step["tags"]:
       aggregated["extraction_micros"] += time_step["total"]
