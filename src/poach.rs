@@ -234,7 +234,7 @@ fn train(arg: TrainArgs) {
         );
         reporter.record_size("serialized_model", Metric::Bytes(model_bytes));
 
-        reporter.record_timer(end_to_end_timer, "");
+        reporter.record_timer(end_to_end_timer, "reporter_overhead");
 
         serde_json::to_writer(&mut stderr(), &reporter.build_report())
             .expect("Failed to serialize report");
@@ -549,7 +549,7 @@ fn serve(arg: ServeArgs) {
                     println!("{}", msg);
                 }
 
-                reporter.record_timer(end_to_end_timer, "");
+                reporter.record_timer(end_to_end_timer, "other");
 
                 serde_json::to_writer(&mut stderr(), &reporter.build_report())
                     .expect("Failed to serialize report");

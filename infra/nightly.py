@@ -27,7 +27,7 @@ def main(benchmark_dir):
   data_out_path.parent.mkdir(parents=True, exist_ok=True)
   data_out_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
-def run_command(cmd, summary_fn):
+def run_command(cmd):
   started = time.perf_counter_ns()
   cmd_result = subprocess.run(
     cmd,
@@ -50,82 +50,25 @@ def run_command(cmd, summary_fn):
   return {
     "cmd": " ".join(cmd),
     "status": "success",
-    "report": summary_fn(report),
+    "report": rekey_report(report),
     "wall_time_micros": time_micros
   }
 
-def summarize_train_report(report):
-  aggregated = {
-    "total_micros": 0,
-    # from running egraph
-    "rule_micros": 0,
-    "extraction_micros": 0,
-    "other_micros": 0,
-
-    # other reported time steps
-    "run_program": 0,
-    "serialize": 0,
-    "build_model": 0
+def rekey_report(report):
+  rekeyed = {
+    "timers": {},
+    "sizes": {},
   }
-  # aggregate timing steps by type
-  for time_step in report["timings"]:
-    # run_program wraps inner timers (rules, extraction, ...) that are already
-    # counted separately, so skip adding it to total_micros.
-    if "run_program" in time_step["tags"]:
-      aggregated["run_program"] += time_step["total"]
-      continue
-
-    aggregated["total_micros"] += time_step["total"]
-    if "running_rules" in time_step["tags"]:
-      aggregated["rule_micros"] += time_step["total"]
-    elif "extraction" in time_step["tags"]:
-      aggregated["extraction_micros"] += time_step["total"]
-    elif "serialize" in time_step["tags"]:
-      aggregated["serialize"] += time_step["total"]
-    elif "build_model" in time_step["tags"]:
-      aggregated["build_model"] += time_step["total"]
-    else:
-      aggregated["other_micros"] += time_step["total"]
+  for timer in report["timers"]:
+    # TODO: assert no duplicate timer names
+    rekeyed["timers"][timer["name"]] = []
+    for step in timer["steps"]:
+      rekeyed["timers"][timer["name"]].append({step["step_name"]: step["duration"]})
   
-  # sizes
   for size in report["sizes"]:
-    aggregated[size["name"]] = size["value"]
-  
-  return aggregated
+    rekeyed["sizes"][size["name"]] = size["value"]
 
-def summarize_serve_report(report):
-  # aggregate timing steps by type
-  aggregated = {
-    "total_micros": 0,
-    # from running egraph
-    "rule_micros": 0,
-    "extraction_micros": 0,
-    "other_micros": 0,
-
-    # other reported time steps
-    "deserialize": 0,
-    "cache_overhead": 0,
-  }
-
-  # aggregate timing steps by type
-  for time_step in report["timings"]:
-    aggregated["total_micros"] += time_step["total"]
-    if "running_rules" in time_step["tags"]:
-      aggregated["rule_micros"] += time_step["total"]
-    elif "extraction" in time_step["tags"]:
-      aggregated["extraction_micros"] += time_step["total"]
-    elif "deserialize" in time_step["tags"]:
-      aggregated["deserialize"] += time_step["total"]
-    elif "cache_overhead" in time_step["tags"]:
-      aggregated["cache_overhead"] += time_step["total"]
-    else:
-      aggregated["other_micros"] += time_step["total"]
-
-  # sizes
-  for size in report["sizes"]:
-    aggregated[size["name"]] = size["value"]
-
-  return aggregated
+  return rekeyed
 
 def run_benchmarks(benchmark_dir):
   report_dir = NIGHTLY_DIR / "reports"
@@ -159,7 +102,7 @@ def run_benchmarks(benchmark_dir):
         str(benchmark),
         str(model_path),
     ]
-    train_result = run_command(train_command, summarize_train_report)
+    train_result = run_command(train_command)
     if train_result["status"] == "success":
         report["train"] = train_result
     else:
@@ -176,7 +119,7 @@ def run_benchmarks(benchmark_dir):
       str(benchmark)
     ]
     
-    serve_result = run_command(serve_command, summarize_serve_report)
+    serve_result = run_command(serve_command)
     if serve_result["status"] == "success":
       report["serve"] = serve_result
       reports.append(report)
