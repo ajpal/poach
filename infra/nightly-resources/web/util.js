@@ -10,6 +10,18 @@ export function formatTime(rawValue, mode) {
   return `${rawValue} μs`;
 }
 
+export function formatBytes(rawValue, mode) {
+  const ONE_GB = 1024 * 1024 * 1024;
+  const ONE_MB = 1024 * 1024;
+  const ONE_KB = 1024;
+  if (mode === "raw") return `${rawValue} B`;
+  console.assert(mode === "readable");
+  if (rawValue >= ONE_GB) return `${(rawValue / ONE_GB).toFixed(2)} GB`;
+  if (rawValue >= ONE_MB) return `${(rawValue / ONE_MB).toFixed(2)} MB`;
+  if (rawValue >= ONE_KB) return `${(rawValue / ONE_KB).toFixed(2)} KB`;
+  return `${rawValue} B`;
+}
+
 export const fmtSize = (v) =>
   v === null ? "—" : v.toLocaleString(undefined, { maximumFractionDigits: 0 });
 

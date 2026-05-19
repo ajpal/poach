@@ -1,5 +1,5 @@
 import { convertToTable } from "./table.js";
-import { formatTime, fmtSize, unwrapBytes } from "./util.js";
+import { formatTime, formatBytes, unwrapBytes } from "./util.js";
 
 const STATE = {
   activeSuite: null,
@@ -38,6 +38,7 @@ async function load() {
 }
 
 const displayTime = (v) => formatTime(v, STATE.timeDisplay);
+const displayBytes = (v) => formatBytes(v, STATE.timeDisplay);
 
 function totalTime(benchmarks) {
   return benchmarks.reduce(
@@ -119,24 +120,19 @@ function renderTable() {
     <p>${benchmarks.length} benchmarks | ${displayTime(totalTime(benchmarks))} </p>
   </div>`;
 
-  const columns = [
-    "Benchmark",
-    "Train Time",
-    "Model size (bytes)",
-    "Serve Time",
-  ];
+  const columns = ["Benchmark", "Train Time", "Model Size", "Serve Time"];
 
   const rows = benchmarks.map((b) => ({
     Benchmark: b.benchmark_name,
     "Train Time": b.train.wall_time_micros,
-    "Model size (bytes)": unwrapBytes(b.train.report.model_bytes),
+    "Model Size": unwrapBytes(b.train.report.model_bytes),
     "Serve Time": b.serve.wall_time_micros,
     _benchmark: b,
   }));
 
   const displayFns = {
     "Train Time": displayTime,
-    "Model size (bytes)": fmtSize,
+    "Model Size": displayBytes,
     "Serve Time": displayTime,
   };
 
