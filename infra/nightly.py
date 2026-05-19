@@ -54,12 +54,27 @@ def run_command(cmd, summarize_report):
 
 def summarize_train_report(report):
   aggregated = {
-    "total_micros": 0
+    "total_micros": 0,
+    # from running egraph
+    "rule_micros": 0,
+    "extraction_micros": 0,
+    "other_micros": 0,
+
+    # other reported time steps
+    "serialize": 0,
   }
   
   # Aggregate time of all steps
   for time_step in report["timings"]:
     aggregated["total_micros"] += time_step["total"]
+    if "running_rules" in time_step["tags"]:
+      aggregated["rule_micros"] += time_step["total"]
+    elif "extraction" in time_step["tags"]:
+      aggregated["extraction_micros"] += time_step["total"]
+    elif "serialize" in time_step["tags"]:
+      aggregated["serialize"] += time_step["total"]
+    else:
+      aggregated["other_micros"] += time_step["total"]
 
   # Rekey sizes
   for size in report["sizes"]:
@@ -69,12 +84,27 @@ def summarize_train_report(report):
 
 def summarize_serve_report(report):
   aggregated = {
-    "total_micros": 0
+    "total_micros": 0,
+    # from running egraph
+    "rule_micros": 0,
+    "extraction_micros": 0,
+    "other_micros": 0,
+
+    # other reported time steps
+    "deserialize": 0,
   }
   
   # Aggregate time of all steps
   for time_step in report["timings"]:
     aggregated["total_micros"] += time_step["total"]
+    if "running_rules" in time_step["tags"]:
+      aggregated["rule_micros"] += time_step["total"]
+    elif "extraction" in time_step["tags"]:
+      aggregated["extraction_micros"] += time_step["total"]
+    elif "deserialize" in time_step["tags"]:
+      aggregated["deserialize"] += time_step["total"]
+    else:
+      aggregated["other_micros"] += time_step["total"]
 
   # Rekey sizes
   for size in report["sizes"]:
@@ -85,15 +115,17 @@ def summarize_serve_report(report):
 def run_benchmarks(benchmark_dir):
   # Find benchmarks
   # benchmark_dir is the root of the benchmark directory 
+  # Each suite has sibling train/ and serve/ directories with matching .egg names.
   benchmarks = list(Path(benchmark_dir).rglob("train/*.egg"))
   
   reports = []
   failing_benchmarks = []
-  for benchmark in benchmarks:
-    relative_path = benchmark.relative_to(benchmark_dir)
-    suite_name = str(relative_path.parent)
-    benchmark_name = relative_path.name
-    
+  for train_file in benchmarks[::20]:
+    suite_dir = train_file.parent.parent
+    serve_file = suite_dir / "serve" / train_file.name
+    suite_name = str(suite_dir.relative_to(benchmark_dir))
+    benchmark_name = train_file.name
+
     # We don't actually save the models, it gets overwritten each iter
     # but that's okay because we don't need it after the serve command each iter
     model_path = NIGHTLY_DIR / "model.model"
@@ -108,14 +140,14 @@ def run_benchmarks(benchmark_dir):
       str(POACH_BINARY),
       "train",
       "--debug",
-      str(benchmark),
+      str(train_file),
       str(model_path)
     ]
     train_result = run_command(train_command, summarize_train_report)
     if train_result["status"] == "success":
       report["train"] = train_result
     else:
-      failing_benchmarks.append(relative_path)
+      failing_benchmarks.append(train_file.relative_to(benchmark_dir))
       continue
 
     # Serve
@@ -125,15 +157,15 @@ def run_benchmarks(benchmark_dir):
       "--debug",
       str(model_path),
       "single",
-      str(benchmark)
+      str(serve_file)
     ]
-    
+
     serve_result = run_command(serve_command, summarize_serve_report)
     if serve_result["status"] == "success":
       report["serve"] = serve_result
       reports.append(report)
     else:
-      failing_benchmarks.append(relative_path)
+      failing_benchmarks.append(serve_file.relative_to(benchmark_dir))
 
   return (reports, failing_benchmarks)
 

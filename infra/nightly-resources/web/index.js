@@ -1,4 +1,5 @@
 import { convertToTable } from "./table.js";
+import { formatTime, fmtSize, unwrapBytes } from "./util.js";
 
 const STATE = {
   activeSuite: null,
@@ -36,6 +37,15 @@ async function load() {
   render();
 }
 
+const displayTime = (v) => formatTime(v, STATE.timeDisplay);
+
+function totalTime(benchmarks) {
+  return benchmarks.reduce(
+    (sum, b) => sum + b.train.wall_time_micros + b.serve.wall_time_micros,
+    0,
+  );
+}
+
 function setupTimeDisplaySelector() {
   for (const radio of document.querySelectorAll('input[name="time-display"]')) {
     radio.addEventListener("change", () => {
@@ -44,26 +54,6 @@ function setupTimeDisplaySelector() {
         render();
       }
     });
-  }
-}
-
-function displayTime(rawValue) {
-  const ONE_MIN = 60000000;
-  const ONE_SEC = 1000000;
-  const ONE_MILLI = 1000;
-  if (STATE.timeDisplay === "raw") {
-    return `${rawValue} μs`;
-  } else {
-    console.assert(STATE.timeDisplay === "readable");
-    if (rawValue >= ONE_MIN) {
-      return `${(rawValue / ONE_MIN).toFixed(2)} min`;
-    } else if (rawValue >= ONE_SEC) {
-      return `${(rawValue / ONE_SEC).toFixed(2)} s`;
-    } else if (rawValue >= ONE_MILLI) {
-      return `${(rawValue / ONE_MILLI).toFixed(2)} ms`;
-    } else {
-      return `${rawValue} μs`;
-    }
   }
 }
 
@@ -78,12 +68,11 @@ function renderSummary() {
 
   const numPassing = GLOBAL_DATA.data.passing_benchmarks.length;
   const numFailing = GLOBAL_DATA.data.failing_benchmarks.length;
-  const totalTime = trainMicros + serveMicros;
 
   document.querySelector("#summary-text").textContent =
     `Passing Benchmarks: ${numPassing} | ` +
     `Failing Benchmarks: ${numFailing} | ` +
-    `Total time: ${displayTime(totalTime)} | ` +
+    `Total time: ${displayTime(trainMicros + serveMicros)} | ` +
     `Total train time: ${displayTime(trainMicros)} | ` +
     `Total serve time: ${displayTime(serveMicros)}`;
 }
@@ -123,26 +112,31 @@ function renderTable() {
   const benchmarks = GLOBAL_DATA.data.passing_benchmarks.filter(
     (x) => x.suite_name === STATE.activeSuite,
   );
-  const totalTime = benchmarks
-    .map((b) => b.train.wall_time_micros + b.serve.wall_time_micros)
-    .reduce((a, b) => a + b, 0);
 
   document.querySelector("#active-suite-summary").innerHTML = `
   <div>
     <h3>${STATE.activeSuite}</h3>
-    <p>${benchmarks.length} benchmarks | ${displayTime(totalTime)} </p>
+    <p>${benchmarks.length} benchmarks | ${displayTime(totalTime(benchmarks))} </p>
   </div>`;
 
-  const columns = ["Benchmark", "Train Time", "Serve Time"];
+  const columns = [
+    "Benchmark",
+    "Train Time",
+    "Model size (bytes)",
+    "Serve Time",
+  ];
 
   const rows = benchmarks.map((b) => ({
     Benchmark: b.benchmark_name,
     "Train Time": b.train.wall_time_micros,
+    "Model size (bytes)": unwrapBytes(b.train.report.model_bytes),
     "Serve Time": b.serve.wall_time_micros,
+    _benchmark: b,
   }));
 
   const displayFns = {
     "Train Time": displayTime,
+    "Model size (bytes)": fmtSize,
     "Serve Time": displayTime,
   };
 
@@ -154,10 +148,31 @@ function renderTable() {
 }
 
 function renderBenchmarkDetail(row) {
+  const train = row._benchmark.train.report;
+  const serve = row._benchmark.serve.report;
+
   const elt = document.createElement("div");
   elt.className = "benchmark-detail";
-  elt.innerText = `Details for ${row.Benchmark}`;
-
+  elt.innerHTML = `
+    <div class="detail-columns">
+      <div class="detail-column">
+        <h4>Train</h4>
+        <ul>
+          <li>Rules: ${displayTime(train.rule_micros)}</li>
+          <li>Extract: ${displayTime(train.extraction_micros)}</li>
+          <li>Serialize: ${displayTime(train.serialize)}</li>
+        </ul>
+      </div>
+      <div class="detail-column">
+        <h4>Serve</h4>
+        <ul>
+          <li>Deserialize: ${displayTime(serve.deserialize)}</li>
+          <li>Rules: ${displayTime(serve.rule_micros)}</li>
+          <li>Extract: ${displayTime(serve.extraction_micros)}</li>
+        </ul>
+      </div>
+    </div>
+  `;
   return elt;
 }
 
