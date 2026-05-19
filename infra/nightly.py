@@ -60,11 +60,17 @@ def rekey_report(report):
     "sizes": {},
   }
   for timer in report["timers"]:
-    # TODO: assert no duplicate timer names
-    rekeyed["timers"][timer["name"]] = []
+    if timer["name"] in rekeyed["timers"]:
+      raise ValueError(f"duplicate timer name: {timer['name']}")
+
+    aggregated_steps = {}
     for step in timer["steps"]:
-      rekeyed["timers"][timer["name"]].append({step["step_name"]: step["duration"]})
-  
+      step_name = step["step_name"]
+      if step_name not in aggregated_steps:
+        aggregated_steps[step_name] = 0
+      aggregated_steps[step_name] += step["duration"]
+    rekeyed["timers"][timer["name"]] = aggregated_steps
+
   for size in report["sizes"]:
     rekeyed["sizes"][size["name"]] = size["value"]
 
