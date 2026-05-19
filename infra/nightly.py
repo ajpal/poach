@@ -154,7 +154,6 @@ def run_benchmarks(benchmark_dir):
     ]
     train_result = run_command(train_command, summarize_train_report)
     if train_result["status"] == "success":
-        print(f"Train Success: {benchmark_name}")
         report["train"] = train_result
     else:
         print(f"Failure: {benchmark_name}")
@@ -172,7 +171,6 @@ def run_benchmarks(benchmark_dir):
     
     serve_result = run_command(serve_command, summarize_serve_report)
     if serve_result["status"] == "success":
-      print(f"Serve Success: {benchmark_name}")
       report["serve"] = serve_result
       reports.append(report)
     else:
