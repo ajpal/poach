@@ -2,7 +2,6 @@ import { convertToTable } from "./table.js";
 import {
   formatTime,
   fmtSpeedup,
-  fmtPct,
   fmtSize,
   unwrapCount,
   average,
@@ -53,13 +52,6 @@ function speedup(b) {
   const t = b.train.report.timers.end_to_end.run_program;
   const s = b.serve.wall_time_micros;
   return t === 0 || s === 0 ? null : t / s;
-}
-
-function cacheHitRate(b) {
-  const hits = unwrapCount(b.serve.report.sizes.cache_hits);
-  const misses = unwrapCount(b.serve.report.sizes.cache_misses);
-  const total = hits + misses;
-  return total === 0 ? null : (hits / total) * 100;
 }
 
 function totalTime(benchmarks) {
@@ -182,6 +174,14 @@ function renderBenchmarkDetail(row) {
   const train = row._benchmark.train.report;
   const serve = row._benchmark.serve.report;
 
+  const trainE2E = train.timers.end_to_end;
+  const serveE2E = serve.timers.end_to_end;
+  const sum = (steps) => Object.values(steps).reduce((a, b) => a + b, 0);
+  const stepList = (steps) =>
+    Object.entries(steps)
+      .map(([name, micros]) => `<li>${name}: ${displayTime(micros)}</li>`)
+      .join("");
+
   const elt = document.createElement("div");
   elt.className = "benchmark-detail";
   elt.innerHTML = `
@@ -193,6 +193,9 @@ function renderBenchmarkDetail(row) {
           <li>Extraction: ${displayTime(train.timers.run_program.extraction)}</li>
           <li>Serialization: ${displayTime(train.timers.end_to_end.serialize)}</li>
           <li>EGraph size: ${fmtSize(unwrapCount(train.sizes.egraph_num_tuples))}</li>
+          <li><hr/></li>
+          ${stepList(trainE2E)}
+          <li>Sum: ${displayTime(sum(trainE2E))}</li>
         </ul>
       </div>
       <div class="detail-column">
@@ -200,10 +203,10 @@ function renderBenchmarkDetail(row) {
         <ul>
           <li>Deserialization: ${displayTime(serve.timers.end_to_end.deserialize)}</li>
           <li>Cache overhead: ${displayTime(serve.timers.end_to_end.cache_overhead)}</li>
-          <li>Running Rules: ${displayTime(serve.timers.run_program?.running_rules)}</li>
-          <li>Extraction: ${displayTime(serve.timers.run_program?.extraction)}</li>
           <li>EGraph size: ${fmtSize(unwrapCount(serve.sizes.egraph_size))}</li>
-          <li>Cache hit rate: ${fmtPct(cacheHitRate(row._benchmark))}</li>
+          <li><hr/></li>
+          ${stepList(serveE2E)}
+          <li>Sum: ${displayTime(sum(serveE2E))}</li>
         </ul>
       </div>
     </div>

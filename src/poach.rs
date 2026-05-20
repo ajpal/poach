@@ -515,7 +515,7 @@ fn serve(arg: ServeArgs) {
                     reporter.record_size("egraph_size", Metric::Count(egraph.num_tuples() as u64));
 
                     let mut egraph_iter = egraph_outputs.into_iter();
-                    cmds_with_outputs_and_cache_results
+                    let outputs = cmds_with_outputs_and_cache_results
                         .into_iter()
                         .map(|(_, cached)| {
                             if let Some(cached_output) = cached {
@@ -526,7 +526,9 @@ fn serve(arg: ServeArgs) {
                                     .expect("egraph produced fewer outputs than expected")
                             }
                         })
-                        .collect()
+                        .collect();
+                    reporter.record_timer(end_to_end_timer, "build_outputs");
+                    outputs
                 } else {
                     reporter.record_timer(end_to_end_timer, "cache_overhead");
                     // There are no cache misses or non-extraction outputs, so we don't need an egraph at all
@@ -534,7 +536,7 @@ fn serve(arg: ServeArgs) {
                     // No egraph
                     reporter.record_size("egraph_size", Metric::Count(0));
 
-                    cmds_with_outputs_and_cache_results
+                    let outputs = cmds_with_outputs_and_cache_results
                         .into_iter()
                         // Skip running the egraph entirely, so skip run report outputs
                         .filter(|(cmd, _)| {
@@ -542,14 +544,16 @@ fn serve(arg: ServeArgs) {
                                 && !matches!(cmd, Command::UserDefined(_, name, _) if name == "run-schedule")
                         })
                         .map(|(_, cached)| cached.expect("output_needed empty implies all cached"))
-                        .collect()
+                        .collect();
+                    reporter.record_timer(end_to_end_timer, "build_outputs");
+                    outputs
                 };
 
                 for msg in all_outputs {
                     println!("{}", msg);
                 }
 
-                reporter.record_timer(end_to_end_timer, "other");
+                reporter.record_timer(end_to_end_timer, "print_outputs");
 
                 serde_json::to_writer(&mut stderr(), &reporter.build_report())
                     .expect("Failed to serialize report");
