@@ -2,7 +2,6 @@ import { convertToTable } from "./table.js";
 import {
   formatTime,
   fmtSpeedup,
-  fmtPct,
   fmtSize,
   unwrapCount,
   average,
@@ -49,16 +48,10 @@ const displayTime = (v) => formatTime(v, STATE.timeDisplay);
 // ─── Metrics ───────────────────────────────────────────────────────────-
 
 function speedup(b) {
-  const t = b.train.report.run_program;
+  // Proxy for non-poach run time: just the time for running the program in the egraph
+  const t = b.train.report.timers.end_to_end.run_program;
   const s = b.serve.wall_time_micros;
   return t === 0 || s === 0 ? null : t / s;
-}
-
-function cacheHitRate(b) {
-  const hits = unwrapCount(b.serve.report.cache_hits);
-  const misses = unwrapCount(b.serve.report.cache_misses);
-  const total = hits + misses;
-  return total === 0 ? null : (hits / total) * 100;
 }
 
 function totalTime(benchmarks) {
@@ -123,7 +116,7 @@ function renderSummary() {
 
   const speedups = passing.map(speedup).filter((v) => v !== null);
   const egraphSizes = passing.map((x) =>
-    unwrapCount(x.serve.report.egraph_size),
+    unwrapCount(x.serve.report.sizes.egraph_size),
   );
 
   document.querySelector("#summary-text").textContent =
@@ -156,7 +149,7 @@ function renderTable() {
 
   const rows = benchmarks.map((b) => ({
     Benchmark: b.benchmark_name,
-    "Program Run Time": b.train.report.run_program,
+    "Program Run Time": b.train.report.timers.end_to_end.run_program,
     "Train Total Time": b.train.wall_time_micros,
     "Serve Total Time": b.serve.wall_time_micros,
     Speedup: speedup(b),
@@ -181,6 +174,14 @@ function renderBenchmarkDetail(row) {
   const train = row._benchmark.train.report;
   const serve = row._benchmark.serve.report;
 
+  const trainE2E = train.timers.end_to_end;
+  const serveE2E = serve.timers.end_to_end;
+  const sum = (steps) => Object.values(steps).reduce((a, b) => a + b, 0);
+  const stepList = (steps) =>
+    Object.entries(steps)
+      .map(([name, micros]) => `<li>${name}: ${displayTime(micros)}</li>`)
+      .join("");
+
   const elt = document.createElement("div");
   elt.className = "benchmark-detail";
   elt.innerHTML = `
@@ -188,21 +189,24 @@ function renderBenchmarkDetail(row) {
       <div class="detail-column">
         <h4>Train</h4>
         <ul>
-          <li>Running Rules: ${displayTime(train.rule_micros)}</li>
-          <li>Extraction: ${displayTime(train.extraction_micros)}</li>
-          <li>Serialization: ${displayTime(train.serialize)}</li>
-          <li>EGraph size: ${fmtSize(unwrapCount(train.egraph_num_tuples))}</li>
+          <li>Running Rules: ${displayTime(train.timers.run_program.running_rules)}</li>
+          <li>Extraction: ${displayTime(train.timers.run_program.extraction)}</li>
+          <li>Serialization: ${displayTime(train.timers.end_to_end.serialize)}</li>
+          <li>EGraph size: ${fmtSize(unwrapCount(train.sizes.egraph_num_tuples))}</li>
+          <li><hr/></li>
+          ${stepList(trainE2E)}
+          <li>Sum: ${displayTime(sum(trainE2E))}</li>
         </ul>
       </div>
       <div class="detail-column">
         <h4>Serve</h4>
         <ul>
-          <li>Deserialization: ${displayTime(serve.deserialize)}</li>
-          <li>Cache overhead: ${displayTime(serve.cache_overhead)}</li>
-          <li>Running Rules: ${displayTime(serve.rule_micros)}</li>
-          <li>Extraction: ${displayTime(serve.extraction_micros)}</li>
-          <li>EGraph size: ${fmtSize(unwrapCount(serve.egraph_size))}</li>
-          <li>Cache hit rate: ${fmtPct(cacheHitRate(row._benchmark))}</li>
+          <li>Deserialization: ${displayTime(serve.timers.end_to_end.deserialize)}</li>
+          <li>Cache overhead: ${displayTime(serve.timers.end_to_end.cache_overhead)}</li>
+          <li>EGraph size: ${fmtSize(unwrapCount(serve.sizes.egraph_size))}</li>
+          <li><hr/></li>
+          ${stepList(serveE2E)}
+          <li>Sum: ${displayTime(sum(serveE2E))}</li>
         </ul>
       </div>
     </div>
