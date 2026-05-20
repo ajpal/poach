@@ -3,7 +3,7 @@ use std::{fs::File, path::PathBuf};
 use clap::{Args, Parser, Subcommand};
 use poach::{
     EGraph,
-    report::{MetricValue, Reporter},
+    report::{Metric, Reporter},
 };
 
 #[derive(Debug, Parser)]
@@ -124,9 +124,9 @@ fn train(arg: TrainArgs) {
     // Extremely basic placeholder: Just creates an empty file
     if arg.debug {
         let mut reporter = Reporter::new();
-        let timer = reporter.new_timer("train".to_string(), vec![]);
+        let timer = reporter.new_timer("end_to_end");
         let _ = File::create(arg.output_model_file.as_path());
-        reporter.record_timer(timer);
+        reporter.record_timer(timer, "create_model");
 
         serde_json::to_writer(&mut std::io::stderr(), &reporter.build_report())
             .expect("Failed to serialize report");
@@ -139,13 +139,10 @@ fn serve(arg: ServeArgs) {
     // Extremely basic placeholder: Just creates an empty egraph
     if arg.debug {
         let mut reporter = Reporter::new();
-        let timer = reporter.new_timer("serve".to_string(), vec![]);
+        let timer = reporter.new_timer("end_to_end");
         let egraph = EGraph::default();
-        reporter.record_size(
-            "egraph size".to_string(),
-            MetricValue::Count(egraph.num_tuples() as u64),
-        );
-        reporter.record_timer(timer);
+        reporter.record_size("egraph size", Metric::Count(egraph.num_tuples() as u64));
+        reporter.record_timer(timer, "create_egraph");
         serde_json::to_writer(&mut std::io::stderr(), &reporter.build_report())
             .expect("Failed to serialize report");
     } else {

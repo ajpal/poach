@@ -25,7 +25,7 @@ def main(benchmark_dir):
   data_out_path.parent.mkdir(parents=True, exist_ok=True)
   data_out_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
-def run_command(cmd, summarize_report):
+def run_command(cmd):
   started = time.perf_counter_ns()
   cmd_result = subprocess.run(
     cmd,
@@ -48,39 +48,31 @@ def run_command(cmd, summarize_report):
   return {
     "cmd": " ".join(cmd),
     "status": "success",
-    "report": summarize_report(report),
+    "report": rekey_report(report),
     "wall_time_micros": time_micros
   }
 
-def summarize_train_report(report):
-  aggregated = {
-    "total_micros": 0
+def rekey_report(report):
+  rekeyed = {
+    "timers": {},
+    "sizes": {},
   }
-  
-  # Aggregate time of all steps
-  for time_step in report["timings"]:
-    aggregated["total_micros"] += time_step["total"]
+  for timer in report["timers"]:
+    if timer["name"] in rekeyed["timers"]:
+      raise ValueError(f"duplicate timer name: {timer['name']}")
 
-  # Rekey sizes
+    aggregated_steps = {}
+    for step in timer["steps"]:
+      step_name = step["step_name"]
+      if step_name not in aggregated_steps:
+        aggregated_steps[step_name] = 0
+      aggregated_steps[step_name] += step["duration"]
+    rekeyed["timers"][timer["name"]] = aggregated_steps
+
   for size in report["sizes"]:
-    aggregated[size["name"]] = size["value"]
+    rekeyed["sizes"][size["name"]] = size["value"]
 
-  return aggregated
-
-def summarize_serve_report(report):
-  aggregated = {
-    "total_micros": 0
-  }
-  
-  # Aggregate time of all steps
-  for time_step in report["timings"]:
-    aggregated["total_micros"] += time_step["total"]
-
-  # Rekey sizes
-  for size in report["sizes"]:
-    aggregated[size["name"]] = size["value"]
-  
-  return aggregated
+  return rekeyed
 
 def run_benchmarks(benchmark_dir):
   # Find benchmarks
@@ -111,7 +103,7 @@ def run_benchmarks(benchmark_dir):
       str(benchmark),
       str(model_path)
     ]
-    train_result = run_command(train_command, summarize_train_report)
+    train_result = run_command(train_command)
     if train_result["status"] == "success":
       report["train"] = train_result
     else:
@@ -128,7 +120,7 @@ def run_benchmarks(benchmark_dir):
       str(benchmark)
     ]
     
-    serve_result = run_command(serve_command, summarize_serve_report)
+    serve_result = run_command(serve_command)
     if serve_result["status"] == "success":
       report["serve"] = serve_result
       reports.append(report)
