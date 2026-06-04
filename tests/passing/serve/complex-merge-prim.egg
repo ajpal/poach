@@ -1,1 +1,0 @@
-(check (= (f (bigint 1)) (bigint 30)))

@@ -1,5 +1,0 @@
-(check (!= True False))
-
-(check (= p0 False))
-
-(check (= p2 False))

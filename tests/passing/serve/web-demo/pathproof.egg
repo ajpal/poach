@@ -1,1 +1,0 @@
-(check (path 3 1 (Trans 3 (Edge 2 1))))

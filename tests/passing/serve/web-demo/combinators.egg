@@ -1,3 +1,0 @@
-(extract (Comb test))
-
-(check (= test (N 3)))

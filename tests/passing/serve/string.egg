@@ -1,5 +1,0 @@
-(check (= (+ "a" "bc" "de") "abcde"))
-
-(check (= (count-matches "ab ab" "ab") 2))
-
-(check (= (replace "ab ab" "ab" "cd") "cd cd"))

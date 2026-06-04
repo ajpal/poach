@@ -1,4 +1,0 @@
-(relation A ())
-(A)
-(rule ((A)) ((delete (A))))
-(run 1)

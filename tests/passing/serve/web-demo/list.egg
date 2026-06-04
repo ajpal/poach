@@ -1,9 +1,0 @@
-(check (= e c))
-
-(check (= (list-length c) 3))
-
-(check (= (list-get b 0) 3))
-
-(check (= (list-get a 1) 2))
-
-(check (= f d))

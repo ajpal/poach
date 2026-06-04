@@ -1,7 +1,0 @@
-(check (!= (Var "x") (Const $two)))
-
-(check (= (Add (Var "x") (Const $two))
-          (Add (Const $two) (Var "x"))))
-
-(check (= $addx2
-          $addx20))

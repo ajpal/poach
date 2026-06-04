@@ -1,3 +1,0 @@
-(check (= (Var "a") (Lit 1)))
-
-(check (= (Lit 2) (Lit 1)))

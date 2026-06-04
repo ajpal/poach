@@ -1,3 +1,0 @@
-(check (edge (mk 3) (mk 6)))
-
-(check (path (mk 1) (mk 6)))

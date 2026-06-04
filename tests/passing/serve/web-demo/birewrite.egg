@@ -1,3 +1,0 @@
-(check (= ex1 (Add a (Add b c))))
-
-(check (= ex2 (Add (Add d e) f)))

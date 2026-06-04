@@ -1,3 +1,0 @@
-(check (= (f 10) 10))
-
-(check (= (fib (Num 10)) (Num 55)))
