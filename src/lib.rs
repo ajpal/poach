@@ -32,7 +32,6 @@ pub use command_macro::{CommandMacro, CommandMacroRegistry};
 mod get_size_prim;
 
 mod custom_schedulers;
-pub mod get_size_prim;
 pub use custom_schedulers::*;
 
 // This is used to allow the `add_primitive` macro to work in
@@ -1946,6 +1945,9 @@ impl EGraph {
                 let command_name = processed.to_command().to_string();
                 let command_category = match &processed {
                     ResolvedNCommand::RunSchedule(_) => "running_rules",
+                    ResolvedNCommand::UserDefined(_, name, _) if name == "run-schedule" => {
+                        "running_rules"
+                    }
                     ResolvedNCommand::Extract(_, _, _)
                     | ResolvedNCommand::MultiExtract(_, _, _) => "extraction",
                     ResolvedNCommand::Check(_, _) => "check",
