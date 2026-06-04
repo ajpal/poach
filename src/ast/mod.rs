@@ -20,7 +20,7 @@ pub use parse::*;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 /// The egglog internal representation of already compiled rules
-pub(crate) enum Ruleset {
+pub enum Ruleset {
     /// Represents a ruleset with a set of rules.
     Rules(IndexMap<String, (ResolvedCoreRule, egglog_bridge::RuleId)>),
     /// A combined ruleset may contain other rulesets.

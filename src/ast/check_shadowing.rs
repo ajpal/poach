@@ -1,7 +1,7 @@
 use crate::{util::HashMap, *};
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub(crate) struct Names {
+pub struct Names {
     seen: HashMap<String, Span>,
     global_aliases: HashMap<String, (String, Span)>,
 }

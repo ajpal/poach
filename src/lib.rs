@@ -509,23 +509,25 @@ impl std::fmt::Display for CommandOutput {
 /// ```
 #[derive(Clone, Serialize, Deserialize)]
 pub struct EGraph {
-    backend: egglog_bridge::EGraph,
+    pub backend: egglog_bridge::EGraph,
 
     pub parser: Parser,
 
-    names: check_shadowing::Names,
+    pub names: check_shadowing::Names,
     /// pushed_egraph forms a linked list of pushed egraphs.
     /// Pop reverts the egraph to the last pushed egraph.
     pushed_egraph: Option<Box<Self>>,
 
-    functions: IndexMap<String, Function>,
+    pub functions: IndexMap<String, Function>,
 
+    #[serde(skip)]
     rulesets: IndexMap<String, Ruleset>,
-    pub fact_directory: Option<PathBuf>,
+    fact_directory: Option<PathBuf>,
     pub seminaive: bool,
 
-    type_info: TypeInfo,
+    pub type_info: TypeInfo,
     /// The run report unioned over all runs so far.
+    #[serde(skip)]
     overall_run_report: RunReport,
 
     schedulers: DenseIdMap<SchedulerId, SchedulerRecord>,
