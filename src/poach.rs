@@ -143,6 +143,36 @@ fn serialize_egraph_to_file(egraph: &mut EGraph, output_file: &Path) -> usize {
     serialized_size
 }
 
+fn serialize_egraph_stats(egraph: &mut EGraph, reporter: &mut Reporter) {
+/*
+    pub backend: egglog_bridge::EGraph,
+
+    pub names: check_shadowing::Names,
+
+    pub functions: IndexMap<String, Function>,
+
+    //pub rulesets: IndexMap<String, Ruleset>,
+
+    pub type_info: TypeInfo,
+ */
+
+    let mut buf = FlexbufferSerializer::new();
+    Serialize::serialize(&egraph.backend, &mut buf).expect("Fail");
+    reporter.record_size("egraph.backend_size".to_string(), MetricValue::Bytes(buf.view().len() as u64));
+    buf.reset();
+    Serialize::serialize(&egraph.names, &mut buf).expect("Fail");
+    reporter.record_size("egraph.names_size".to_string(), MetricValue::Bytes(buf.view().len() as u64));
+    buf.reset();
+    Serialize::serialize(&egraph.functions, &mut buf).expect("Fail");
+    reporter.record_size("egraph.functions_size".to_string(), MetricValue::Bytes(buf.view().len() as u64));
+    //buf.reset();
+    //Serialize::serialize(&egraph.rulesets, &mut buf).expect("Fail");
+    //reporter.record_size("egraph.rulesets_size".to_string(), MetricValue::Bytes(buf.view().len() as u64));
+    buf.reset();
+    Serialize::serialize(&egraph.type_info, &mut buf).expect("Fail");
+    reporter.record_size("egraph.type_info_size".to_string(), MetricValue::Bytes(buf.view().len() as u64));
+}
+
 /// SerializeEgraph assumes a single input egglog program
 fn train(arg: TrainArgs) {
     let mut egraph = EGraph::default();
@@ -188,6 +218,7 @@ fn train(arg: TrainArgs) {
                     "model_bytes".to_string(),
                     MetricValue::Bytes(serialized_size as u64),
                 );
+                serialize_egraph_stats(&mut egraph, &mut reporter);
                 serde_json::to_writer(&mut stderr(), &reporter.build_report())
                     .expect("Failed to serialize report");
                 eprintln!();

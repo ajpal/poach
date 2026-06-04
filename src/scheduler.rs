@@ -276,7 +276,7 @@ impl EGraph {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub(crate) struct SchedulerRecord {
+pub struct SchedulerRecord {
     scheduler: Box<dyn Scheduler>,
 
     rule_info: HashMap<String, SchedulerRuleInfo>,
